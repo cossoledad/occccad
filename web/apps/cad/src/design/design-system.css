@@ -81,10 +81,10 @@ body { color:var(--color-text); background:var(--color-canvas); }
 .ant-modal .ant-modal-container { border-radius:var(--ui-radius-panel); box-shadow:var(--ui-shadow-panel); }
 .ant-modal .ant-modal-title { color:var(--color-text); font-weight:600; font-size:14px; }
 @media(prefers-reduced-motion:reduce) { .cad-tool-button,.cad-split-tool-button *, .ant-dropdown,.ant-tooltip,.ant-modal { transition:none !important; animation:none !important; } }
-.global-header { border-bottom-color: #ffffff12; background: var(--color-chrome); }
+.global-header { border-bottom-color: #e8ecf1; background: var(--color-surface); }
 .global-header-actions { padding-left: 16px; }
-.global-header .ant-btn { border-color: transparent; color: #bfcddd; border-radius: 6px; }
-.global-header .ant-btn:hover { background: #ffffff12 !important; color: white !important; }
+.global-header .ant-btn { border-color: transparent; color: #748195; border-radius: 6px; }
+.global-header .ant-btn:hover { background: var(--color-primary-soft) !important; color: var(--color-primary) !important; }
 .brand-symbol img { width: 100%; height: 100%; display: block; }
 .global-header .brand-symbol { width: 32px; height: 32px; }
 .global-header .brand-lockup strong { font-weight: 650; letter-spacing: 1px; }

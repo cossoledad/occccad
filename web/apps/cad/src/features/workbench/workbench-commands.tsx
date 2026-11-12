@@ -1,11 +1,10 @@
 import {type WorkbenchCatalog} from "../../cad/command/workbench-catalog";
-import { toolbarPages } from "./toolbar-pages";
-import {LeftOutlined, RightOutlined} from "@ant-design/icons";
+import { approximateToolbarTextWidth, layoutToolbar, toolbarMetrics, type ToolbarLayoutInput } from "./toolbar-layout";
 import {CadSplitToolButton} from "../../cad/overlay/cad-split-tool-button";
 import {toolbarVariantGroups,toolbarVariantDefault,rememberToolbarVariant,type ToolbarVariantGroup} from "./toolbar-variants";
 import { COMMAND_SHORTCUTS, commandShortcutLabel } from "../../cad/command/command-shortcuts";
-import { SearchOutlined } from "@ant-design/icons";
-import { Button, Empty, Input, Modal, Tabs, Tooltip } from "antd";
+import { MoreOutlined, RightOutlined, SearchOutlined } from "@ant-design/icons";
+import { Button, Dropdown, Empty, Input, Modal, Tabs, Tooltip } from "antd";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useUIHelp } from "../../cad/help/ui-help-context";
 import { useCommandRegistry,useCommandState } from "../../cad/command/command-context";
@@ -53,15 +52,23 @@ export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, 
   const groups = toolbars.filter((toolbar) => toolbar.tabIds?.includes(tabID??""))
     .filter((toolbar) => toolbar.items.some((item) => registry.state(item.commandId).visible));
   const ribbon=useRef<HTMLDivElement>(null);
-  const [availableWidth,setAvailableWidth]=useState(0),[page,setPage]=useState(0);
-  const pageGroups=groups.map(toolbar=>({id:toolbar.id,name:toolbar.name,variants:toolbarVariantGroups(toolbar.items.filter(item=>registry.state(item.commandId).visible))}));
-  const fullPages=toolbarPages(pageGroups,availableWidth-8);
-  const pages=fullPages.length>1?toolbarPages(pageGroups,Math.max(1,availableWidth-56)):fullPages;
-  const currentPage=Math.min(page,pages.length-1);
-  useEffect(()=>{const node=ribbon.current;if(!node)return;const measure=()=>setAvailableWidth(node.clientWidth);const observer=new ResizeObserver(measure);observer.observe(node);measure();return ()=>observer.disconnect();},[]);
-  useEffect(()=>setPage(0),[workbench,tabID]);
-  useEffect(()=>{if(page!==currentPage)setPage(currentPage);},[page,currentPage]);
-  return <header className="workbench-command-deck">
+  const [availableWidth,setAvailableWidth]=useState(0);
+  const [,refreshLayout]=useState(0);
+  const [measureLabel,setMeasureLabel]=useState<((label:string)=>number)>(()=>approximateToolbarTextWidth);
+  const layoutGroups=groups.map(toolbar=>({id:toolbar.id,name:toolbar.name,variants:toolbarVariantGroups(toolbar.items.filter(item=>registry.state(item.commandId).visible)).map(family=>({...family,
+    displayCommandId:family.items.find(item=>registry.state(item.commandId).active)?.commandId??toolbarVariantDefault(family).commandId}))}));
+  const layout=layoutToolbar(layoutGroups,availableWidth,measureLabel);
+  useLayoutEffect(()=>{
+    const node=ribbon.current;if(!node)return;
+    const resize=()=>setAvailableWidth(node.clientWidth);
+    const observer=new ResizeObserver(resize);observer.observe(node);resize();
+    const context=document.createElement("canvas").getContext("2d");
+    let alive=true;
+    const fonts=()=>{if(!alive||!context)return;context.font=`400 12px ${getComputedStyle(node).fontFamily}`;setMeasureLabel(()=>(label:string)=>context.measureText(label).width);};
+    fonts();void document.fonts?.ready.then(fonts);document.fonts?.addEventListener("loadingdone",fonts);
+    return ()=>{alive=false;observer.disconnect();document.fonts?.removeEventListener("loadingdone",fonts);};
+  },[]);
+  return <header className="workbench-command-deck" data-toolbar-rows={layout.rows}>
     <div className="workbench-command-tabs">
       <span className={`workbench-mode mode-${workbench.toLowerCase()}`}><i />{activeTab?.modeLabel??workbench}</span>
       <Tabs className="workbench-section-tabs" aria-label="命令分类" type="line" size="small" activeKey={tabID} onChange={id=>{const tab=tabs.find(t=>t.id===id);if(tab)onTabChange?.(tab);setTab(id)}} items={tabs.map(tab=>({label:tab.name,key:tab.id}))} />
@@ -76,16 +83,19 @@ export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, 
         <Button aria-label="搜索工具" aria-keyshortcuts="Control+k Meta+k" className="workbench-command-search" icon={<CadIcon name={declaration("ui.command-search")?.iconKey??""} />} onClick={() => execute("ui.command-search")}>{declaration("ui.command-search")?.name}</Button>
       </Tooltip>
     </div>
-    <div ref={ribbon} className="workbench-ribbon">
-     {pages.length>1&&<Button className="workbench-page-control" aria-label="上一页命令" disabled={currentPage===0} icon={<LeftOutlined/>} onClick={()=>setPage(currentPage-1)}/>}
-     <div className="workbench-command-page" aria-label={`工作台命令 · 第${currentPage+1}/${pages.length}页`}><div className="workbench-command-groups">
-      {pages.flatMap((groups,pageIndex)=>groups.map((toolbar,index)=><section data-page-last={index===groups.length-1} key={`${toolbar.id}:${toolbar.start}`} hidden={pageIndex!==currentPage} className="workbench-command-group" aria-label={toolbar.name}>
-        <div className="workbench-command-items">{toolbar.variants.map(group=><ToolbarVariantButton key={group.key} group={group} toolbarName={toolbar.name}/>)}</div>
+    <div className="workbench-ribbon">
+     <div ref={ribbon} className="workbench-toolbar-scroll" role="toolbar" aria-label="工作台命令"><div className="workbench-command-groups">
+      {layout.groups.map(toolbar=><section key={toolbar.id} className="workbench-command-group" aria-label={toolbar.label} style={{width:toolbar.width}}>
+        <div className="workbench-command-items" style={{gridTemplateRows:`repeat(2, ${toolbarMetrics.rowHeight}px)`,gridTemplateColumns:toolbar.columns.map(width=>`${width}px`).join(" ")}}>
+          {toolbar.controls.map(control=><div className={`workbench-tool-slot${control.iconOnly?" icon-only":""}`} key={control.key} style={{width:control.width}}>
+            <ToolbarVariantButton group={{...control.family,items:control.items}} toolbarName={control.toolbarName} onDefaultChange={()=>refreshLayout(value=>value+1)}/>
+          </div>)}
+        </div>
         <span className="workbench-command-group-name">{toolbar.name}</span>
-      </section>))}
+      </section>)}
+      {layout.overflowGroups.length>0&&<ToolbarOverflow groups={layout.overflowGroups} onDefaultChange={()=>refreshLayout(value=>value+1)}/>}
       {groups.length===0&&<span className="workbench-command-empty">当前上下文没有可用命令</span>}
      </div></div>
-     {pages.length>1&&<Button className="workbench-page-control" aria-label="下一页命令" disabled={currentPage===pages.length-1} onClick={()=>setPage(currentPage+1)}><RightOutlined/><span className="workbench-page-count" aria-label={`第${currentPage+1}/${pages.length}页`}>{currentPage+1}/{pages.length}</span></Button>}
     </div>
     <Modal width={640} title={declaration("ui.command-search")?.name} open={searchOpen} onCancel={() => setSearchOpen(false)} footer={null} destroyOnHidden
       focusable={{focusTriggerAfterClose:false}} afterOpenChange={(open) => { if (open) document.getElementById("workbench-tool-search")?.focus(); else if(focusToolAfterSearch.current){focusToolAfterSearch.current=false;if(!document.querySelector('[role="dialog"]')&&!document.activeElement?.closest('[data-quantity-input="true"]'))document.querySelector<HTMLCanvasElement>('canvas')?.focus({preventScroll:true});} }}>
@@ -113,11 +123,35 @@ export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, 
   </header>;
 }
 
-function ToolbarVariantButton({group,toolbarName}:{group:ToolbarVariantGroup;toolbarName:string}){
+function ToolbarOverflow({groups,onDefaultChange}:{groups:ToolbarLayoutInput[];onDefaultChange:()=>void}){
+ const registry=useCommandRegistry(),help=useUIHelp(),feedback=useOperationFeedback();
+ const [open,setOpen]=useState(false),trigger=useRef<HTMLButtonElement>(null),popup=useRef<HTMLDivElement>(null);
+ const entries=groups.flatMap(group=>group.variants.flatMap(family=>family.items.map(item=>({key:`${group.id}:${item.commandId}`,group,family,item}))));
+ useEffect(()=>{
+  if(!open)return;
+  // Canvas pointer handlers stop bubbling, so dismiss on the capture phase.
+  const dismiss=(event:PointerEvent)=>{if(event.target instanceof Element&&!trigger.current?.contains(event.target)&&!popup.current?.contains(event.target)&&!event.target.closest(".workbench-overflow-submenu"))setOpen(false);};
+  document.addEventListener("pointerdown",dismiss,true);return()=>document.removeEventListener("pointerdown",dismiss,true);
+ },[open]);
+ return <Dropdown open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" autoAdjustOverflow classNames={{root:"cad-command-menu"}}
+  popupRender={menu=><div ref={popup} onPointerDown={event=>event.stopPropagation()} onWheel={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key==="Escape"&&!event.nativeEvent.isComposing){event.preventDefault();event.stopPropagation();setOpen(false);trigger.current?.focus();}}}>{menu}</div>}
+  menu={{expandIcon:<RightOutlined aria-hidden/>,items:groups.map(group=>({key:group.id,label:group.name,popupClassName:"workbench-overflow-submenu",children:entries.filter(entry=>entry.group.id===group.id).map(({key,item})=>({key,label:item.name,icon:<CadIcon name={item.iconKey as CadIconName}/>,disabled:!help.active&&!registry.state(item.commandId).enabled}))})),onClick:({key})=>{
+   const entry=entries.find(entry=>entry.key===key);if(!entry)return;setOpen(false);
+   if(help.active){help.explain({toolbarName:entry.group.name,commandName:entry.item.name,helpText:entry.item.helpText});return;}
+   if(!registry.state(entry.item.commandId).enabled)return;
+   if(entry.family.items.length>1){rememberToolbarVariant(entry.family,entry.item.commandId);onDefaultChange();}
+   void registry.execute(entry.item.commandId,{continuous:false}).catch(error=>feedback(error,"命令"));
+  }}}>
+  <Button ref={trigger} className="workbench-toolbar-more" type="text" icon={<MoreOutlined/>} aria-label="更多工具" aria-haspopup="menu" aria-expanded={open}
+   onKeyDown={event=>{if(event.key==="Enter"||event.key===" "||event.altKey&&event.key==="ArrowDown"){event.preventDefault();event.stopPropagation();setOpen(true);}else if(event.key==="Escape"&&open){event.preventDefault();event.stopPropagation();setOpen(false);}}}>更多</Button>
+ </Dropdown>;
+}
+
+function ToolbarVariantButton({group,toolbarName,onDefaultChange}:{group:ToolbarVariantGroup;toolbarName:string;onDefaultChange:()=>void}){
  const [,refresh]=useState(0),item=toolbarVariantDefault(group);
  if(group.items.length===1)return <ToolButton command={item.commandId} repeatable={item.repeatable} showLabel icon={<CadIcon name={item.iconKey as CadIconName}/>} tooltip={item.name} toolbarName={toolbarName} helpText={item.helpText}/>;
  return <CadSplitToolButton items={group.items} defaultId={item.commandId} familyName={group.label} toolbarName={toolbarName}
-  onDefaultChange={id=>{rememberToolbarVariant(group,id);refresh(n=>n+1);}}/>;
+  onDefaultChange={id=>{rememberToolbarVariant(group,id);refresh(n=>n+1);onDefaultChange();}}/>;
 }
 
 export function WorkbenchViewControls({ toolbars }: { toolbars: ToolbarCatalogEntry[] }) {

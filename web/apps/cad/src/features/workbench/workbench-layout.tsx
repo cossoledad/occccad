@@ -1,4 +1,4 @@
-import { MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
+import { CloseOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
 import { Button } from "antd";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { MIN_STRUCTURE_TREE_WIDTH, MAX_STRUCTURE_TREE_WIDTH, useUIPreferences } from "../../state/ui-preferences";
@@ -15,6 +15,7 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status,
   const setWidth = useUIPreferences((state) => state.setStructureTreeWidth);
   const [treeOpen, setTreeOpen] = useState(true);
   const treeId = useId();
+  const inspectorId = useId();
   const root = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(1200);
   const [resizing, setResizing] = useState(false);
@@ -53,6 +54,14 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status,
       treeOpen ? ".workbench-tree-collapse" : ".workbench-tree-restore")?.focus({preventScroll:true}));
     return () => cancelAnimationFrame(frame);
   }, [treeOpen]);
+  const previousInspectorOpen = useRef(inspectorOpen);
+  useEffect(() => {
+    if (previousInspectorOpen.current === inspectorOpen) return;
+    previousInspectorOpen.current = inspectorOpen;
+    const frame = requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>(
+      inspectorOpen ? ".workbench-inspector-close" : ".workbench-inspector-toggle")?.focus({preventScroll:true}));
+    return () => cancelAnimationFrame(frame);
+  }, [inspectorOpen]);
   useEffect(() => {
     if (!root.current) return;
     const observer = new ResizeObserver(([entry]) => setAvailableWidth(entry.contentRect.width));
@@ -69,7 +78,7 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status,
       <aside id={treeId} className="workbench-structure" aria-label="模型结构" data-tree-width={Math.round(panelWidth)}>
         <Button className="workbench-tree-collapse" type="text" size="small" icon={<MenuFoldOutlined />}
           aria-label="收起模型结构" aria-expanded={treeOpen} aria-controls={treeId}
-          title="点击收起；左右拖动调整宽度，也可用方向键、Home 或 End 调整"
+          title="模型结构"
           aria-description={`当前宽度 ${Math.round(panelWidth)} 像素。点击收起；拖动或使用左右方向键调整宽度。`}
           onClick={(event) => {
             if (event.detail !== 0 && suppressClick.current) { suppressClick.current = false; return; }
@@ -103,11 +112,14 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status,
       <main className="workbench-stage"><section className="viewport-frame" aria-label="三维视口" onContextMenu={(event) => event.preventDefault()}>{children}
         {!treeOpen && <Button className="workbench-tree-restore" icon={<MenuUnfoldOutlined />}
           aria-label="展开模型结构" aria-expanded={false} aria-controls={treeId} onClick={() => setTreeOpen(true)} />}
-        <Button className="workbench-inspector-toggle" icon={inspectorOpen ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-          aria-label={inspectorOpen ? "收起属性面板" : "展开属性面板"} aria-expanded={inspectorOpen}
-          onClick={() => onInspectorChange(!inspectorOpen)} />
+        {!inspectorOpen && <Button className="workbench-inspector-toggle" icon={<MenuFoldOutlined />}
+          aria-label="展开属性面板" title="属性与历史" aria-expanded={false} aria-controls={inspectorId}
+          onClick={() => onInspectorChange(true)} />}
       </section></main>
-      {inspectorOpen && <aside className="workbench-inspector" aria-label="属性与历史">{inspector}</aside>}
+      {inspectorOpen && <aside id={inspectorId} className="workbench-inspector" aria-label="属性与历史">
+        <Button className="workbench-inspector-close" type="text" icon={<CloseOutlined />} aria-label="收起属性面板" onClick={() => onInspectorChange(false)} />
+        {inspector}
+      </aside>}
     </div>
     {status}
   </div>;

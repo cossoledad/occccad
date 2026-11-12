@@ -101,8 +101,8 @@ select {
   padding: 0 14px 0 0;
   display: flex;
   align-items: center;
-  color: white;
-  border-bottom: 1px solid #52616a;
+  color: var(--color-text);
+  border-bottom: 1px solid #e8ecf1;
   box-shadow: none;
   z-index: 20;
 }
@@ -135,7 +135,7 @@ select {
   display: flex;
   align-items: center;
   padding: 0 14px;
-  border-right: 1px solid #3b4a53;
+  border-right: 0;
 }
 
 .header-divider {
@@ -166,7 +166,7 @@ select {
 }
 
 .user-menu:hover {
-  background: #20313e;
+  background: var(--color-primary-soft);
 }
 
 .activity-center .ant-drawer-body {

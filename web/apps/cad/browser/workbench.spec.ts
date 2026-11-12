@@ -33,12 +33,13 @@ test("contextual commands, search, sketch tools and model tree", async ({ page }
   await page.getByRole("button", { name: "搜索工具", exact: true }).click();
   const search = page.getByRole("textbox", { name: "搜索工具名称或用途" });
   await search.fill("拉伸");
-  await expect(page.locator(".workbench-command-result")).toHaveCount(1);
+  const extrude = page.locator(".workbench-command-result").filter({ has: page.locator("strong", { hasText: /^拉伸$/ }) });
+  await expect(extrude).toHaveCount(1);
   // The current solid editor can open before choosing its profile.
-  await expect(page.locator(".workbench-command-result")).toBeEnabled();
+  await expect(extrude).toBeEnabled();
   await search.fill("参数");
-  await page.locator(".workbench-command-result").filter({ hasText: "集中查看" }).click();
-  const parameters = page.getByRole("dialog", { name: "参数", exact: true });
+  await page.locator(".workbench-command-result").filter({ has: page.locator("strong", { hasText: /^参数与公式$/ }) }).click();
+  const parameters = page.getByRole("dialog", { name: "参数与公式", exact: true });
   await expect(parameters).toBeVisible();
   await parameters.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(parameters).toHaveCount(0);
@@ -74,7 +75,7 @@ test("panel layout, viewport resizing, document switching and assembly", async (
   await openPart(page);
   const canvasWidth = () => page.locator("canvas").evaluate((canvas) => canvas.getBoundingClientRect().width);
   await expect.poll(canvasWidth).toBeGreaterThan(700);
-  await page.getByRole("button", { name: "收起属性面板" }).click();
+  await expect(page.getByRole("button", { name: "展开属性面板" })).toBeVisible();
   await page.getByRole("button", { name: "收起模型结构" }).click();
   await expect.poll(canvasWidth).toBe(1440);
   await page.getByRole("button", { name: "展开模型结构" }).click();
@@ -89,12 +90,12 @@ test("panel layout, viewport resizing, document switching and assembly", async (
   await page.setViewportSize({ width: 768, height: 700 });
   await page.getByRole("button", { name: "收起属性面板" }).click();
   await expect.poll(canvasWidth).toBeGreaterThan(500);
-  // At narrow widths the configured ribbon is paged; search is the stable
-  // alternate command entrance independent of the currently visible page.
+  // Narrow windows retain one continuous toolbar, and search stays available.
+  await expect(page.locator(".workbench-page-control")).toHaveCount(0);
   await page.getByRole("button", { name: "搜索工具", exact: true }).click();
   await page.getByRole("textbox", { name: "搜索工具名称或用途" }).fill("参数");
-  await page.locator(".workbench-command-result").filter({hasText:"集中查看"}).click();
-  const parameters = page.getByRole("dialog", { name: "参数", exact: true });
+  await page.locator(".workbench-command-result").filter({ has: page.locator("strong", { hasText: /^参数与公式$/ }) }).click();
+  const parameters = page.getByRole("dialog", { name: "参数与公式", exact: true });
   await expect(parameters).toBeVisible();
   const bounds = await parameters.boundingBox();
   expect(bounds!.x).toBeGreaterThanOrEqual(0);

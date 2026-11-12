@@ -14,9 +14,9 @@
 | --- | --- |
 | `web/apps/cad/src/design/visual-tokens.ts` | 唯一 palette 与尺寸/字体/阴影/层级 tokens；CSS、Antd ConfigProvider、Canvas 各自适配 |
 | `src/design/design-system.css` | 公共控件、菜单、面板、内联编辑与通知样式；不依赖 Portal 前的父节点 |
-| `features/workbench/workbench.css` / `toolbar-pages.ts` | 分类 Tabs 36px；Ribbon 88px、两行30px；分组竖线；按目录顺序整组分页，超宽组按双行列拆分；状态栏32px |
+| `features/workbench/workbench.css` / `toolbar-layout.ts` | 浅色文档导航44px、分类34px；固定两排32px按钮、排间距6px；按实际文字宽度分配工具组，工具带无滚动条及命令分页；状态栏28px |
 | `cad/overlay/tool-button.tsx` | Antd Tooltip 固定锚点；保留220ms单击/双击分辨与帮助行为 |
-| `cad/overlay/cad-split-tool-button.tsx` | Compact + 主按钮88px + Dropdown箭头24px，统一30px高；激活、记住默认、菜单展开独立；箭头取消尚未执行的主区点击 |
+| `cad/overlay/cad-split-tool-button.tsx` | 激活、记住默认、菜单展开独立；箭头取消尚未执行的主区点击。工作台按当前标签测宽、箭头22px、高32px；其他入口保留公共尺寸 |
 | `cad/overlay/floating-panel.tsx` | CommandDialog S380/M520/L960；标题44/body16/footer52；工作台Host内定位/拖动，主页回退至body；挂载后测量；body字段初始焦点 |
 | `cad/sketch/sketch-inline-parameter-input.tsx` | 当前参数160×32白色框；自动聚焦；实测边界避让12px；只读DOM层保持透明；不写模型placement做视觉避让 |
 | `cad/rendering/dimension-label-textures.ts` | 14px/500透明字形，不绘制背景或深色轮廓；按文本/字体/DPR复用；有界缓存与引用释放 |
@@ -99,15 +99,17 @@ Product 的“空间分析 → 碰撞”使用当前已接受装配，选择全�
 
 多边形锁定构造圆后，在鼠标附近显示边数控制；向外移动增加、向内移动减少，步长使用屏幕像素，不随模型缩放改变。按钮和直接输入同样可改为 3–50 边；单击或 Enter 才原子创建，Esc 清理候选。操作参考 [Onshape Polygon](https://cad.onshape.com/help/Content/Sketch/inscribed_polygon.htm)，不包含创建后通过变量改变边数的能力。
 
-草图入口沿 catalog 的 variants 分组：点包含创建交点，圆包含椭圆，直线/折线、圆弧、修剪/分割/延伸、变换各归同类；删除主要使用键盘及对象菜单。状态栏只显示当前角色、实际问题与恢复动作，不重复显示同一命令的整段教学提示。拾取及角度语义统一见[Part/Sketch](../architecture/current/part-sketch.md)。
+草图入口沿 catalog 的 variants 分组：矩形、定向矩形、中心矩形共用一个下拉入口，点包含创建交点，圆包含椭圆，直线/折线、圆弧、修剪/分割/延伸、变换各归同类。同类变体始终合组，选择后成为当前窗口会话的临时默认方式，主按钮再次执行该方式；不写入模型或用户长期偏好。删除主要使用键盘及对象菜单。状态栏只显示当前角色、实际问题与恢复动作，不重复显示同一命令的整段教学提示。拾取及角度语义统一见[Part/Sketch](../architecture/current/part-sketch.md)。
+
+文档标签沿全局浅色表面显示，活动标签用浅蓝底区分；关闭按钮在活动、悬停或键盘聚焦时出现，触屏始终显示。拖动及 Alt 加左右方向键排序继续遵循稳定文档身份与宿主规则。结构树覆盖于画布左侧；属性/历史默认收起，沿用已保存偏好，展开为右侧浮层。两侧面板开合不缩放画布、不改变相机或模型选择，关闭后焦点回到展开按钮。
 
 ## 定向验证与人工检查
 
-公共交互入口：`workbench-visual`、`workbench-more-commands`、`sketch-inline-ui`、`sketch-input-session`、`sketch-linear-input`、`sketch-continuous-selection`、`sketch-direct-workflow`、`sketch-feedback`、`sketch-dimension-lifecycle`、`assembly-engineering-panel` 场景；执行 `pnpm typecheck` 与 `pnpm build`。测试通过不等于WebGL实机验收通过。
+公共交互入口：`toolbar-layout`、`workbench-visual`、`workbench-more-commands`、`sketch-inline-ui`、`sketch-input-session`、`sketch-linear-input`、`sketch-continuous-selection`、`sketch-direct-workflow`、`sketch-feedback`、`sketch-dimension-lifecycle`、`assembly-engineering-panel` 场景；执行 `pnpm typecheck` 与 `pnpm build`。真实服务浏览器入口为 `browser/workbench-layout-live.spec.ts`；测试通过不等于原生GPU实机验收通过。
 
 人工在1920×1080、1366×768、1024×768及125%/150%缩放检查：
 
-1. Part/Sketcher/Assembly切换分类、逐页切换到末组；圆/圆弧/样条菜单靠左右边缘均可打开。主区单击/双击、主区后立即点击箭头、禁用/帮助模式保持原行为。菜单Esc只关闭菜单，Tooltip不挡点击。
+1. Part/Sketcher/Assembly切换分类并调整窗口宽度；命令不分页，同类变体始终合组，矩形/圆/圆弧/样条菜单靠左右边缘均可打开。选择方式后主按钮保留会话默认，主区单击/双击、主区后立即点击箭头、禁用/帮助模式保持原行为。菜单Esc只关闭菜单，Tooltip不挡点击。开合属性面板及调整结构树不改变画布尺寸与相机；标签切换、排序和关闭保持原编辑上下文。
 2. 打开拉伸M、装配约束M、分析L、尺寸S；初始焦点为字段，Enter一次提交，IME不提交；拖动后重新打开保留位置，小窗口关闭入口可达。
 3. 圆角R和尺寸内联输入在边缘稳定避让；输入表达式与非法中间串不丢草稿，失焦不提交。只读文字没有重复DOM副本；观察深背景、浅实体、选中、参考、错误、斜视与缩放。
 4. 错误说明位于右下状态栏上方；正常通知没有技术详情或诊断复制入口。未知结果通知不自动消失，关闭通知后状态栏恢复动作仍在。正常完成/取消不新增成功或错误通知。
@@ -115,7 +117,7 @@ Product 的“空间分析 → 碰撞”使用当前已接受装配，选择全�
 
 运行截图和临时检查记录放在派生 `build/ui-unification/`，不加入长期架构历史。Mock/软件WebGL截图只能证明呈现与前端接线；真实服务、原生GPU及几何/历史闭环另行实机验收。
 
-工具按钮宽88px，分体按钮宽112px（箭头24px）；命令区按可用宽度分页，上一页/下一页替换整页内容；整组优先，单组超宽时按双行列拆分。切页不改变工具状态，所有命令继续可搜索。组间分隔使用蓝灰色 `#8A9FBE`。
+工具带固定两排，按钮高32px、排与列间距6px、组间距10px；按实际字体和当前默认标签测宽，SSR 使用近似测量。较密集分类优先将必要工具组改为图标直达，保留完整悬浮名称和可访问名称，不减字号或点击尺寸；图标按钮主区宽40px。矩形族所在组保留当前方式文字。同类变体始终保留单个分体按钮，相邻小组共享列；原目录顺序、命令和帮助归属保留。极窄窗口仍不足时，尾部组通过“更多”菜单进入，不裁掉工具或生成工具带滚动条；菜单支持键盘、Esc 和视口点击关闭，变体选择仍更新会话默认。所有命令继续可搜索，布局不执行、取消或提交命令。
 
 数值显示统一使用 `utils/display-number.ts`，最多两位小数，省略尾零；输入中的草稿、表达式原文和模型计算精度保留。普通数字输入使用 `cad/overlay/cad-number-input.tsx`；formatter 保持稳定身份，失焦或 Enter 对未修改的舍入显示不形成新数值意图；实际输入和原有 parser、范围校验继续生效。未修改的舍入显示不得写回参数或拉伸长度。
 

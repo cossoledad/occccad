@@ -52,10 +52,11 @@ function DocumentTab({ document, active, locked, onSwitch, onClose, onMove, onDr
   return <Reorder.Item as="div" value={document.id} dragListener={false} dragControls={controls}
     className={`document-tab ${active ? "active" : ""}`} dragMomentum={false}
     transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 38 }}
-    whileDrag={{ backgroundColor: "#304761", boxShadow: "0 4px 14px #0005", scale: reducedMotion ? 1 : 1.025 }}
+    whileDrag={{ backgroundColor: "#edf2fc", boxShadow: "0 4px 14px #253c5f20", scale: reducedMotion ? 1 : 1.025 }}
     onDragStart={() => { dragged.current = true; }} onDrag={(_, info) => onDragNearEdge(info.point.x)}>
     <button className="document-tab-switch" aria-current={active ? "page" : undefined}
-      title={`${document.name} · ${document.type === "PART" ? "零件" : "装配"} · 拖动排序（Alt+方向键）`}
+      title={`${document.name} · ${document.type === "PART" ? "零件" : "装配"}`}
+      aria-description={locked ? undefined : "Alt 加左右方向键调整文档顺序"}
       onPointerDown={event => { if (event.button === 0) { dragged.current = false; if (!locked) controls.start(event); } }}
       onKeyDown={event => {
         if (event.key === "Enter" || event.key === " ") dragged.current = false;

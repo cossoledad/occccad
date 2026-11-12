@@ -27,6 +27,7 @@ test("real properties history, face preview, conflict recovery and adaptive scen
  });
  let developmentReads=0;page.on('request',r=>{if(r.method()==='GET'&&r.url().endsWith('/properties'))developmentReads++});
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+ await page.getByRole('button',{name:'展开属性面板',exact:true}).click();
  await expect(page.locator('details.inspector-diagnostics')).toHaveCount(0);expect(developmentReads).toBe(0);await expect(page.locator('.inspector-overlay-content')).not.toContainText(seed.version);
  await page.getByRole('tab',{name:'DEBUG',exact:true}).click();await page.getByRole('button',{name:'开发信息',exact:true}).click();
  const developer=page.getByRole('dialog',{name:'开发信息',exact:true});await expect.poll(()=>developmentReads).toBe(1);await expect(developer.getByLabel('开发数据',{exact:true})).toContainText(seed.version);await developer.getByRole('button',{name:'关闭',exact:true}).click();await expect(page.getByLabel('开发数据',{exact:true})).toHaveCount(0);

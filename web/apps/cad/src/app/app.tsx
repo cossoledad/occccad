@@ -68,9 +68,9 @@ function ApplicationShell() {
   const activeDocumentID = location.pathname.match(/^\/documents\/([^/]+)/)?.[1];
   const logout = async () => { realtime.stop(); await api.logout(); client.clear(); navigate("/"); };
 
-  return <DocumentSessionProvider key={user.id}><GlobalOptionsProvider activeDocumentID={inWorkbench?activeWorkbenchDocumentID ?? activeDocumentID:undefined}><Layout className={`application-shell${inWorkbench ? "" : " library-shell"}`}>
+  return <DocumentSessionProvider key={user.id}><GlobalOptionsProvider activeDocumentID={inWorkbench?activeWorkbenchDocumentID ?? activeDocumentID:undefined}><Layout className={`application-shell${inWorkbench ? " workbench-shell" : " library-shell"}`}>
     <Layout.Header className="global-header">
-      <button className="brand-button" aria-label="文档中心" onClick={() => navigate("/")}><Brand /></button>
+      <button className="brand-button" aria-label="文档中心" title="文档中心" onClick={() => navigate("/")}><Brand compact={inWorkbench} /></button>
       {inWorkbench && <DocumentTabsController />}
       {!inWorkbench && <div className="global-header-spacer" />}
       <div className="global-header-actions">

@@ -108,7 +108,7 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   solidDisplay: { ...DEFAULT_SOLID_DISPLAY },
   setReferenceVisibility: (value) => set({ referenceVisibility: normalizeReferenceVisibility(value) }),
   setSolidDisplay: (value) => set({ solidDisplay: normalizeSolidDisplaySettings(value) }),
-  inspectorOpen: true,
+  inspectorOpen: false,
   toolbarLayouts: {},
   commandDialogPositions: {},
   setCommandDialogPosition: (id, position) => set((state) => ({
