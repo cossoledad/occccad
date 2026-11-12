@@ -13,14 +13,15 @@ export function defaultGeometricFeature(kind:GeometryKind):Feature{
  if(kind.startsWith('SURFACE_')&&kind!=='SURFACE_EXTRUDE'||kind==='CLOSE_SURFACE')geometry.surface={ruled:false,frameMode:kind==='SURFACE_SWEEP'?'CORRECTED_FRENET':undefined,tolerance:0.01};
  return {id:'',type:geometryBodyKind(kind)?kind as 'THICKEN'|'CLOSE_SURFACE':'GEOMETRY',...(geometryBodyKind(kind)?{operation:'NEW_BODY' as const}:{}),geometry};
 }
-export function geometryInputRoles(kind:GeometryKind):Array<{label:string;role:'curve'|'surface'|'geometry'|'plane'}>{
+export function geometryInputRoles(kind:GeometryKind):Array<{label:string;role:'curve'|'surface'|'geometry'|'plane';selection?:'RESULT'}>{
  if(['LINE','CIRCLE','ARC','SPLINE'].includes(kind))return [];
  if(kind==='SURFACE_SWEEP')return [{label:'轮廓',role:'curve'},{label:'脊线',role:'curve'}];
  if(kind==='SURFACE_LOFT')return [{label:'截面',role:'curve'}];
  if(kind==='SURFACE_BOUNDARY')return ['第一边','第二边','第三边','第四边'].map(label=>({label,role:'curve' as const}));
  if(kind==='SURFACE_BLEND')return [{label:'第一边界',role:'curve'},{label:'第二边界',role:'curve'}];
  if(kind==='SURFACE_FILL')return [{label:'边界',role:'curve'}];
- if(['SURFACE_JOIN','SURFACE_SEW','SURFACE_OFFSET','CLOSE_SURFACE'].includes(kind))return [{label:'曲面',role:'surface'}];
+ if(kind==='CLOSE_SURFACE')return [{label:'曲面',role:'surface',selection:'RESULT'}];
+ if(['SURFACE_JOIN','SURFACE_SEW','SURFACE_OFFSET'].includes(kind))return [{label:'曲面',role:'surface'}];
  if(kind==='SURFACE_TRIM')return [{label:'曲面',role:'surface'},{label:'切割对象',role:'geometry'}];
  if(kind==='SURFACE_MUTUAL_TRIM')return [{label:'第一曲面',role:'surface'},{label:'第二曲面',role:'surface'}];
  if(kind==='SURFACE_EXTEND')return [{label:'曲面',role:'surface'},{label:'边界',role:'curve'}];

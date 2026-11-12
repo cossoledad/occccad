@@ -6,7 +6,7 @@ export type PickResolver = (intersection: THREE.Intersection) => Selection;
 export type SelectionHit = { selection: Selection; intersection?: THREE.Intersection };
 
 type PickBinding = { root: THREE.Object3D; resolve: PickResolver; priority: number; interactionLayer: number; domain?: "sketch" };
-export type PickOptions = { preferSolidTopology?: boolean; depthTolerance?: number };
+export type PickOptions = { preferSolidTopology?: boolean; depthTolerance?: number;preference?:(selection:SelectionItem)=>number };
 
 // Scene objects and tree nodes share Selection identity through this index.
 // Topology elements are resolved lazily from hit indices, so the index remains
@@ -129,7 +129,7 @@ export class SelectionIndex {
     for(let start=0;start<candidates.length;){
       let end=start+1;const first=candidates[start];
       while(end<candidates.length&&candidates[end].binding.interactionLayer===first.binding.interactionLayer&&candidates[end].intersection.distance-first.intersection.distance<=tolerance)end++;
-      const band=candidates.slice(start,end).sort((a,b)=>b.priority-a.priority||a.intersection.distance-b.intersection.distance);
+      const band=candidates.slice(start,end).sort((a,b)=>(options.preference?.(b.selection)??0)-(options.preference?.(a.selection)??0)||b.priority-a.priority||a.intersection.distance-b.intersection.distance);
       for(let i=0;i<band.length;i++)candidates[start+i]=band[i];start=end;
     }
     const results:SelectionHit[]=[];const seen=new Set<string>();

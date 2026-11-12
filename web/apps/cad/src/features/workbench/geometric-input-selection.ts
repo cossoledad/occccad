@@ -3,6 +3,20 @@ import {CommandInputError} from '../../cad/command/operation-failure';
 import type {DocumentView,Feature,GeometricInput,SelectionItem} from '../../types';
 import {sketchGeometryInput,type GeometryReferenceRole} from './geometric-feature-model';
 
+/** Whole-skin inputs promote a hit only through its qualified result owner.
+ * Topology lineage, source-feature hints and coincident coordinates cannot
+ * turn a material Body face into an independent surface result. */
+export function wholeSurfaceResultSelection(view:DocumentView,s:SelectionItem,features=view.part?.features??[]):SelectionItem|null{
+ if((s.ownerDocumentId??s.documentId)!==view.document.id||s.versionId!==view.document.versionId||(s.occurrencePath??'')!=='')return null;
+ if(['face','edge','vertex'].includes(s.kind)&&!s.result)return null;
+ const f=features.find(f=>f.id===(s.result?.featureId??s.entityId??s.id));
+ if(f?.type!=='GEOMETRY'||!f.result||f.result.domain!=='SHEET_SET'||f.suppressed||['FAILED','BLOCKED','SUPPRESSED'].includes(f.evaluationStatus??''))return null;
+ if(s.geometryKey&&s.geometryKey!==f.result.geometryKey||s.result&&s.result.resultId!==f.result.id)return null;
+ const element='topologyId' in s?s:{...s,topologyId:undefined};
+ const {topologyId,associatedFeatureIds,sourceFeatureIds,treeNodeId,patternId,patternMemberSlot,entityRef,entityKind,entityType,...context}=element;
+ return {...context,kind:'feature',id:f.id,entityId:f.id,result:{featureId:f.id,resultId:f.result.id},geometryKey:f.result.geometryKey};
+}
+
 export function acceptsGeometryReference(view:DocumentView,s:SelectionItem,role:GeometryReferenceRole):boolean{
  const feature=view.part?.features.find(f=>f.id===(s.result?.featureId??s.entityId??s.id));
  const id=s.entityId??s.id,reference=[...(view.part?.datumPoints??[]),...(view.part?.datumAxes??[]),...(view.part?.datumPlanes??[])].find(v=>v.id===id);if(reference?.evaluationStatus||feature?.evaluationStatus==='FAILED'||feature?.evaluationStatus==='BLOCKED')return false;

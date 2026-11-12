@@ -23,6 +23,38 @@ async function captureFeatureNotices(page:Page){
  return ()=>page.evaluate(()=>{const w=window as any;w.__featureNoticeObserver.disconnect();return w.__featureNotices as string[]});
 }
 
+test('Extracted faces sew and close from viewport as a whole skin while source faces stay visible',async({page},info)=>{
+ await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Viewport whole sewn skin');const id=v.document.id;
+  v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_RECTANGLE',first:{x:-10,y:-6},second:{x:10,y:6}}]});
+  v=await api.command(id,{type:'CREATE_SOLID_FEATURE',generator:'LINEAR_EXTRUDE',sketchId,operation:'ADD',length:8});
+  const body=v.part!.bodies![0],sourceVersionId=v.document.versionId,stage=v.part!.features.at(-1)!.id,faceCount=v.artifacts![body.geometryKey!]!.topology.faces;
+  const extracted=[];
+  for(let localId=1;localId<=faceCount;localId++){
+   const selection=await api.bindTopologySelection(id,{sourceVersionId,geometryKey:body.geometryKey!,kind:'FACE',localId});
+   v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name:`Extracted face ${localId}`,geometry:{kind:'EXTRACT',inputs:[{kind:'TOPOLOGY',selection:{selection,sourceVersionId,sourceFeatureId:stage}}]}}});extracted.push(v.part!.features.at(-1)!);
+  }
+  v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name:'Sewn closed skin',geometry:{kind:'SURFACE_SEW',surface:{tolerance:.01},inputs:extracted.map(f=>({kind:'RESULT',featureId:f.id,resultId:f.result!.id}))}}});
+  return {id,shell:v.part!.features.at(-1)!.id,sourceBody:body.id,extracted:extracted.map(f=>f.id)};
+ });
+ await page.goto(`/documents/${seed.id}`);await observeViewport(page);await geometryTab(page);
+ await command(page,'封闭曲面');let d=page.getByRole('dialog',{name:'封闭曲面',exact:true});await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();
+ const p=await worldScreen(page,[0,0,8]);
+ await expect.poll(()=>page.evaluate(({x,y})=>{const e=(window as any).__cameraEngine,r=e.renderer.domElement.getBoundingClientRect(),hit=e.hitTest(x-r.x,y-r.y);return {kind:hit?.kind,feature:hit?.result?.featureId}},p)).toEqual({kind:'feature',feature:seed.shell});
+ const visible=await page.evaluate(()=>[...(window as any).__cameraEngine.solidBindings.values()].filter((b:any)=>b.group.visible).length);expect(visible).toBeGreaterThanOrEqual(8);
+ await page.mouse.move(p.x,p.y);await expect.poll(()=>page.evaluate(()=>{const e=(window as any).__cameraEngine;return {kind:e.preselected?.kind,feature:e.preselected?.result?.featureId,overlays:e.preselectedOverlays.length}})).toEqual({kind:'feature',feature:seed.shell,overlays:2});
+ await page.screenshot({path:info.outputPath('whole-skin-viewport-hover.png')});await page.mouse.click(p.x,p.y);
+ await ready(page,d);await expect(d).toContainText('Sewn closed skin');const notices=await captureFeatureNotices(page);
+ await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);expect(await notices()).toEqual([]);
+ let v=await document(page,seed.id);const closed=v.part.features.at(-1);expect(closed.type).toBe('CLOSE_SURFACE');expect(closed.geometry.inputs).toEqual([{kind:'RESULT',featureId:seed.shell,resultId:'result'}]);
+ const created=v.part.bodies.find((b:any)=>b.createdByFeatureId===closed.id);expect(v.artifacts[created.geometryKey].volume).toBeCloseTo(1920,5);
+ // Leaving whole-result selection restores normal sub-element commands.
+ await command(page,'提取');d=page.getByRole('dialog',{name:'提取',exact:true});await clickWorld(page,[0,0,8]);await ready(page,d);
+ await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);v=await document(page,seed.id);const extracted=v.part.features.at(-1);expect(extracted.geometry.inputs[0].kind).toBe('TOPOLOGY');expect(extracted.geometry.inputs[0].selection.selection.expectedType).toBe('FACE');expect(v.artifacts[extracted.result.geometryKey].topology.faces).toBe(1);
+});
+
 test('Curve preview remains visible inside a solid and surface confirmation has no transient failure',async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await login(page);

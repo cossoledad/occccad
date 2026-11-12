@@ -12,7 +12,7 @@ import {ParameterReferenceInput} from './parameter-reference-input';
 import {parseParameterSource,parameterSourceText} from './parameter-editor';
 import {useFeaturePreview} from './use-feature-preview';
 import {useFeatureDialogFeedback} from './use-feature-dialog-feedback';
-import {acceptsGeometryReference,bindGeometryReference,bindGeometricInput} from './geometric-input-selection';
+import {acceptsGeometryReference,bindGeometryReference,bindGeometricInput,wholeSurfaceResultSelection} from './geometric-input-selection';
 import {editGeometryPoint,geometryFields,geometryInputIdentity,geometryInputAvailable,geometryInputName,geometryInputSelections,geometryInputRoles,geometryNames,geometryReady,geometryBodyKind,geometryMultipleKind,pointInput,sketchGeometryInput,splineControlMode,syncSurfaceControls,type GeometryReferenceRole,type PointEdit} from './geometric-feature-model';
 
 type Props={view:DocumentView;feature:Feature;digest?:string;unit:DisplayLengthUnit;onClose:()=>void;onApply:(input:Record<string,unknown>)=>Promise<unknown>;onPreview:(artifact?:Artifact,operation?:Feature['operation'])=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void};
@@ -106,7 +106,9 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
  useEffect(()=>{
   if(!picking){callbacks.current.onSelectionSession();return}
   const role=roleFor(picking),shapeRole=refs.find(r=>r.key===picking)?.role??roles[Number(picking.split(':')[1])]?.role;
-  callbacks.current.onSelectionSession({seedEnabled:!feature.id,seedSlot:picking,seedMultiple:picking==='points'||multiple&&picking.startsWith('input:'),documentId:view.document.id,versionId:base,role:picking==='body'?'body':role==='point'?'point':role==='plane'?'plane':role==='axis'?'axis':role==='direction'?'direction':shapeRole==='curve'?'edge':'face',topologyPick:role==='point'?'VERTEX':role==='axis'||role==='direction'||shapeRole==='curve'?'EDGE':undefined,selections,accept:s=>accept(s,picking),onPick:s=>pickRef.current(s)});
+  const wholeResult=picking.startsWith('input:')&&roles[Number(picking.split(':')[1])]?.selection==='RESULT';
+  const resultOrder=wholeResult?new Map(upstream.map((f,i)=>[f.id,i+1])):undefined;
+  callbacks.current.onSelectionSession({seedEnabled:!feature.id,seedSlot:picking,seedMultiple:picking==='points'||multiple&&picking.startsWith('input:'),documentId:view.document.id,versionId:base,role:picking==='body'?'body':role==='point'?'point':role==='plane'?'plane':role==='axis'?'axis':role==='direction'?'direction':shapeRole==='curve'?'edge':'face',topologyPick:role==='point'?'VERTEX':role==='axis'||role==='direction'||shapeRole==='curve'?'EDGE':undefined,selections,project:wholeResult?s=>wholeSurfaceResultSelection(view,s,upstream):undefined,coincidentPreference:resultOrder?s=>resultOrder.get(s.result?.featureId??s.entityId??s.id)??0:undefined,accept:s=>accept(s,picking),onPick:s=>pickRef.current(s)});
   return()=>callbacks.current.onSelectionSession();
  },[fieldToken,selectionToken,base]);
  let input:Record<string,unknown>|undefined,problem:unknown;

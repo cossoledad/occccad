@@ -31,4 +31,13 @@ try{
  assert.deepEqual(index.pickAll(ray,()=>true,10).map(h=>h.selection.id),['edge','face','vertex']);
  const handle=new T.Object3D();index.registerPick(handle,()=>({...context,kind:'body',id:'handle'}),0,10);
  const layers={intersectObjects:roots=>[...ray.intersectObjects(roots),{object:handle,distance:200}]};assert.equal(index.pick(layers,()=>true,policy).id,'handle','explicit interaction layers retain precedence');
+ const surfaces=[{root:new T.Object3D(),id:'extract',distance:100},{root:new T.Object3D(),id:'sew',distance:100+1e-9}];
+ const surfaceRay={intersectObjects:roots=>surfaces.filter(e=>roots.includes(e.root)).map(e=>({object:e.root,distance:e.distance}))};
+ const skinPolicy={depthTolerance:1e-7,preference:s=>s.result.featureId==='sew'?2:1};
+ for(const order of [surfaces,[...surfaces].reverse()]){
+  const scope=new SelectionIndex();for(const e of order)scope.registerPick(e.root,()=>({...context,kind:'face',id:e.id,result:{featureId:e.id,resultId:'result'}}),20);
+  assert.equal(scope.pick(surfaceRay,()=>true,skinPolicy).id,'sew','aggregate command chooses the later result for coincident skins');
+  surfaces[1].distance=100.001;assert.equal(scope.pick(surfaceRay,()=>true,skinPolicy).id,'extract','history preference cannot select a rear skin across a visible gap');surfaces[1].distance=100+1e-9;
+  surfaces[1].root.visible=false;assert.equal(scope.pick(surfaceRay,()=>true,skinPolicy).id,'extract','hidden results never participate in tie preference');surfaces[1].root.visible=true;
+ }
 }finally{await server.close()}

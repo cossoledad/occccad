@@ -12,6 +12,9 @@ export type FeatureSelectionSession = {
     booleanRegions?:import("../../features/workbench/boolean-region-model").BooleanRegionsPresentation;
     profileRegions?: {sketchId:string;bodyId?:string;plane:SketchPlane;regions:NonNullable<SketchProfileAnalysis["regionViews"]>}[];
     project?: (selection:SelectionItem)=>Selection;
+    // Aggregate inputs can resolve coincident visible results by history. This
+    // applies only inside a narrow depth band; it cannot select through a gap.
+    coincidentPreference?: (selection:SelectionItem)=>number;
     // Shared scene/tree filtering for cross-occurrence command supports.
     accept?: (selection:SelectionItem)=>boolean;
     // Exact support inspection may finish after the click. It must not select

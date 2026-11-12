@@ -3659,12 +3659,14 @@ export class CadViewportEngine {
     }
     const projectionView=this.sketchView();
     const projectionScope=projectionView?projectionScopeForView(projectionView,this.editContext?.occurrencePath):undefined;
+    // Aggregate fields rank history only within 0.0001 CSS pixels of depth.
+    // Keep the normal 5-pixel topology band for all other command fields.
     const hit = this.selectionIndex.pickWithIntersection(this.raycaster, (selection) =>
       this.featureSelection ? !!featureSelectionHit(selection, this.featureSelection) :
       this.activeToolID === "sketch.project"
         ? isExternalProjectionSource(selection, projectionScope) && allowsSelection(this.captureSettings, selection)
         : allowsSelectionInContext(this.captureSettings, selection, this.activeSketchID),
-      {preferSolidTopology:!this.activeSketchID,depthTolerance:worldPerPixel*5});
+      {preferSolidTopology:!this.activeSketchID,depthTolerance:worldPerPixel*(this.featureSelection?.coincidentPreference?1e-4:5),preference:this.featureSelection?.coincidentPreference});
     const raw=hit.selection && bindPublicationSelection(hit.selection, this.view?.structureTree);
     if(captureManipulatorAnchor&&raw&&hit.intersection&&this.view)
       this.lastManipulatorPick={selection:raw,hit:hit.intersection,revisionId:this.view.document.versionId};
