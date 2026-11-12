@@ -1,5 +1,5 @@
 import { CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, SwapOutlined, UndoOutlined } from "@ant-design/icons";
-import { Button, Card, Checkbox, Dropdown, Tag } from "antd";
+import { Button, Card, Checkbox, Dropdown } from "antd";
 import { memo } from "react";
 import { DocumentThumbnail } from "../../components/document-thumbnail";
 import type { DocumentSummary } from "../../types";
@@ -20,14 +20,14 @@ export const DocumentCard = memo(function DocumentCard({ document, selected, tra
     { key: "export", icon: <DownloadOutlined />, label: "导出" },
     ...(editable ? [{ key: "delete", danger: true, icon: <DeleteOutlined />, label: "移入回收站" }] : []),
   ];
+  const menu = <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => onAction(key, document) }}>
+    <Button className="card-menu" type="text" aria-label={`文档操作 ${document.name}`} icon={<MoreOutlined />} />
+  </Dropdown>;
   return <Card hoverable className={`document-card${selected ? " selected" : ""}`}
-    cover={<button className="thumbnail-button" onClick={() => onToggle(document)} onDoubleClick={() => onOpen(document)}
-      onKeyDown={event => { if (event.key === "Enter") onOpen(document); }}><DocumentThumbnail document={document} /></button>}>
+    cover={<button className="thumbnail-button" aria-label={`预览 ${document.name}`} onClick={() => onToggle(document)} onDoubleClick={() => onOpen(document)}
+      onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); onOpen(document); } }}><DocumentThumbnail document={document} /></button>}>
     <Card.Meta title={<span className="document-title">{!trash && <Checkbox aria-label={`选择 ${document.name}`} checked={selected}
-      disabled={!editable} onChange={() => onToggle(document)} />}<span>{document.name}</span><Tag color={document.type === "PART" ? "blue" : "cyan"}>{document.type}</Tag></span>}
-      description={<><span className="document-description">{document.description || "暂无说明"}</span><small>{document.workspaceName ?? "Main"} · {document.permission} · {relativeDate(document.lastUpdated)}</small></>} />
-    <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => onAction(key, document) }}>
-      <Button className="card-menu" type="text" icon={<MoreOutlined />} />
-    </Dropdown>
+      disabled={!editable} onChange={() => onToggle(document)} />}<button className="document-name" disabled={trash} title={document.name} onClick={() => onOpen(document)}>{document.name}</button>{menu}</span>}
+      description={<>{document.description && <span className="document-description">{document.description}</span>}<small><span className={`document-kind ${document.type.toLowerCase()}`}>{document.type === "PART" ? "零件" : "装配"}</span><span>{relativeDate(document.lastUpdated)}</span></small></>} />
   </Card>;
 });

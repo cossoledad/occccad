@@ -79,7 +79,6 @@
 .workbench-command-result strong { display: block; font-size: 13px; }
 .workbench-command-result small { display: block; color: var(--color-text-secondary); font-size: 12px; }
 .workbench-command-result > span small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.workbench-search-hint { margin: 12px 0 0; font-size: 12px; color: var(--color-text-secondary); }
 .workbench-tree-empty { padding: 16px; color: var(--wb-muted); font-size: 12px; }
 @media (max-width: 1100px) {
   .workbench-content.with-inspector { grid-template-columns: min(var(--structure-width), 250px) minmax(160px, 1fr) 260px; }

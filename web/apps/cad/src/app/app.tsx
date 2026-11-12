@@ -44,12 +44,12 @@ function ApplicationShell() {
       if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_IMPORT") {
         const warnings = exchangeCompletionWarnings(job);
         notification[warnings.length ? "warning" : "success"]({ key: job.id, message: warnings.length ? "文档导入完成，有警告" : "文档导入完成",
-          description: <div>{job.fileName&&<p>{job.fileName}</p>}{warnings.length ? warnings.map((warning) => <p key={warning}>{warning}</p>) : "导入结果已写入文档中心。"}</div>,
+          description: <div>{job.fileName&&<p>{job.fileName}</p>}{warnings.length ? warnings.map((warning) => <p key={warning}>{warning}</p>) : null}</div>,
           duration: warnings.length ? 0 : undefined,
           btn: job.documentId ? <Button type="primary" onClick={() => { notification.destroy(job.id); navigate(`/documents/${job.documentId}`); }}>打开文档</Button> : undefined });
       } else if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_EXPORT") {
         const warnings = exchangeCompletionWarnings(job);
-        notification[warnings.length ? "warning" : "success"]({ key: job.id, message: warnings.length ? "文档导出完成，有警告" : "文档导出完成", description: <div>{job.fileName&&<p>{job.fileName}</p>}{warnings.length ? warnings.map(warning=><p key={warning}>{warning}</p>) : "交换文件已经生成，可以开始下载。"}</div>,duration:warnings.length ? 0 : undefined,
+        notification[warnings.length ? "warning" : "success"]({ key: job.id, message: warnings.length ? "文档导出完成，有警告" : "文档导出完成", description: <div>{job.fileName&&<p>{job.fileName}</p>}{warnings.length ? warnings.map(warning=><p key={warning}>{warning}</p>) : null}</div>,duration:warnings.length ? 0 : undefined,
           btn: <Button type="primary" onClick={() => void api.downloadJob(job.id).catch((error) => message.error(error.message))}>下载文件</Button> });
       } else if (job.state === "FAILED") {
         notification.error({ key: job.id, message: job.type === "EXCHANGE_IMPORT" ? "文档导入失败" : "文档导出失败",
@@ -68,7 +68,7 @@ function ApplicationShell() {
   const activeDocumentID = location.pathname.match(/^\/documents\/([^/]+)/)?.[1];
   const logout = async () => { realtime.stop(); await api.logout(); client.clear(); navigate("/"); };
 
-  return <DocumentSessionProvider key={user.id}><GlobalOptionsProvider activeDocumentID={inWorkbench?activeWorkbenchDocumentID ?? activeDocumentID:undefined}><Layout className="application-shell">
+  return <DocumentSessionProvider key={user.id}><GlobalOptionsProvider activeDocumentID={inWorkbench?activeWorkbenchDocumentID ?? activeDocumentID:undefined}><Layout className={`application-shell${inWorkbench ? "" : " library-shell"}`}>
     <Layout.Header className="global-header">
       <button className="brand-button" aria-label="文档中心" onClick={() => navigate("/")}><Brand /></button>
       {inWorkbench && <DocumentTabsController />}

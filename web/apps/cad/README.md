@@ -14,6 +14,7 @@
 | 显示与资源 | `src/viewport/`、`src/cad/visual/`、`src/cad/rendering/` |
 | 服务端/短期状态 | TanStack Query / `src/state/` Zustand；`src/api/` 适配 |
 | 视觉系统 | `src/design/visual-tokens.ts`、`design-system.css` |
+| 登录展示与视口截图 | [建模配方和操作](../../../docs/guides/model-showcase.md)；`scripts/generate-showcase.mjs`、`src/viewport/viewport-snapshot.ts` |
 
 先读 [AGENTS](AGENTS.md)，按命中区间展开，不默认整读 `workbench.tsx`、Viewport Engine 或 Mock API。依赖版本以本目录 `package.json` 和 workspace 锁文件为准。
 

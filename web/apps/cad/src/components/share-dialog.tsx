@@ -29,8 +29,8 @@ export function ShareDialog({ resource, onClose }: { resource?: ShareResource; o
   return <Modal width={620} title={<Space><ShareAltOutlined />共享“{resource?.name}”</Space>} open={Boolean(resource)}
     onCancel={onClose} footer={<Button onClick={onClose}>完成</Button>} destroyOnHidden>
     <Form layout="inline" initialValues={{ role: "VIEWER" }} onFinish={(values) => add.mutate(values)} className="share-form">
-      <Form.Item name="subject" rules={[{ required: true }]} className="share-subject"><Select showSearch optionFilterProp="label" placeholder="选择用户或团队" options={subjects} /></Form.Item>
-      <Form.Item name="role"><Select options={[{ value: "VIEWER", label: "可查看" }, { value: "EDITOR", label: "可编辑" }]} /></Form.Item>
+      <Form.Item name="subject" rules={[{ required: true, message: "请选择用户或团队" }]} className="share-subject"><Select showSearch aria-label="共享用户或团队" optionFilterProp="label" placeholder="选择用户或团队" options={subjects} /></Form.Item>
+      <Form.Item name="role"><Select aria-label="共享权限" options={[{ value: "VIEWER", label: "可查看" }, { value: "EDITOR", label: "可编辑" }]} /></Form.Item>
       <Button type="primary" htmlType="submit" loading={add.isPending}>添加</Button>
     </Form>
     {(grants.error||users.error||teams.error)&&<Alert type="error" title="无法读取共享信息" description={engineeringProblem(grants.error??users.error??teams.error)} action={<Button size="small" onClick={()=>{void grants.refetch();void users.refetch();void teams.refetch()}}>重试</Button>}/>}

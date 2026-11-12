@@ -15,7 +15,6 @@ export function SceneOptionsFields({value,onChange,metrics}:{value:SceneSettings
   <CommandField label="背景方式" width="enum"><Select aria-label="背景方式" value={value.background} onChange={background=>patch({background})} options={[{value:"THEME",label:"默认工作室"},{value:"GRADIENT",label:"上下渐变"},{value:"SOLID",label:"纯色"}]}/></CommandField>
   {value.background!=="THEME"&&color("backgroundTop",value.background==="SOLID"?"背景颜色":"顶部颜色")}
   {value.background==="GRADIENT"&&color("backgroundBottom","底部颜色")}
-  <Typography.Text type="secondary">渐变固定在屏幕上下方向，旋转模型时保持稳定。</Typography.Text>
  </Space>;
  const ground=<Space orientation="vertical" className="global-options-fields">
   <CommandField label="地面位置" width="enum"><Select aria-label="地面位置" value={value.groundMode} onChange={groundMode=>patch({groundMode})} options={[{value:"AUTO",label:"初始模型底部"},{value:"WORLD",label:"世界 XY 平面（Z=0）"},{value:"MANUAL",label:"指定高度"},{value:"OFF",label:"关闭地面"}]}/></CommandField>

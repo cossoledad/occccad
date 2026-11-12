@@ -5,6 +5,7 @@
 | 主题 | 用途 |
 |---|---|
 | [工作台 UI](workbench.md) | 视觉 tokens、公共控件、布局、焦点及尺寸显示 |
+| [建模展示与视口截图](model-showcase.md) | 真实展示模型、PNG 截图与界面文案原则 |
 | [草图交互生命周期](sketch-interaction.md) | 工具阶段、选择/输入、提交回执与人工验收 |
 | [线框与曲面](wireframe-surfaces.md) | 关联曲线、拉伸曲面、加厚及空间路径扫掠 |
 | [简化百岁山瓶身](ganten-bottle.md) | 圆柱、S 形扫掠切槽与四槽圆周阵列 |

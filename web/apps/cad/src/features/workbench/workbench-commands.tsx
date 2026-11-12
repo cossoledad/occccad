@@ -99,18 +99,16 @@ export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, 
             if (uiHelp.active) { uiHelp.explain({ toolbarName: item.toolbarName, commandName: item.name, helpText: item.helpText }); return; }
             void registry.execute(item.commandId, { continuous: false }).catch((error) => feedback(error,"命令"));
           }}>
-          <CadIcon name={item.iconKey as CadIconName} /><span><strong>{item.name}</strong><small>{item.toolbarName} · {item.helpText}</small></span>
+          <CadIcon name={item.iconKey as CadIconName} /><span><strong>{item.name}</strong><small>{item.toolbarName}{uiHelp.active && ` · ${item.helpText}`}</small></span>
           {commandShortcutLabel(item.commandId) && <kbd>{commandShortcutLabel(item.commandId)}</kbd>}
-          <small>{uiHelp.active ? "帮助" : item.state.enabled ? "执行" : "当前不可用"}</small>
+          <small>{uiHelp.active ? "帮助" : item.state.enabled ? "" : "当前不可用"}</small>
         </button>)}
         {!results.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的工具" />}
       </div>
-      <p className="workbench-search-hint">仅搜索当前工作台的工具。不可用的工具需要先满足选择或编辑条件。</p>
     </Modal>
     <Modal title={declaration("ui.shortcut-help")?.name} open={shortcutHelpOpen} onCancel={() => setShortcutHelpOpen(false)} footer={null}>
       <div className="shortcut-list">{COMMAND_SHORTCUTS.map((shortcut) => <Fragment key={shortcut.display}>
         <span>{declaration(shortcut.command)?.name??shortcut.command}</span><kbd>{shortcut.display}</kbd></Fragment>)}</div>
-      <p className="shortcut-note">Mac 使用 ⌘，Windows / Linux 使用 Ctrl。草图工具仅在草图编辑中可用。输入框保留文字撤销与重做；打开对话框时暂停全局快捷键。Enter 完成当前多阶段操作，Esc 取消当前工具或对话框。</p>
     </Modal>
   </header>;
 }

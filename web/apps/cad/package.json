@@ -14,7 +14,8 @@
     "test:sketch": "node src/cad/testing/sketch-interaction.scenario.mjs",
     "test:realtime": "node src/api/testing/realtime-lifecycle.scenario.mjs",
     "test:activity": "node src/features/activity/testing/activity-projection.scenario.mjs",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "showcase": "node scripts/generate-showcase.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",

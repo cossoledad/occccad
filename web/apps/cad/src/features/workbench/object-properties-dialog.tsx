@@ -74,7 +74,6 @@ export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPrevi
   const basic=<Space orientation="vertical" style={{width:"100%"}}>
     {rename?<CommandField  label={<><span>{first.target.kind==="DOCUMENT"?"文档名称":first.target.kind==="INSTANCE"?"实例名称":"名称"}</span></>} width="expression"><Input aria-label="属性名称" value={name} disabled={!editable} status={nameValid?undefined:"error"} onChange={e=>{setNameDirty(true);setName(e.target.value)}}/></CommandField>:<Typography.Text>{single?first.title:`已选择 ${targets.length} 个对象`}</Typography.Text>}
     {single&&first.target.kind==="DOCUMENT"&&<CommandField label="描述" width="expression"><Input.TextArea aria-label="文档描述" value={description} disabled={!editable} autoSize={{minRows:2,maxRows:5}} onChange={e=>{setDescriptionDirty(true);setDescription(e.target.value)}}/></CommandField>}
-    <Typography.Text type="secondary">名称可修改，已有引用保持关联。</Typography.Text>
     {first.originalDocumentId&&<Button type="link" disabled={changedName||changedDescription||changedGraphics||pending} onClick={()=>onOpenOriginal?.(first.originalDocumentId!)}>打开原始文档</Button>}
   </Space>;
   const surfaceFields=targets.every(t=>!t.graphicDomain||['SURFACE','CONTAINER'].includes(t.graphicDomain));
@@ -98,7 +97,6 @@ export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPrevi
   </div>;
   const info=<><Descriptions column={1} size="small" items={[{key:"scope",label:"作用范围",children:first.scope},{key:"object",label:"对象",children:first.title},{key:"path",label:"所在位置",children:first.target.instancePath?.display??"当前文档"}]}/>{targets.every(target=>target.target.kind==="INSTANCE")&&<CommandField label="属性基线" width="content"><Button aria-label="加载最新属性（保留修改）" type="link" disabled={pending} loading={refreshing} onClick={async()=>{setRefreshing(true);try{await onRefresh();setCommitError(undefined);setPreviewError(undefined);setRetry(v=>v+1)}catch(error){setCommitError(error instanceof Error?error.message:String(error))}finally{setRefreshing(false)}}}>加载最新属性（保留修改）</Button></CommandField>}</>;
   return <CommandDialog id="object-properties" open title={`属性 · ${single?first.title:`${targets.length} 个对象`}`} size="M" onClose={onClose} confirmLoading={pending} confirmDisabled={!editable||!valid||!(changedName||changedDescription||changedGraphics)} onConfirm={async()=>{try{await onApply(request)}catch(error){setCommitError(error instanceof Error?error.message:String(error));throw error}}}>
-    <Typography.Paragraph type="secondary">{first.scope} · 确定后保存到文档历史</Typography.Paragraph>
     {!canModify&&<Alert type="info" title={sameOwner?first.reason??"当前对象只读":"批量修改需要同一写入文档。请分别编辑原始文档，或使用当前装配的实例覆盖。"}/>}
     {previewError&&<Alert type="error" title="外观预览失败" description={engineeringProblem(previewError)} action={<Button size="small" onClick={()=>setRetry(v=>v+1)}>重试</Button>}/>}
     {commitError&&<Alert type="error" title="属性尚未保存，修改已保留" description={engineeringProblem(commitError)}/>}

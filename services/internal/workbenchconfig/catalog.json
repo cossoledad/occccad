@@ -1186,6 +1186,25 @@
           }
         }
       ]
+    },
+    "camera": {
+      "className": "cad-command-icon family-view",
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 6h3l1.5-2h5L14 6h3v10H3Z"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "11",
+            "r": "3"
+          }
+        }
+      ]
     }
   },
   "commands": [
@@ -4819,6 +4838,20 @@
       "name": "适合窗口",
       "helpText": "调整相机以显示全部模型。",
       "iconKey": "fit",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "view.screenshot",
+      "name": "保存视口截图",
+      "helpText": "将当前视口保存为 PNG 图片。",
+      "iconKey": "camera",
       "repeatable": false,
       "visibleWhen": {
         "all": []
@@ -8582,6 +8615,11 @@
           "commandId": "view.normal",
           "groupKey": "primary",
           "order": 60
+        },
+        {
+          "commandId": "view.screenshot",
+          "groupKey": "primary",
+          "order": 70
         },
         {
           "commandId": "view.selection-summary",

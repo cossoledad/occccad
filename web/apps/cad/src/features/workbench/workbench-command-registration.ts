@@ -1,4 +1,5 @@
 import {geometryCommands} from './geometric-feature-model';
+import {saveViewportSnapshot} from '../../viewport/viewport-snapshot';
 import {defaultModifierFeature,modifierTypes} from "./solid-feature-model";
 import {globalOptionsCommand} from "../preferences/global-options-command";
 import {documentRegistry} from "../../cad/document/document-registry";
@@ -135,6 +136,11 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "edit.redo", execute: () => executeHistory("redo"),
         isEnabled: () => Boolean((canEdit||bindings.motionOpen&&canEditRoot) && editingView?.document.canRedo && !command.isPending) }),
       ({ id: "view.fit", execute: () => viewport.current?.fit() }),
+      ({ id: "view.screenshot", execute: async () => {
+        if (!viewport.current || !view) throw new Error("视口尚未就绪");
+        const name = view.document.name;
+        saveViewportSnapshot(await viewport.current.captureScreenshot(), name);
+      } }),
       ({ id: "view.top", execute: () => viewport.current?.setStandardView("TOP") }),
       ({ id: "view.front", execute: () => viewport.current?.setStandardView("FRONT") }),
       ({ id: "view.right", execute: () => viewport.current?.setStandardView("RIGHT") }),

@@ -1,3 +1,4 @@
+import { ViewportSnapshots } from "./viewport-snapshot";
 import { meshTopologyIndex } from "../cad/rendering/mesh-topology-index";
 import { triangleCount } from "../cad/visual/packed-mesh";
 import {CurvatureOverlay} from '../cad/rendering/curvature-overlay';
@@ -655,6 +656,8 @@ export class CadViewportEngine {
   private visibilityResolver?: VisibilityResolver;
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
+  private readonly snapshots = new ViewportSnapshots();
+  private readonly cancelSnapshots = () => this.snapshots.cancel(new Error("图形上下文已断开，请重试"));
   private applicationDisplay?:import('../cad/assembly/application-display').ApplicationDisplay;
   setApplicationDisplay(display?:import('../cad/assembly/application-display').ApplicationDisplay,selected?:string):void {
     if(this.motionDisplay?.clock!==display?.playback?.clock)this.motionClockFinished=false;
@@ -747,6 +750,7 @@ export class CadViewportEngine {
     this.scene.environment = this.studioEnvironment.texture;
     this.renderer.domElement.tabIndex=0;
     host.appendChild(this.renderer.domElement);
+    this.renderer.domElement.addEventListener("webglcontextlost", this.cancelSnapshots);
     this.measurementOverlay=new MeasurementOverlay(host,{
       hover:id=>{if(this.featureSelection||!this.view)return;if(id)this.preselect(measurementSelection(this.view,id)??null,true);else if(this.preselected?.kind==='measurement')this.preselect(null,true)},
       select:(id,toggle)=>{if(this.featureSelection||!this.view)return;const selection=measurementSelection(this.view,id);if(!selection)return;this.selectMany(toggle?this.selected.some(s=>selectionKey(s)===selectionKey(selection))?this.selected.filter(s=>selectionKey(s)!==selectionKey(selection)):[...this.selected,selection]:[selection],true)},
@@ -951,6 +955,7 @@ export class CadViewportEngine {
       editContext?.historicalBoundary, editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
+    if (this.view && this.view.document.id !== view.document.id) this.snapshots.cancel(new Error("文档已切换，请重新截图"));
     if(this.curvatureScope&&(this.curvatureScope.documentId!==view.document.id||this.curvatureScope.revisionId!==view.document.versionId||editContext?.occurrencePath))this.showShapeQuality();
     if(this.sectionRequested&&(view.document.id!==this.sectionRequested.documentId||view.document.versionId!==this.sectionRequested.revisionId||editContext?.occurrencePath))this.setSectionEdit();
     if(this.staticInterferenceReport&&this.staticInterferenceReport.revisionId!==view.document.versionId)this.showStaticInterference();
@@ -2253,6 +2258,8 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.snapshots.dispose();
+    this.renderer.domElement.removeEventListener("webglcontextlost", this.cancelSnapshots);
     this.curvatureOverlay.dispose();
     this.measurementOverlay?.dispose();
     this.sectionManipulator?.dispose();this.restoreSectionClipping();
@@ -4540,6 +4547,14 @@ export class CadViewportEngine {
     });
   }
 
+  captureScreenshot(): Promise<Blob> {
+    if (this.disposed || this.renderer.getContext().isContextLost() || !this.host.clientWidth || !this.host.clientHeight)
+      return Promise.reject(new Error("视口尚未就绪"));
+    const snapshot = this.snapshots.request();
+    this.invalidate();
+    return snapshot;
+  }
+
   private invalidate(): void {
     if (this.disposed || this.animationFrame) return;
     this.animationFrame = requestAnimationFrame((now) => {
@@ -4607,6 +4622,7 @@ export class CadViewportEngine {
           this.renderer.render(this.analysisScene,this.camera);
         }
         this.navigationHUD.render(this.renderer);
+        this.snapshots.captureFrame(this.renderer.domElement, this.host.querySelectorAll<SVGSVGElement>("svg.measurement-overlay"));
         if (this.viewTransition.active) this.invalidate();
       }
     });

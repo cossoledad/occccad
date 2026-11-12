@@ -23,6 +23,7 @@ import type { DocumentSessions } from "../cad/document/document-session";
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
 export type CadViewportHandle = {
+  captureScreenshot: () => Promise<Blob>;
   showRepairComparison:(snapshot?:import('../cad/part/feature-repair-context').FeatureRepairSnapshot)=>void;
   retryDocumentDisplay:()=>void;
   captureMotionViewpoint:()=>import('../cad/assembly/motion-study').MotionViewpoint|undefined;
@@ -249,6 +250,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.setTreeVisibilityOverrides(props.treeVisibilityOverrides); }, [props.treeVisibilityOverrides]);
 
   useImperativeHandle(ref, () => ({
+    captureScreenshot: () => engine.current?.captureScreenshot() ?? Promise.reject(new Error("视口尚未就绪")),
     retryDocumentDisplay:()=>{
       const instance=engine.current,current=callbacks.current;if(!instance)return;
       const replaceInput=(view:DocumentView)=>inputDisplay(view,current);

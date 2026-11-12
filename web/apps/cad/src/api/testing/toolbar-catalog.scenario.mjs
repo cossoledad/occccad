@@ -23,7 +23,7 @@ try {
   assert.equal(commands.find((item) => item.commandId === "part.publications")?.iconKey, "publication");
   assert.equal(commands.some((item) => item.commandId === "product.release"), false);
   assert.deepEqual(toolbars.filter(bar=>bar.workbench==="PART_DESIGN").flatMap(bar=>bar.items).filter((item) => item.commandId.startsWith("view.")).map((item) => item.commandId),
-    ["view.fit", "view.top", "view.front", "view.right", "view.iso", "view.normal", "view.selection-summary"]);
+    ["view.fit", "view.top", "view.front", "view.right", "view.iso", "view.normal", "view.screenshot", "view.selection-summary"]);
   for (const command of ["assembly.parallel", "assembly.perpendicular"]) {
     assert.ok(toolbars.find(toolbar => toolbar.id === "assembly-constraints").items.some(item => item.commandId === command));
   }
