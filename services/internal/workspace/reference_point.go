@@ -42,6 +42,7 @@ func applyReferencePoint(raw, payload json.RawMessage) (json.RawMessage, modelco
 		}
 		before = model.DatumPoints[index]
 		input.Point.Visible = model.DatumPoints[index].Visible
+		input.Point.Appearance = model.DatumPoints[index].Appearance
 		kind = modelcore.ChangeUpdate
 	} else if input.Action != "CREATE" || index >= 0 {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: point identity exists", ErrValidation)
@@ -97,48 +98,6 @@ func applyReferencePoint(raw, payload json.RawMessage) (json.RawMessage, modelco
 }
 
 func deleteReferencePoint(model PartModel, id string) (json.RawMessage, modelcore.ChangeSet, error) {
-	index := -1
-	for i, p := range model.DatumPoints {
-		if p.ID == id {
-			index = i
-		}
-	}
-	if index < 0 {
-		return nil, modelcore.ChangeSet{}, ErrNotFound
-	}
-	for _, publication := range model.Publications {
-		if publication.Target.DatumID == id {
-			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: reference point is published", ErrValidation)
-		}
-	}
-	for owner, c := range referenceConstructions(&model) {
-		if owner == id {
-			continue
-		}
-		for _, ref := range c.Inputs {
-			if ref.EntityID == id {
-				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: reference point is used by %s", ErrValidation, owner)
-			}
-		}
-	}
-	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
-	point := model.DatumPoints[index]
-	model.DatumPoints = append(model.DatumPoints[:index], model.DatumPoints[index+1:]...)
-	filtered := model.Parameters[:0]
-	for _, p := range model.Parameters {
-		if p.OwnerFeatureID != id {
-			filtered = append(filtered, p)
-		}
-	}
-	model.Parameters = filtered
-	if err := validateAndResolvePartParameters(&model); err != nil {
-		return nil, modelcore.ChangeSet{}, err
-	}
-	change, err := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: id, SlotID: "datum.point"}, point, nil)
-	if err != nil {
-		return nil, modelcore.ChangeSet{}, err
-	}
-	changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change}, nil, beforeParameters, model.Parameters)
-	next, err := json.Marshal(model)
-	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, err
+	raw, _ := json.Marshal(model)
+	return applyPartObjectDeletion(raw, deleteNodesPayload{Targets: []deleteNodePayload{{TargetKind: "REFERENCE_POINT", TargetID: id}}})
 }

@@ -49,7 +49,7 @@ func validateMeasurementResult(reply *workerv1.MeasureGeometryResponse, kind str
 	bad := func() (MeasurementResult, error) {
 		return MeasurementResult{}, fmt.Errorf("invalid measurement response")
 	}
-	if reply == nil || len(reply.Curvature) != 0 || reply.UndefinedSamples != 0 || reply.KernelBuild == "" || len(reply.Values) > 32 || len(reply.Anchors) > 16 {
+	if reply == nil || len(reply.BoundaryEdges) > 0 || len(reply.GapCandidates) > 0 || reply.BoundaryComplete || len(reply.Curvature) != 0 || reply.UndefinedSamples != 0 || reply.KernelBuild == "" || len(reply.Values) > 32 || len(reply.Anchors) > 16 {
 		return bad()
 	}
 	out := MeasurementResult{Complete: reply.Complete, Diagnostic: reply.Diagnostic, GeometryType: reply.GeometryType, KernelBuild: reply.KernelBuild, Values: reply.Values, Anchors: map[string][3]float64{}}

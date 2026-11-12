@@ -18,6 +18,18 @@ struct CurvatureSample {
     bool surface{};
 };
 struct MeasurementResult {
+    struct BoundaryEdge {
+        uint64_t edge_id{};
+        std::vector<Vec3> points;
+    };
+    struct GapCandidate {
+        uint64_t first_edge{}, second_edge{};
+        Vec3 first, second;
+        double distance_mm{};
+    };
+    std::vector<BoundaryEdge> boundary_edges;
+    std::vector<GapCandidate> gap_candidates;
+    bool boundary_complete{};
     bool complete{};
     std::string diagnostic, geometry_type;
     // Suffixes specify units. Coordinates and anchors are in the owner frame.

@@ -149,6 +149,14 @@ func datumRotate(v, axis [3]float64, angle float64) [3]float64 {
 	return v
 }
 func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, requestID string, m *PartModel, limit int, targets ...string) error {
+	unavailable := map[modelcore.DependencyKey]bool{}
+	if len(m.RetiredReferences) > 0 {
+		graph, _, err := buildPartEvaluation(*m, "", "", nil, nil)
+		if err != nil {
+			return err
+		}
+		unavailable = markRetiredReferenceFailures(m, graph)
+	}
 	defs := datumDefinitions(m)
 	constructions := referenceConstructions(m)
 	if len(defs) == 0 && len(constructions) == 0 {
@@ -173,6 +181,10 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 	var resolve func(DatumReference) (datumFrame, error)
 	var visit func(string) error
 	visit = func(id string) error {
+		if unavailable[modelcore.DependencyKey("datum:"+id)] {
+			state[id] = 2
+			return nil
+		}
 		if state[id] == 2 {
 			return nil
 		}
@@ -597,6 +609,7 @@ func applyEditDatum(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, mo
 		}
 		p.Plane.Origin, p.Plane.UDirection, p.Plane.Normal = o, u, n
 		p.Plane.Visible = m.DatumPlanes[index].Visible
+		p.Plane.Appearance = m.DatumPlanes[index].Appearance
 		if p.Plane.GeometricalSetID == "" {
 			p.Plane.GeometricalSetID = m.DatumPlanes[index].GeometricalSetID
 		}
@@ -615,6 +628,7 @@ func applyEditDatum(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, mo
 		}
 		p.Axis.Direction = d
 		p.Axis.Visible = m.DatumAxes[index].Visible
+		p.Axis.Appearance = m.DatumAxes[index].Appearance
 		if p.Axis.GeometricalSetID == "" {
 			p.Axis.GeometricalSetID = m.DatumAxes[index].GeometricalSetID
 		}

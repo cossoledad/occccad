@@ -684,7 +684,10 @@ GeometryFeatureBuild trim(const GeometryFeatureSpec& s,
                           const std::vector<GeometryFeatureBuild>& inputs,
                           const std::function<void()>& check) {
     require_sheet(inputs[0]);
-    require_sheet(inputs[1]);
+    if (members(inputs[1].shape, TopAbs_FACE).empty())
+        require_curve(inputs[1]);
+    else
+        require_sheet(inputs[1]);
     if (!s.surface.has_keep_point)
         throw std::invalid_argument("SURFACE_TRIM_KEEP_POINT_REQUIRED");
     BRepAlgoAPI_Splitter op;
@@ -703,11 +706,26 @@ GeometryFeatureBuild trim(const GeometryFeatureSpec& s,
     const auto faces = members(op.Shape(), TopAbs_FACE);
     if (faces.empty())
         throw std::invalid_argument("SURFACE_TRIM_EMPTY");
-    if (op.SectionEdges().IsEmpty())
-        throw std::invalid_argument("SURFACE_TRIM_NO_INTERSECTION");
     std::vector<TopoDS_Shape> cuts;
     for (TopTools_ListIteratorOfListOfShape it(op.SectionEdges()); it.More(); it.Next())
         cuts.push_back(it.Value());
+    // A wire already on the support is a splitting tool, rather than a newly
+    // generated face/face section. Consume the actual Boolean history only.
+    if (cuts.empty() && members(inputs[1].shape, TopAbs_FACE).empty()) {
+        if (faces.size() <= members(inputs[0].shape, TopAbs_FACE).size())
+            throw std::invalid_argument("SURFACE_TRIM_NO_INTERSECTION");
+        for (const auto& edge : members(inputs[1].shape, TopAbs_EDGE)) {
+            if (contains(op.Shape(), edge))
+                cuts.push_back(edge);
+            for (const auto* list : {&op.Modified(edge), &op.Generated(edge)})
+                for (TopTools_ListIteratorOfListOfShape it(*list); it.More(); it.Next())
+                    for (const auto& mapped : members(it.Value(), TopAbs_EDGE))
+                        if (contains(op.Shape(), mapped))
+                            cuts.push_back(mapped);
+        }
+    }
+    if (cuts.empty())
+        throw std::invalid_argument("SURFACE_TRIM_NO_INTERSECTION");
     const auto keep = BRepBuilderAPI_MakeVertex(point(s.surface.keep_point)).Vertex();
     std::vector<size_t> seeds;
     for (size_t i = 0; i < faces.size(); ++i) {
@@ -828,8 +846,8 @@ GeometryFeatureBuild close(const GeometryFeatureSpec& s,
 bool is_surface_feature(const std::string& op) {
     return op == "SURFACE_BOUNDARY" || op == "SURFACE_BLEND" || op == "SURFACE_SWEEP" ||
            op == "SURFACE_LOFT" || op == "SURFACE_FILL" || op == "SURFACE_TRIM" ||
-           op == "SURFACE_EXTEND" || op == "SURFACE_JOIN" || op == "SURFACE_SEW" ||
-           op == "SURFACE_OFFSET" || op == "CLOSE_SURFACE";
+           op == "SURFACE_MUTUAL_TRIM" || op == "SURFACE_EXTEND" || op == "SURFACE_JOIN" ||
+           op == "SURFACE_SEW" || op == "SURFACE_OFFSET" || op == "CLOSE_SURFACE";
 }
 GeometryFeatureBuild build_surface_feature(const GeometryFeatureSpec& s,
                                            const std::vector<GeometryFeatureBuild>& inputs,
@@ -888,7 +906,7 @@ GeometryFeatureBuild build_surface_feature(const GeometryFeatureSpec& s,
     const bool multi = s.operation == "SURFACE_LOFT" || s.operation == "SURFACE_FILL" ||
                        s.operation == "SURFACE_JOIN" || s.operation == "SURFACE_SEW";
     const size_t count = (s.operation == "SURFACE_SWEEP" || s.operation == "SURFACE_TRIM" ||
-                          s.operation == "SURFACE_EXTEND")
+                          s.operation == "SURFACE_MUTUAL_TRIM" || s.operation == "SURFACE_EXTEND")
                              ? 2
                              : 1;
     if ((!multi && inputs.size() != count) || (multi && (inputs.empty() || inputs.size() > 128)) ||
@@ -908,7 +926,20 @@ GeometryFeatureBuild build_surface_feature(const GeometryFeatureSpec& s,
         out = fill(s, inputs, check);
     else if (s.operation == "SURFACE_TRIM")
         out = trim(s, inputs, check);
-    else if (s.operation == "SURFACE_EXTEND")
+    else if (s.operation == "SURFACE_MUTUAL_TRIM") {
+        require_sheet(inputs[0]);
+        require_sheet(inputs[1]);
+        if (!s.surface.has_second_keep_point)
+            throw std::invalid_argument("SURFACE_TRIM_KEEP_POINT_REQUIRED");
+        auto second = s;
+        second.surface.keep_point = s.surface.second_keep_point;
+        second.surface.has_keep_point = true;
+        auto first = trim(s, inputs, check);
+        check();
+        auto other = trim(second, {inputs[1], inputs[0]}, check);
+        check();
+        out = sewn({first, other}, s, check, false);
+    } else if (s.operation == "SURFACE_EXTEND")
         out = extend(s, inputs, check);
     else if (s.operation == "SURFACE_JOIN" || s.operation == "SURFACE_SEW")
         out = sewn(inputs, s, check, s.operation == "SURFACE_JOIN");

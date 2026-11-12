@@ -81,6 +81,9 @@ type DatumTransform struct {
 	Distance             float64         `json:"distance"` // mm
 }
 type DatumPlane struct {
+	EvaluationStatus string                 `json:"evaluationStatus,omitempty"`
+	Diagnostic       string                 `json:"diagnostic,omitempty"`
+	Appearance       *SurfaceAppearance     `json:"appearance,omitempty"`
 	GeometricalSetID string                 `json:"geometricalSetId,omitempty"`
 	Construction     *ReferenceConstruction `json:"construction,omitempty"`
 	Visible          *bool                  `json:"visible,omitempty"`
@@ -107,6 +110,9 @@ type AxisSystem struct {
 }
 
 type DatumAxis struct {
+	EvaluationStatus string                 `json:"evaluationStatus,omitempty"`
+	Diagnostic       string                 `json:"diagnostic,omitempty"`
+	Appearance       *SurfaceAppearance     `json:"appearance,omitempty"`
 	GeometricalSetID string                 `json:"geometricalSetId,omitempty"`
 	Construction     *ReferenceConstruction `json:"construction,omitempty"`
 	Visible          *bool                  `json:"visible,omitempty"`
@@ -203,10 +209,11 @@ type Publication struct {
 }
 
 type ReferenceGeometry struct {
-	DatumPoints []DatumPoint `json:"datumPoints,omitempty"`
-	DatumPlanes []DatumPlane `json:"datumPlanes"`
-	AxisSystems []AxisSystem `json:"axisSystems"`
-	DatumAxes   []DatumAxis  `json:"datumAxes"`
+	Appearances map[string]ResolvedAppearance `json:"appearances,omitempty"`
+	DatumPoints []DatumPoint                  `json:"datumPoints,omitempty"`
+	DatumPlanes []DatumPlane                  `json:"datumPlanes"`
+	AxisSystems []AxisSystem                  `json:"axisSystems"`
+	DatumAxes   []DatumAxis                   `json:"datumAxes"`
 }
 
 // VisualizationManifest is the immutable display contract shared by a Part
@@ -513,6 +520,7 @@ type ProfileRegionSelection struct {
 }
 
 type Feature struct {
+	Appearance         *SurfaceAppearance          `json:"appearance,omitempty"`
 	ImportedAppearance *SurfaceAppearance          `json:"importedAppearance,omitempty"`
 	GeometricalSetID   string                      `json:"geometricalSetId,omitempty"`
 	Geometry           *GeometricFeatureDefinition `json:"geometry,omitempty"`
@@ -575,23 +583,25 @@ type Feature struct {
 }
 
 type PartModel struct {
-	GeometricalSets   []GeometricalSet                `json:"geometricalSets,omitempty"`
-	DatumPoints       []DatumPoint                    `json:"datumPoints,omitempty"`
-	Measurements      []Measurement                   `json:"measurements,omitempty"`
-	Metadata          *DocumentMetadata               `json:"metadata,omitempty"`
-	DefaultAppearance *SurfaceAppearance              `json:"defaultAppearance,omitempty"`
-	OriginVisible     *bool                           `json:"originVisible,omitempty"`
-	Bodies            []PartBody                      `json:"bodies"`
-	ActiveBodyID      string                          `json:"activeBodyId"`
-	Units             string                          `json:"units"`
-	DatumPlanes       []DatumPlane                    `json:"datumPlanes"`
-	AxisSystems       []AxisSystem                    `json:"axisSystems"`
-	DatumAxes         []DatumAxis                     `json:"datumAxes"`
-	Features          []Feature                       `json:"features"`
-	Parameters        []modelcore.ParameterDefinition `json:"parameters,omitempty"`
-	Publications      []Publication                   `json:"publications,omitempty"`
-	ContextInputs     []ContextInput                  `json:"contextInputs,omitempty"`
-	ContextReferences []ContextReference              `json:"contextReferences,omitempty"`
+	GeometryDefaultAppearance *SurfaceAppearance              `json:"geometryDefaultAppearance,omitempty"` // explicit document overrides; creation surface defaults remain material-only
+	RetiredReferences         []RetiredPartObject             `json:"retiredReferences,omitempty"`
+	GeometricalSets           []GeometricalSet                `json:"geometricalSets,omitempty"`
+	DatumPoints               []DatumPoint                    `json:"datumPoints,omitempty"`
+	Measurements              []Measurement                   `json:"measurements,omitempty"`
+	Metadata                  *DocumentMetadata               `json:"metadata,omitempty"`
+	DefaultAppearance         *SurfaceAppearance              `json:"defaultAppearance,omitempty"`
+	OriginVisible             *bool                           `json:"originVisible,omitempty"`
+	Bodies                    []PartBody                      `json:"bodies"`
+	ActiveBodyID              string                          `json:"activeBodyId"`
+	Units                     string                          `json:"units"`
+	DatumPlanes               []DatumPlane                    `json:"datumPlanes"`
+	AxisSystems               []AxisSystem                    `json:"axisSystems"`
+	DatumAxes                 []DatumAxis                     `json:"datumAxes"`
+	Features                  []Feature                       `json:"features"`
+	Parameters                []modelcore.ParameterDefinition `json:"parameters,omitempty"`
+	Publications              []Publication                   `json:"publications,omitempty"`
+	ContextInputs             []ContextInput                  `json:"contextInputs,omitempty"`
+	ContextReferences         []ContextReference              `json:"contextReferences,omitempty"`
 }
 
 type ContextInputTarget struct {
@@ -1135,6 +1145,7 @@ type DocumentView struct {
 	CommandPreview          *CommandPreview                  `json:"commandPreview,omitempty"`
 	BodyAppearances         map[string]ResolvedAppearance    `json:"bodyAppearances,omitempty"`
 	ResultAppearances       map[string]ResolvedAppearance    `json:"resultAppearances,omitempty"`
+	ObjectAppearances       map[string]ResolvedAppearance    `json:"objectAppearances,omitempty"`
 	ReplicationSources      map[string]ReplicationSource     `json:"replicationSources,omitempty"`
 	SketchDerivedEntities   map[string][]SketchEntity        `json:"sketchDerivedEntities,omitempty"`
 	Document                DocumentSummary                  `json:"document"`
@@ -1323,6 +1334,8 @@ type CommandRequest struct {
 	TargetID                   string                `json:"targetId,omitempty"`
 	OwnerEntityID              string                `json:"ownerEntityId,omitempty"`
 	Targets                    []DeleteNodeTarget    `json:"targets,omitempty"`
+	DeleteOptions              DeleteOptions         `json:"deleteOptions,omitempty"`
+	DeletePlanDigest           string                `json:"deletePlanDigest,omitempty"`
 	Translation                [3]float64            `json:"translation,omitempty"`
 	Rotation                   [4]float64            `json:"rotation,omitempty"`
 	ConstraintKind             string                `json:"constraintKind,omitempty"`

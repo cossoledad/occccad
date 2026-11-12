@@ -9,10 +9,11 @@ import (
 )
 
 type GeometricalSet struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	ParentID string `json:"parentId,omitempty"`
-	Visible  *bool  `json:"visible,omitempty"`
+	Appearance *SurfaceAppearance `json:"appearance,omitempty"`
+	ID         string             `json:"id"`
+	Name       string             `json:"name"`
+	ParentID   string             `json:"parentId,omitempty"`
+	Visible    *bool              `json:"visible,omitempty"`
 }
 
 type ReferenceConstruction struct {
@@ -27,6 +28,9 @@ type ReferenceConstruction struct {
 }
 
 type DatumPoint struct {
+	EvaluationStatus string                 `json:"evaluationStatus,omitempty"`
+	Diagnostic       string                 `json:"diagnostic,omitempty"`
+	Appearance       *SurfaceAppearance     `json:"appearance,omitempty"`
 	ID               string                 `json:"id"`
 	Name             string                 `json:"name"`
 	GeometricalSetID string                 `json:"geometricalSetId"`
@@ -43,7 +47,7 @@ func geometricalSetChangesOnly(changes modelcore.ChangeSet) bool {
 		return false
 	}
 	for _, c := range changes.Changes {
-		if c.Target.SlotID != "geometrical-set.entity" {
+		if c.Target.SlotID != "geometrical-set.entity" && c.Target.SlotID != "feature.container" && c.Target.SlotID != "feature.body" && c.Target.SlotID != "datum-plane.container" && c.Target.SlotID != "datum-axis.container" && c.Target.SlotID != "reference-point.container" {
 			return false
 		}
 	}
@@ -51,9 +55,10 @@ func geometricalSetChangesOnly(changes modelcore.ChangeSet) bool {
 }
 
 type geometricalSetPayload struct {
-	Action   string         `json:"action"`
-	Set      GeometricalSet `json:"set"`
-	EntityID string         `json:"entityId,omitempty"`
+	Targets  []deleteNodePayload `json:"targets,omitempty"`
+	Action   string              `json:"action"`
+	Set      GeometricalSet      `json:"set"`
+	EntityID string              `json:"entityId,omitempty"`
 }
 
 func validateGeometricalSets(model PartModel) error {
@@ -177,6 +182,12 @@ func applyGeometricalSet(raw, payload json.RawMessage) (json.RawMessage, modelco
 	if err := json.Unmarshal(payload, &input); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
+	if input.Action == "MOVE" || input.Action == "DISSOLVE" {
+		return applyPartContainerChange(model, input)
+	}
+	if input.Action == "DELETE" {
+		return applyPartObjectDeletion(raw, deleteNodesPayload{Targets: []deleteNodePayload{{TargetKind: "GEOMETRICAL_SET", TargetID: input.Set.ID}}})
+	}
 	index := -1
 	for i, set := range model.GeometricalSets {
 		if set.ID == input.Set.ID {
@@ -209,24 +220,9 @@ func applyGeometricalSet(raw, payload json.RawMessage) (json.RawMessage, modelco
 			input.Set.Name = model.GeometricalSets[index].Name
 		}
 		input.Set.Visible = model.GeometricalSets[index].Visible
+		input.Set.Appearance = model.GeometricalSets[index].Appearance
 		model.GeometricalSets[index] = input.Set
 		after = input.Set
-	case "DELETE":
-		if index < 0 {
-			return nil, modelcore.ChangeSet{}, ErrNotFound
-		}
-		for _, set := range model.GeometricalSets {
-			if set.ParentID == input.Set.ID {
-				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: GEOMETRICAL_SET_NOT_EMPTY", ErrValidation)
-			}
-		}
-		for _, id := range referenceContainerIDs(model) {
-			if id == input.Set.ID {
-				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: GEOMETRICAL_SET_NOT_EMPTY", ErrValidation)
-			}
-		}
-		before = model.GeometricalSets[index]
-		model.GeometricalSets = append(model.GeometricalSets[:index], model.GeometricalSets[index+1:]...)
 	default:
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: invalid geometrical set action", ErrValidation)
 	}

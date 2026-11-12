@@ -158,13 +158,16 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 }
 
 type deleteNodePayload struct {
-	TargetKind    string `json:"targetKind"`
-	TargetID      string `json:"targetId"`
-	OwnerEntityID string `json:"ownerEntityId,omitempty"`
+	TargetKind    string        `json:"targetKind"`
+	TargetID      string        `json:"targetId"`
+	OwnerEntityID string        `json:"ownerEntityId,omitempty"`
+	Options       DeleteOptions `json:"options,omitempty"`
 }
 
 type deleteNodesPayload struct {
-	Targets []deleteNodePayload `json:"targets"`
+	Targets    []deleteNodePayload `json:"targets"`
+	Options    DeleteOptions       `json:"options,omitempty"`
+	PlanDigest string              `json:"planDigest,omitempty"`
 }
 
 func mergeDeleteChangeSets(changeSets []modelcore.ChangeSet) (modelcore.ChangeSet, error) {
@@ -234,7 +237,44 @@ func applyDeleteNodes(modelJSON, payloadJSON json.RawMessage,
 }
 
 func applyDeletePartNodes(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
-	return applyDeleteNodes(modelJSON, payloadJSON, applyDeletePartNode)
+	var payload deleteNodesPayload
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	managed, children := []deleteNodePayload{}, []deleteNodePayload{}
+	for _, target := range payload.Targets {
+		if managedPartObject(target.TargetKind) {
+			managed = append(managed, target)
+		} else {
+			children = append(children, target)
+		}
+	}
+	next := modelJSON
+	sets := []modelcore.ChangeSet{}
+	if len(managed) > 0 {
+		var set modelcore.ChangeSet
+		var err error
+		next, set, err = applyPartObjectDeletion(next, deleteNodesPayload{Targets: managed, Options: payload.Options, PlanDigest: payload.PlanDigest})
+		if err != nil {
+			return nil, set, err
+		}
+		sets = append(sets, set)
+	}
+	for _, target := range children {
+		raw, _ := json.Marshal(target)
+		var set modelcore.ChangeSet
+		var err error
+		next, set, err = applyDeletePartNode(next, raw)
+		if err != nil {
+			return nil, set, err
+		}
+		sets = append(sets, set)
+	}
+	if len(sets) == 0 {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: delete targets are required", ErrValidation)
+	}
+	merged, err := mergeDeleteChangeSets(sets)
+	return next, merged, err
 }
 
 func applyDeleteProductNodes(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -252,67 +292,11 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 	}
 	normalizePartModel(&model)
 	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
+
+	if managedPartObject(payload.TargetKind) {
+		return applyPartObjectDeletion(modelJSON, deleteNodesPayload{Targets: []deleteNodePayload{payload}, Options: payload.Options})
+	}
 	switch payload.TargetKind {
-	case "REFERENCE_POINT":
-		return deleteReferencePoint(model, payload.TargetID)
-	case "GEOMETRICAL_SET":
-		raw, _ := json.Marshal(geometricalSetPayload{Action: "DELETE", Set: GeometricalSet{ID: payload.TargetID}})
-		return applyGeometricalSet(modelJSON, raw)
-	case "DATUM_PLANE", "DATUM_AXIS":
-		return deleteDatum(model, payload.TargetKind, payload.TargetID)
-	case "FEATURE":
-		index := -1
-		for i := range model.Features {
-			if model.Features[i].ID == payload.TargetID {
-				index = i
-				break
-			}
-		}
-		if index < 0 {
-			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected feature does not exist", ErrValidation)
-		}
-		publishedBodyID := ""
-		for _, body := range model.Bodies {
-			if body.CreatedByFeatureID == payload.TargetID {
-				publishedBodyID = body.ID
-				break
-			}
-		}
-		if err := rejectPublicationTargetRemoval(model, publishedBodyID, map[string]bool{payload.TargetID: true}); err != nil {
-			return nil, modelcore.ChangeSet{}, err
-		}
-		for _, dependent := range model.Features {
-			if slices.Contains(featureInputIDs(dependent), payload.TargetID) {
-				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: cannot delete feature %s while feature %s depends on it", ErrValidation, payload.TargetID, dependent.ID)
-			}
-			if dependent.Sketch != nil && dependent.Sketch.Support.Type == "PLANAR_FACE" &&
-				dependent.Sketch.Support.PersistentSelection != nil &&
-				dependent.Sketch.Support.PersistentSelection.Anchor.FeatureID == payload.TargetID {
-				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: FAILED_SUPPORT: sketch %s depends on feature %s", ErrValidation, dependent.ID, payload.TargetID)
-			}
-		}
-		before := featureHistoryDefinition(model.Features[index])
-		model.Features = append(model.Features[:index], model.Features[index+1:]...)
-		bodyChanges, err := removeFeatureBody(&model, payload.TargetID)
-		if err != nil {
-			return nil, modelcore.ChangeSet{}, err
-		}
-		parameters := model.Parameters[:0]
-		for _, parameter := range model.Parameters {
-			if !strings.HasPrefix(parameter.ParameterID, "parameter:"+payload.TargetID+":") {
-				parameters = append(parameters, parameter)
-			}
-		}
-		model.Parameters = parameters
-		ensureFeatureParameters(&model)
-		if err := validateAndResolvePartParameters(&model); err != nil {
-			return nil, modelcore.ChangeSet{}, err
-		}
-		change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.TargetID, SlotID: "entity"}, before, nil)
-		changes, seeds := appendParameterLifecycleChanges(append(bodyChanges, change),
-			[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.TargetID)}, beforeParameters, model.Parameters)
-		next, _ := json.Marshal(model)
-		return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 	case "SKETCH_OFFSET_DEFINITION":
 		data, _ := json.Marshal(editSketchPayload{SketchID: payload.OwnerEntityID, Operations: []SketchOperation{{Type: "DELETE_OFFSET", OffsetID: payload.TargetID}}})
 		return applyEditSketch(modelJSON, data)
@@ -1273,6 +1257,9 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	if d := payload.Feature.Geometry; d != nil && d.Kind != "IMPORTED" && d.Surface == nil && d.ConstructionTolerance == 0 {
+		d.ConstructionTolerance = 0.01
+	}
 	beforeModel := model
 	beforeModel.Features = append([]Feature(nil), model.Features...)
 	if err := resolveAutomaticPatternSource(model, &payload.Feature); err != nil {
@@ -2417,6 +2404,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	}
 	if request.ExpectedHead != nil && (request.ExpectedHead.WorkspaceID != prepared.workspaceID || request.ExpectedHead.RevisionID != prepared.headRevision || request.ExpectedHead.Sequence != prepared.headSequence) {
 		return prepared, fmt.Errorf("%w: WORKSPACE_HEAD_CONFLICT", ErrValidation)
+	}
+	if slices.Contains([]string{"DELETE_NODE", "DELETE_NODES", "DELETE_BODY", "DELETE_GEOMETRICAL_SET", "MOVE_TO_GEOMETRICAL_SET", "DISSOLVE_GEOMETRICAL_SET"}, request.Type) && ((request.DeletePlanDigest != "" && request.VersionID == "") || request.VersionID != "" && request.VersionID != prepared.headRevision) {
+		return prepared, fmt.Errorf("%w: PART_OBJECT_BASE_REVISION_CHANGED", ErrValidation)
 	}
 	if request.Type == "MOVE_FEATURE" && request.VersionID != "" && request.VersionID != prepared.headRevision {
 		return prepared, featureEditFailure{code: "FEATURE_EDIT_STALE"}

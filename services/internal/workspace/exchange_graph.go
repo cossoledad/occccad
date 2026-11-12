@@ -238,7 +238,7 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 					exchangeStyles["body:"+id] = exchangeAppearance(style)
 				}
 				for _, feature := range features {
-					style, err := service.resultAppearance(ctx, feature, part.DefaultAppearance)
+					style, err := service.partResultAppearance(ctx, part, feature)
 					if err != nil {
 						return "", err
 					}
@@ -315,7 +315,7 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 						return "", err
 					}
 					visible := visibility.resultLocalVisible(exportAddress{docID, path, "FEATURE", feature.ID})
-					appearance, err := service.resultAppearance(ctx, feature, part.DefaultAppearance)
+					appearance, err := service.partResultAppearance(ctx, part, feature)
 					if err != nil {
 						return "", err
 					}

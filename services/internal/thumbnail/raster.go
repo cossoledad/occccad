@@ -137,14 +137,27 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 		edgeColor, edgeWidth, edgeOpacity := thumbnailEdgeStyle(instance.appearance)
 		if instance.domain == "WIRE_SET" {
 			edgeColor = color.RGBA{169, 155, 255, 255}
+			if instance.appearance.Color != "" {
+				edgeColor = surfaceColor(instance.appearance.Color)
+			}
+			if instance.appearance.EdgeColor != "" {
+				edgeColor = surfaceColor(instance.appearance.EdgeColor)
+			}
 			edgeWidth = 1.8
+			if instance.appearance.EdgeWidth != nil {
+				edgeWidth = *instance.appearance.EdgeWidth
+			}
 			edgeOpacity = 1
+			if instance.appearance.Opacity != nil {
+				edgeOpacity = *instance.appearance.Opacity
+			}
 		}
 		if edgeOpacity <= 0 {
 			continue
 		}
 		if len(m.Edges) > 0 {
 			for i, edge := range m.Edges {
+				dashPhase := 0.0
 				if i%128 == 0 {
 					if err := ctx.Err(); err != nil {
 						return err
@@ -157,7 +170,7 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 						}
 					}
 					if valid(edge.Points[j-1]) && valid(edge.Points[j]) {
-						r.line(r.screen(instance.pose.point(edge.Points[j-1])), r.screen(instance.pose.point(edge.Points[j])), edgeColor, edgeWidth*samples, edgeOpacity)
+						r.styledLine(r.screen(instance.pose.point(edge.Points[j-1])), r.screen(instance.pose.point(edge.Points[j])), edgeColor, edgeWidth*samples, edgeOpacity, instance.appearance.LineStyle == "DASHED", &dashPhase)
 					}
 				}
 			}
@@ -183,15 +196,35 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 			p := r.screen(line.points[0])
 			if line.engineering {
 				radius := 3.5 * float64(samples)
+				opacity := 1.0
+				if line.appearance.Opacity != nil {
+					opacity = *line.appearance.Opacity
+				}
+				if line.appearance.PointSize != nil {
+					radius *= *line.appearance.PointSize / 11
+				}
+				pointColor := color.RGBA{255, 255, 255, 255}
+				if line.appearance.Color != "" {
+					pointColor = surfaceColor(line.appearance.Color)
+				}
 				for pass := 0; pass < 2; pass++ {
 					width := 2.7 * float64(samples)
 					value := color.RGBA{27, 37, 48, 255}
 					if pass == 1 {
 						width = 1.2 * float64(samples)
-						value = color.RGBA{255, 255, 255, 255}
+						value = pointColor
 					}
-					r.line(screenPoint{p.x - radius, p.y - radius, p.z}, screenPoint{p.x + radius, p.y + radius, p.z}, value, width, 1)
-					r.line(screenPoint{p.x - radius, p.y + radius, p.z}, screenPoint{p.x + radius, p.y - radius, p.z}, value, width, 1)
+					if line.appearance.PointSymbol == "DOT" {
+						r.line(p, p, value, radius*1.7, opacity)
+						continue
+					}
+					if line.appearance.PointSymbol == "PLUS" {
+						r.line(screenPoint{p.x - radius, p.y, p.z}, screenPoint{p.x + radius, p.y, p.z}, value, width, opacity)
+						r.line(screenPoint{p.x, p.y - radius, p.z}, screenPoint{p.x, p.y + radius, p.z}, value, width, opacity)
+						continue
+					}
+					r.line(screenPoint{p.x - radius, p.y - radius, p.z}, screenPoint{p.x + radius, p.y + radius, p.z}, value, width, opacity)
+					r.line(screenPoint{p.x - radius, p.y + radius, p.z}, screenPoint{p.x + radius, p.y - radius, p.z}, value, width, opacity)
 				}
 			} else {
 				r.line(p, p, c, 4*samples, 1)
@@ -210,6 +243,37 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 }
 func edgeFunction(a, b screenPoint, x, y float64) float64 {
 	return (b.x-a.x)*(y-a.y) - (b.y-a.y)*(x-a.x)
+}
+func (r *raster) styledLine(a, b screenPoint, c color.RGBA, width, opacity float64, dashed bool, phase *float64) {
+	if !dashed {
+		r.line(a, b, c, width, opacity)
+		return
+	}
+	length := math.Hypot(b.x-a.x, b.y-a.y)
+	if length < 1e-9 {
+		return
+	}
+	period := 10.0 * samples
+	dash := 6.0 * samples
+	interpolate := func(t float64) screenPoint {
+		return screenPoint{a.x + (b.x-a.x)*t, a.y + (b.y-a.y)*t, a.z + (b.z-a.z)*t}
+	}
+	for offset := 0.0; offset < length; {
+		position := math.Mod(*phase+offset, period)
+		step := period - position
+		if position < dash {
+			step = dash - position
+		}
+		end := math.Min(length, offset+step)
+		if end <= offset {
+			break
+		}
+		if position < dash {
+			r.line(interpolate(offset/length), interpolate(end/length), c, width, opacity)
+		}
+		offset = end
+	}
+	*phase = math.Mod(*phase+length, period)
 }
 func surfaceColor(value string) color.RGBA {
 	if len(value) == 7 && value[0] == '#' {

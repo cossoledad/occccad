@@ -35,6 +35,7 @@ export type CadViewportHandle = {
   initializeSection:(definition:import("../cad/assembly/spatial-analysis").SpatialAnalysis)=>import("../cad/assembly/spatial-analysis").SpatialAnalysis;
   positionSectionOnSelection:(selection:SelectionItem,frame:import("../cad/assembly/spatial-analysis").SpatialAnalysis['frame'],signal:AbortSignal)=>Promise<import("../cad/assembly/spatial-analysis").SpatialAnalysis['frame']>;
   setMeasurementLayouts:(documentId:string,layouts:import("../cad/measurement/annotation-layout").AnnotationLayouts,save?:(id:string,position:[number,number,number]|undefined)=>void)=>void;
+  focusAnalysisPoints:(points:import("../types").Vec3[])=>void;
   showShapeQuality:(report?:import('../cad/analysis/shape-quality').ShapeQualityReport,mode?:import('../cad/analysis/shape-quality').CurvatureMode,gain?:number)=>boolean;
   showMeasurement:(report?:import('../cad/measurement/measurement').MeasurementReport)=>void;
   showSpatialAnalysis:(report?:import("../cad/assembly/spatial-analysis").SpatialReport,id?:string)=>boolean;
@@ -281,6 +282,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     initializeSection:d=>engine.current?.initializeSection(d)??d,
     positionSectionOnSelection:(selection,frame,signal)=>engine.current!.positionSectionOnSelection(selection,frame,signal),
     setMeasurementLayouts:(documentId,layouts,save)=>engine.current?.setMeasurementLayouts(documentId,layouts,save),
+    focusAnalysisPoints:points=>engine.current?.focusAnalysisPoints(points),
     showShapeQuality:(report,mode,gain)=>engine.current?.showShapeQuality(report,mode,gain)??false,
     showMeasurement:report=>engine.current?.showMeasurement(report),
     showSpatialAnalysis:(report,id)=>engine.current?.showSpatialAnalysis(report,id)??false,

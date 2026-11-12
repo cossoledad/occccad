@@ -68,18 +68,19 @@ MCP 返回的关键原文已取至 `has_more=false`；目录页另外读取了�
 | 交线 | `online/cfyug_C2/cfyugintersections.htm`：选择两个相交支撑 | 依次选择两个有限面/基准面；多支路须满足稳定 Naming |
 | 偏移曲线 | `online/cfyug_C2/cfyugparallelcurves.htm`：曲线、支撑及距离/侧向 | 选择曲线与平面，距离可为表达式；未实现一般空间支撑曲面偏移 |
 | 连接曲线 | `online/cfyug_C2/cfyugconnectcurves.htm`：连接端点/曲线及连续性 | 选择两曲线，反向控制连接端，设置切线系数；限现有 G1 Bezier |
-| 分割 | `online/cfyug_C2/cfyugsplitGSD.htm`：切割对象与保留侧 | 统一曲线选择与预览；当前仍按弧长比例分割，不声称支持 CATIA 切割对象/保留侧 |
-| 裁剪 | `online/cfyug_C2/cfyugtrimGSD.htm`：互裁对象与保留区域 | 当前仍保留单曲线弧长区间；通用互裁和区域选择留在后续阶段 |
+| 分割 | `online/cfyug_C2/cfyugsplitGSD.htm`：切割对象与保留侧 | 统一曲线选择与预览；曲线仍按弧长比例分割；曲面在“裁剪曲面”中支持有限面/平面或面上曲线切割与关联保留点 |
+| 裁剪 | `online/cfyug_C2/cfyugtrimGSD.htm`：互裁对象与保留区域 | 曲线裁剪保留弧长区间；曲面另有两面互裁与各自的关联保留点，当前不自动外推 |
 | 延伸 | `online/cfyug_C2/cfyugextrapolcurves.htm`：端点、待延伸曲线及长度/终止对象 | 曲线、起端/末端/两端和长度；限直线/圆，未实现 up-to 或通用曲线外推 |
 | 平移 | `online/cfyug_C2/cfyugtranslateGSD.htm`：对象、方向和距离 | 方向引用直线、轴或平面法向；上游变化后重新解析 |
 | 旋转 | `online/cfyug_C2/cfyugrotateGSD.htm`：对象、轴和角度 | 所选轴的原点和方向共同驱动旋转，不保存独立原点分量 |
 | 镜像 | `online/cfyug_C2/cfyugsymmetryGSD.htm`：点/线/面作为对称参考 | 当前只支持关联平面镜像，未扩展到点/线对称 |
+| 旋转曲面 | `online/cfyug_C2/cfyugrevolution.htm`：轮廓、轴线及角度限值 | 轮廓和关联轴线分别拾取；当前单角度不超过一周，未提供双限值或复杂轮廓修补 |
 | 拉伸曲面 | `online/cfyug_C2/cfyugextrude.htm`：轮廓、直线方向或平面法向、限值和反向 | 轮廓与方向分别选择，上游方向线可驱动重算；当前为单向长度，无双向/up-to 限值 |
 | 加厚 | `online/prtug_C2/prtugbt0710.htm`：曲面、厚度与方向形成材料 | 选曲面及有符号常厚度；新实体/添加/切除/交集；未提供双侧独立厚度 |
 | 曲面扫掠 | `online/sdgug_C2/sdgugbt0204.htm`：显式/隐式截面，guide/spine、限界、扭转处理和姿态 | 显式截面和 G1 路径；D 增加单条姿态导向及直线截面/直线 spine 的精确边界导向，未交付一般截面接触、多导向/法则 |
 | 曲面放样 | `online/cfyug_C2/cfyugloft.htm`：截面列表、反向、闭合点、coupling、支撑连续性 | 顺序/反向/直纹；D 增加显式闭合点、内部点对应、spine/站位及姿态/有界边界导向 |
 | 填充曲面 | `online/sdgug_C2/sdgugbt0206.htm`：闭合边界、逐边支撑、偏差 | 一般闭合边界为 G0；D 对四条有序多项式边增加逐边 G1/受限 G2，不自动修补支撑 |
-| 裁剪曲面 | `online/cfyug_C2/cfyugtrimGSD.htm`：可选点决定保留区域，歧义时指定保留/移除，自动外推可关闭 | C 使用显式关联点与真实切割交线确定保留区域，不保存点击坐标或分区编号 |
+| 裁剪曲面 | `online/cfyug_C2/cfyugtrimGSD.htm`：可选点决定保留区域，歧义时指定保留/移除，自动外推可关闭 | 使用显式关联点与真实切割历史确定单面裁剪或两面互裁的保留区域，不保存点击坐标或分区编号；面上曲线可作为切割对象 |
 | 延长曲面 | `online/cfyug_C2/cfyugextrapolsurfaces.htm`：边界/源面、长度/up-to、Tangent/Curvature、近似边界开关 | C 限矩形参数域的等参数自由边，按物理长度 G1 外推，不宣称任意修剪面通用外推 |
 | 连接、缝合 | `online/cfyug_C2/cfyugjoin.htm`：连接/流形/相切检查、合并距离及 federation | C 区分关联面集与共享边界 Shell，检查连接和流形；不实现 federation/自动删除错误子面 |
 | 偏移曲面 | `online/sdgug_C2/sdgugbt0203.htm`：有符号距离、反向、平滑及子面失败管理 | C 限常量偏移，失败整体拒绝；不静默删除错误面 |
@@ -123,3 +124,16 @@ OCCT 7.9.1 本机源码另确认：`BRepFill_PipeShell::Add` 的 `ContactOnBorde
 本地构建依赖的 `Standard_Version.hxx` 为 OCCT 7.9.1。本轮核对了该版本头文件及官方源码：[BRepFill_Filling](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_1/src/BRepFill/BRepFill_Filling.hxx)、[BRepOffsetAPI_MakePipeShell](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_1/src/BRepOffsetAPI/BRepOffsetAPI_MakePipeShell.hxx)。前者声明带支撑的 G1/G2 边界约束及误差查询，后者区分扫掠壳构造与 MakeSolid；本地 Sewing 头文件提供自由边、多重边及修改历史查询。
 
 这只证明候选 API 存在。算法接纳范围、完整 Naming、误差上界、取消响应及工程模型成功率仍需后续实现与检验。OCCT 当前在线文档会重定向到较新版本，不能把其页面版本当成本项目运行版本。Onshape 的公开 [FeatureScript 几何操作文档](https://cad.onshape.com/FsDoc/library.html)也仅用于理解 wire/sheet 输出及边界输入合同，不用于推断其专有内核实现。
+
+## Part 对象操作对照
+
+本机 `control/CfyEnglishC2.viewdoc`、`BasEnglishC2.viewdoc`、`PrtEnglishC2.viewdoc` 的页面定位用于以下操作依据；这是手册对照，未运行 CATIA 实机模型。
+
+| CATIA 页面 | 参考行为 | 本项目采用的语义 |
+|---|---|---|
+| `online/cfyugprt_C2/cfyugprtdelete.htm` | 删除影响及 Children/Exclusive parents 选项 | 依赖计划、保留失效定义或级联、保护共享输入；通过 Revision/digest 冻结确认范围 |
+| `online/cfyug_C2/cfyuggeomsets.htm` | 几何图形集、In Work Object、内容组织 | 会话工作集合、移入、解散及父集合回退；普通集合不建立材料历史顺序 |
+| `online/basug_C2/basugbt0706.htm` | 对象图形属性和继承 | 点、线、曲面及容器的适用属性按字段继承，Inspector 只读 |
+| `online/prtug_C2/prtugbt0501.htm`、`online/sdgug_C2/sdgugbt0206.htm` | 选中合法输入后启动 Pad/Fill 等命令 | 启动时捕获有序选集，按相同的角色和上下文过滤带入，不创建默认几何 |
+
+自由边和小间隙显示沿本项目已有精确质量分析管线实现；手册目录不能证明其算法等同于 CATIA，也不证明工业水密检测或误差上界。

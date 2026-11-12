@@ -10,6 +10,7 @@ import {CommandRegistry,type CadCommand,type CadCommandInvocation,type CommandOp
 import {projectToolbars,validateCatalog,type WorkbenchCatalog,type ContextFacts} from "../../cad/command/workbench-catalog";
 import {useWorkbenchStore,type WorkbenchToolID} from "../../state/workbench-store";
 import type {DocumentView,Feature} from "../../types";
+import type {SelectionItem} from "../../types";
 import type {ShareResource} from "../../components/share-dialog";
 import type {CadViewportHandle} from "../../viewport/cad-viewport";
 import {deletableTreeNodesForSelections,isSolidFeature} from "./workbench-tree-model";
@@ -18,6 +19,7 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
+ beginInputSelection?:(selections:readonly SelectionItem[],operation:CommandOperation)=>void;
  openShapeQuality?:()=>void;shapeQualityOpen?:boolean;
  openGeometryFeature?:(kind:import("../../types").GeometryKind)=>void;
  openSketchDiagnostics?:()=>void;
@@ -153,16 +155,19 @@ export function useWorkbenchCommandRegistration(registry:CommandRegistry,binding
  const definitionsRef=useRef(new Map<string,CadCommand>());definitionsRef.current=new Map(definitions.map(command=>[command.id,command]));
  useLayoutEffect(()=>{
   const current=(id:string)=>definitionsRef.current.get(id)!;
-  const remove=registry.registerMany(definitions.map(command=>({id:command.id,get continues(){return current(command.id).continues},
+  const remove=registry.registerMany(definitions.map(command=>({id:command.id,get continues(){return current(command.id).continues},captureInput:()=>bindingsRef.current.store.selections.map(value=>structuredClone(value)),
    execute:async invocation=>{
     const operation=invocation?.operation;
+    const selections=(invocation?.capturedInput??[]) as SelectionItem[];
     if(operation&&registry.declaration(command.id)?.implementation!=="handler"){
      await operation.prepare(async()=>{await bindingsRef.current.viewport.current?.settleAssemblyInteraction();});
      if(!operation.current)return;
      const clear=(nextCommand?:string)=>{const binding=bindingsRef.current;if(binding.closePanels)binding.closePanels(nextCommand);else {binding.viewport.current?.clearCommandPreview();binding.setSolidEditor(undefined);binding.setBooleanDialog(undefined);binding.setDatumEditor(undefined);}};
      if(!invocation?.continuing){clear(command.id);operation.own(()=>clear());operation.own(()=>bindingsRef.current.store.setActiveTool("select","once"));}
     }
-    return current(command.id).execute(invocation);
+    const result=current(command.id).execute(invocation);
+    if(operation?.current&&!invocation?.continuing&&registry.declaration(command.id)?.implementation==='form')bindingsRef.current.beginInputSelection?.(selections,operation);
+    return result;
    },isEnabled:invocation=>current(command.id).isEnabled?.(invocation)??true,
    isVisible:()=>current(command.id).isVisible?.()??true,isActive:command.isActive?()=>current(command.id).isActive?.()??false:undefined})));
   return ()=>{registry.cancel();remove();};

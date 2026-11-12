@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -81,5 +82,18 @@ func TestGeometryReferenceFramesAndInvalidRoles(t *testing.T) {
 	point := GeometricInput{Kind: "DATUM", Datum: &DatumReference{Kind: "POINT", EntityID: "missing"}}
 	if err := validateGeometryReference(point, nil, m); err == nil {
 		t.Fatal("accepted missing point")
+	}
+}
+
+func TestGeometryReferenceFrameRejectsUnavailableDatums(t *testing.T) {
+	m := newPartModel()
+	m.DatumPlanes[0].EvaluationStatus = "BLOCKED"
+	m.DatumAxes = []DatumAxis{{ID: "axis", EvaluationStatus: "FAILED"}}
+	m.DatumPoints = []DatumPoint{{ID: "point", EvaluationStatus: "FAILED"}}
+	for _, input := range []GeometricInput{{Kind: "PLANE", PlaneID: m.DatumPlanes[0].ID}, {Kind: "DATUM", Datum: &DatumReference{Kind: "AXIS", EntityID: "axis"}}, {Kind: "DATUM", Datum: &DatumReference{Kind: "POINT", EntityID: "point"}}} {
+		_, _, err := (&Service{}).geometryReferenceFrame(context.Background(), "no-worker", m, input)
+		if err == nil || !strings.Contains(err.Error(), "INPUT_REFERENCE_MISSING") {
+			t.Fatal("unavailable datum supplied its old numeric frame", input, err)
+		}
 	}
 }

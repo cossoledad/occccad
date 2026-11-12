@@ -17,6 +17,7 @@
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffset_MakeOffset.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepProj_Projection.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
@@ -501,6 +502,10 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
         return out;
     }
     const auto& p = s.parameters;
+    const double construction_tolerance = s.construction_tolerance;
+    if (!std::isfinite(construction_tolerance) || construction_tolerance < 1e-7 ||
+        construction_tolerance > 1e-2)
+        throw std::invalid_argument("GEOMETRY_TOLERANCE_OUT_OF_RANGE");
     for (double v : {p.distance, p.angle, p.start, p.end, p.tension})
         if (!std::isfinite(v))
             throw std::invalid_argument("GEOMETRY_NONFINITE_PARAMETER");
@@ -582,7 +587,7 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
                     new TColgp_HArray1OfPnt(1, static_cast<int>(s.curve.points.size()));
                 for (int i = 1; i <= points->Length(); ++i)
                     points->SetValue(i, point(s.curve.points[static_cast<size_t>(i - 1)].position));
-                GeomAPI_Interpolate fit(points, s.curve.closed, tolerance);
+                GeomAPI_Interpolate fit(points, s.curve.closed, construction_tolerance);
                 fit.Perform();
                 if (!fit.IsDone())
                     throw std::invalid_argument("SPLINE_INTERPOLATION_FAILED");
@@ -689,6 +694,29 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
                     {source});
             }
         }
+    } else if (s.operation == "SURFACE_REVOLVE") {
+        require(1);
+        if (!members(inputs[0].shape, TopAbs_FACE).empty() ||
+            members(inputs[0].shape, TopAbs_EDGE).empty())
+            throw std::invalid_argument("SURFACE_REVOLVE_REQUIRES_CURVES");
+        const double full = 2 * std::acos(-1.0);
+        if (std::abs(p.angle) <= 1e-10 || std::abs(p.angle) > full + 1e-10)
+            throw std::invalid_argument("SURFACE_REVOLVE_ANGLE_INVALID");
+        BRepPrimAPI_MakeRevol op(inputs[0].shape, gp_Ax1(point(p.origin), direction(p.direction)),
+                                 p.angle, Standard_True);
+        op.Build();
+        check();
+        if (!op.IsDone() || op.Shape().IsNull())
+            throw std::invalid_argument("SURFACE_REVOLVE_FAILED");
+        out.shape = op.Shape();
+        history(out, inputs[0], op, s.feature_id, "revolve");
+        if (std::abs(p.angle) < full - 1e-10)
+            for (const auto& n : inputs[0].named) {
+                add(out, derived(s.feature_id, "revolve/start", {n.ref}), op.FirstShape(n.shape),
+                    {n.ref});
+                add(out, derived(s.feature_id, "revolve/end", {n.ref}), op.LastShape(n.shape),
+                    {n.ref});
+            }
     } else if (s.operation == "SURFACE_EXTRUDE") {
         require(1);
         if (!members(inputs[0].shape, TopAbs_FACE).empty())
@@ -723,8 +751,8 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
         }
         out.shape = compound(shapes);
         if (shapes.size() > 1) {
-            BRepBuilderAPI_Sewing sew(tolerance, Standard_True, Standard_True, Standard_True,
-                                      Standard_False);
+            BRepBuilderAPI_Sewing sew(construction_tolerance, Standard_True, Standard_True,
+                                      Standard_True, Standard_False);
             for (const auto& shape : shapes)
                 sew.Add(shape);
             sew.Perform();

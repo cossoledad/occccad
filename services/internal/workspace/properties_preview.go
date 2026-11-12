@@ -15,10 +15,12 @@ type propertyPreviewSnapshot struct {
 }
 
 type PropertyAppearanceProjection struct {
-	DocumentID     string             `json:"documentId"`
-	OccurrencePath string             `json:"occurrencePath"`
-	BodyID         string             `json:"bodyId"`
-	Appearance     ResolvedAppearance `json:"appearance"`
+	SourceResult   *modelcore.GeometryResultReference `json:"sourceResult,omitempty"`
+	ObjectID       string                             `json:"objectId,omitempty"`
+	DocumentID     string                             `json:"documentId"`
+	OccurrencePath string                             `json:"occurrencePath"`
+	BodyID         string                             `json:"bodyId"`
+	Appearance     ResolvedAppearance                 `json:"appearance"`
 }
 
 // The same read-time projection serves a draft and a committed Revision.
@@ -41,6 +43,14 @@ func (s *Service) previewProperties(ctx context.Context, documentID string, prep
 	}
 	projection := []PropertyAppearanceProjection{}
 	if view.Part != nil {
+		for _, feature := range view.Part.Features {
+			if feature.Result != nil {
+				projection = append(projection, PropertyAppearanceProjection{DocumentID: documentID, SourceResult: &modelcore.GeometryResultReference{FeatureID: feature.ID, ResultID: feature.Result.ID}, Appearance: view.ResultAppearances[feature.ID]})
+			}
+		}
+		for id, appearance := range view.ObjectAppearances {
+			projection = append(projection, PropertyAppearanceProjection{DocumentID: documentID, ObjectID: id, Appearance: appearance})
+		}
 		for _, body := range view.Part.Bodies {
 			appearance, ok := view.BodyAppearances[body.ID]
 			if !ok {

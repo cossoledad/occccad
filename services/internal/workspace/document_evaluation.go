@@ -203,7 +203,7 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 					}
 				}
 				var failed *solidEvaluationFailure
-				if !errors.Is(err, ErrDerivedInputUpdateRequired) && (!errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetFeatureSuppression && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch && prepared.command.TypeURI != typeEditDatum)) {
+				if !errors.Is(err, ErrDerivedInputUpdateRequired) && (!errors.As(err, &failed) || (!partObjectDeletionCommand(prepared.command.TypeURI, prepared.command.Payload) && prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetFeatureSuppression && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch && prepared.command.TypeURI != typeEditDatum)) {
 					return err
 				}
 				revisionState, evaluationStatus = "FAILED", "FAILED"
@@ -233,6 +233,8 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 		}
 		refreshPartParameterPublications(&model, revisionID)
 		clearMeasurementProjection(model.Measurements)
+		pruneRetiredReferences(&model)
+		addPropertyChange(&changes, "part", "part.retired-references", beforeModel.RetiredReferences, model.RetiredReferences)
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)

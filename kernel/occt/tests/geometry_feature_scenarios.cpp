@@ -74,6 +74,38 @@ ProfilePadSpec thickener(const GeometryFeatureInput& source, double thickness = 
     return p;
 }
 }  // namespace
+TEST(GeometryFeature, RevolvedSurfacePreservesNamesAcrossParameterAndColdRebuild) {
+    OcctKernel k;
+    auto profile = line("generatrix", {10, 0, 0}, {10, 0, 20});
+    const auto source = k.evaluateGeometryFeature(profile);
+    GeometryFeatureSpec s;
+    s.feature_id = "revolved";
+    s.operation = "SURFACE_REVOLVE";
+    s.construction_tolerance = .01;
+    s.inputs = {input(k, source)};
+    s.parameters.direction = {0, 0, 1};
+    s.parameters.angle = 2 * std::acos(-1.0);
+    const auto initial = k.evaluateGeometryFeature(s);
+    EXPECT_NEAR(area(k, initial.geometry_id), 400 * std::acos(-1.0), 1e-6);
+    EXPECT_TRUE(initial.feature_results.back().topology_history_complete);
+    const auto names = identities(initial);
+    OcctKernel cold;
+    const auto rebuilt = cold.evaluateGeometryFeature(s);
+    EXPECT_EQ(names, identities(rebuilt));
+    profile.curve.points[0].position.x = 12;
+    profile.curve.points[1].position.x = 12;
+    s.inputs = {input(k, k.evaluateGeometryFeature(profile))};
+    const auto changed = k.evaluateGeometryFeature(s);
+    EXPECT_NEAR(area(k, changed.geometry_id), 480 * std::acos(-1.0), 1e-6);
+    EXPECT_EQ(names, identities(changed));
+    s.parameters.angle = std::acos(-1.0);
+    const auto half = k.evaluateGeometryFeature(s);
+    EXPECT_NEAR(area(k, half.geometry_id), 240 * std::acos(-1.0), 1e-6);
+    EXPECT_TRUE(half.feature_results.back().topology_history_complete);
+    PartRuntimeOptions cancelled;
+    cancelled.cancelled = [] { return true; };
+    EXPECT_THROW(k.evaluateGeometryFeature(s, cancelled), std::runtime_error);
+}
 TEST(GeometryFeature, SourceCurvesAndExtrusionsShareVisualMeshingPolicy) {
     const auto distance = [](const Vec3& p, const Vec3& a, const Vec3& b) {
         const Vec3 d{b.x - a.x, b.y - a.y, b.z - a.z};

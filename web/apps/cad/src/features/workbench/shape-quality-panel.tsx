@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {InputNumber,Segmented} from 'antd';
+import {Button,InputNumber,Segmented} from 'antd';
 import {api} from '../../api/client';
 import type {DocumentView,GeometricInput,SelectionItem} from '../../types';
 import type {FeatureSelectionSession} from '../../cad/interaction/feature-selection';
@@ -13,8 +13,8 @@ import {FeaturePickField} from './feature-pick-field';
 import {bindGeometricInput} from './geometric-input-selection';
 import {geometryInputName} from './geometric-feature-model';
 
-type Props={view:DocumentView;onClose:()=>void;onSelectionSession:(s?:FeatureSelectionSession)=>void;onShow:(report?:ShapeQualityReport,mode?:CurvatureMode,gain?:number)=>void};
-export function ShapeQualityPanel({view,onClose,onSelectionSession,onShow}:Props){
+type Props={view:DocumentView;onClose:()=>void;onSelectionSession:(s?:FeatureSelectionSession)=>void;onShow:(report?:ShapeQualityReport,mode?:CurvatureMode,gain?:number)=>void;onLocatePoints?:(points:import('../../types').Vec3[])=>void};
+export function ShapeQualityPanel({view,onClose,onSelectionSession,onShow,onLocatePoints}:Props){
  const [input,setInput]=useState<GeometricInput>(),[pick,setPick]=useState<SelectionItem>(),[picking,setPicking]=useState(true),[filter,setFilter]=useState<'ANY'|'CURVE'|'SURFACE'>('ANY'),[binding,setBinding]=useState(false),[density,setDensity]=useState(256),[mode,setMode]=useState<CurvatureMode>('mean'),[gain,setGain]=useState(1);
  const [report,setReport]=useState<ShapeQualityReport>(),[busy,setBusy]=useState(false),[failure,setFailure]=useState<unknown>();
  const base=useRef(view.document.versionId).current,serial=useRef(0),scope=useRef(new FeaturePickScope()),callbacks=useRef({onSelectionSession,onShow});callbacks.current={onSelectionSession,onShow};
@@ -48,7 +48,10 @@ export function ShapeQualityPanel({view,onClose,onSelectionSession,onShow}:Props
   <FeaturePickField compact label="对象" value={geometryInputName(view,input)} selected={!!input} active={picking} disabled={!valid} onActivate={()=>setPicking(true)} onClear={input?()=>{scope.current.cancel();setBinding(false);setInput(undefined);setPick(undefined);setPicking(true)}:undefined}/>
   <CommandField label="选择过滤"><Segmented<'ANY'|'CURVE'|'SURFACE'> value={filter} options={[{label:'任意',value:'ANY'},{label:'曲线',value:'CURVE'},{label:'曲面',value:'SURFACE'}]} onChange={value=>{scope.current.cancel();setBinding(false);setInput(undefined);setPick(undefined);setPicking(true);setFilter(value)}}/></CommandField>
   <CommandField label="采样"><Segmented value={density} options={[{label:'疏',value:64},{label:'中',value:256},{label:'密',value:1024}]} onChange={setDensity}/></CommandField>
-  {surface&&<CommandField label="曲率"><Segmented<CurvatureMode> value={mode} options={curvatureModes.map(o=>({...o}))} onChange={setMode}/></CommandField>}
+  {surface&&<CommandField label="分析"><Segmented<'curvature'|'boundaries'|'gaps'|'normals'> value={['normals','boundaries','gaps'].includes(mode)?mode as 'normals'|'boundaries'|'gaps':'curvature'} options={[{label:'曲率',value:'curvature'},{label:'自由边',value:'boundaries'},{label:'缝隙',value:'gaps'},{label:'法向',value:'normals'}]} onChange={value=>setMode(value==='curvature'?'mean':value)}/></CommandField>}
+  {surface&&!['normals','boundaries','gaps'].includes(mode)&&<CommandField label="曲率"><Segmented<CurvatureMode> value={mode} options={curvatureModes.map(o=>({...o,label:({minimum:'最小',maximum:'最大',mean:'平均',gaussian:'高斯'})[o.value]}))} onChange={setMode}/></CommandField>}
+  {mode==='normals'&&<CommandField label="长度比例"><InputNumber min={.1} max={10} step={.1} value={gain} onChange={n=>setGain(n??1)}/></CommandField>}
+  {(mode==='boundaries'||mode==='gaps')&&report&&<div className="shape-quality-result"><p>{report.result.boundaryEdges?.length??0} 条自由边 · {report.result.gapCandidates?.length??0} 处间隙候选</p>{report.result.boundaryComplete===false&&<p>部分诊断未完成，请选择较小范围。</p>}{mode==='gaps'&&<div className="object-impact-list">{report.result.gapCandidates?.map((gap,i)=><Button type="text" key={i} onClick={()=>onLocatePoints?.([gap.first,gap.second])}>边 {gap.firstEdge} / {gap.secondEdge}<small>{curvatureNumber(gap.distanceMm)} mm · 定位</small></Button>)}</div>}</div>}
   {report?.result.samples.some(s=>!s.surface)&&<CommandField label="梳齿比例"><InputNumber min={.1} max={10} step={.1} value={gain} onChange={n=>setGain(n??1)}/></CommandField>}
   {range&&<div className="shape-quality-result" role="region" aria-label="曲率分析结果"><dl><div><dt>采样最小值</dt><dd>{curvatureNumber(range[0])} {unit}</dd></div><div><dt>采样最大值</dt><dd>{curvatureNumber(range[1])} {unit}</dd></div></dl>{surface&&<div className="curvature-color-legend" aria-label="蓝色为最小值，红色为最大值"/>}<p>{report!.result.samples.length} 个有效采样 · {report!.result.undefinedSamples} 个未定义位置</p><p>精确几何求值；范围与图形为采样结果。</p></div>}
  </CommandDialog>;

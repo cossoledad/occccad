@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import type { Line2 } from "three/addons/lines/Line2.js";
+import type { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 
 /** Dash distances are projected CSS pixels, including occurrence transforms.
  * Changing line geometry or camera scale never changes the dash/gap cadence. */
-export function updateScreenDashDistances(line: Line2, camera: THREE.Camera, width: number, height: number): void {
+export function updateScreenDashDistances(line: LineSegments2, camera: THREE.Camera, width: number, height: number): void {
   const geometry = line.geometry;
   const starts = geometry.getAttribute("instanceStart"), ends = geometry.getAttribute("instanceEnd");
   const distancesStart = geometry.getAttribute("instanceDistanceStart"), distancesEnd = geometry.getAttribute("instanceDistanceEnd");

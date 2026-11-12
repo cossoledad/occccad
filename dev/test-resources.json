@@ -1081,6 +1081,15 @@
     ]
   },
   {
+    "path": "services/internal/workspace/part_objects_integration_test.go",
+    "resources": [
+      "configured Geometry Router/Worker",
+      "configured testsupport.Environment",
+      "configured database",
+      "configured ArtifactStore"
+    ]
+  },
+  {
     "path": "services/internal/control/surface_quality_integration_test.go",
     "resources": [
       "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"

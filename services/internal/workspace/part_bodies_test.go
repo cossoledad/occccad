@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -54,9 +53,16 @@ func TestFeatureOwnedBodyDeletionLifecycle(t *testing.T) {
 	// Later operations must never vanish as a side effect of generator deletion.
 	solid.Features = append(solid.Features, Feature{ID: "later", BodyID: solid.ActiveBodyID, Type: "LINEAR_EXTRUDE", Profile: "profile", Operation: "ADD", Length: 20})
 	dependent, _ := json.Marshal(solid)
-	if _, _, err = applyDeletePartNode(dependent, deletion); err == nil || !strings.Contains(err.Error(), "depends on it") {
-		t.Fatalf("dependent Body operation discarded: %v", err)
+	retained, _, err := applyDeletePartNode(dependent, deletion)
+	if err != nil {
+		t.Fatal(err)
 	}
+	var kept PartModel
+	json.Unmarshal(retained, &kept)
+	if len(kept.Features) != 2 || kept.Features[1].ID != "later" || len(kept.Bodies) != 2 || kept.Bodies[1].CreatedByFeatureID != "" {
+		t.Fatal("surviving definitions or Body ownership lost")
+	}
+
 }
 
 func TestBodyRejectsMissingCreatingFeature(t *testing.T) {

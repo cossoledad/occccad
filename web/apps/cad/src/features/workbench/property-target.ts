@@ -1,13 +1,15 @@
+import {objectTargetKind} from './object-operations';
 import {engineeringLabel} from "../../cad/presentation/engineering-text";
 import type { DocumentView, PropertyTarget, ResolvedAppearance, SelectionItem, SurfaceAppearance, SurfaceStyle } from "../../types";
 import { occurrenceSnapshot, refreshOccurrenceSelection } from "../../cad/assembly/assembly-occurrence-snapshot";
+import {CATIA_VISUAL_THEME} from "../../cad/rendering/cad-visual-theme";
 import { palette } from "../../design/visual-tokens";
 
 export type PropertyEditorTarget={
   target:PropertyTarget;documentId:string;versionId:string;occurrencePath?:string;selection?:SelectionItem;systemColor?:string;
   title:string;name?:string;description?:string;scope:string;
   appearance?:SurfaceAppearance;effective?:SurfaceStyle;sources?:ResolvedAppearance["sources"];canEdit:boolean;canRename:boolean;canGraphics:boolean;
-  originalDocumentId?:string;reason?:string;
+  hasFaceOverrides?:boolean;graphicDomain?:'SURFACE'|'CURVE'|'POINT'|'CONTAINER'|'REFERENCE';originalDocumentId?:string;reason?:string;
 };
 
 export function propertyEditorTarget(view:DocumentView,editingView:DocumentView|undefined,selection:SelectionItem|undefined,
@@ -34,11 +36,15 @@ export function propertyEditorTarget(view:DocumentView,editingView:DocumentView|
   const part=source.part,body=part?.bodies.find(b=>b.id===bodyID);
   const instanceScoped=Boolean(view.product&&path?.segments.length&&!own);
   const instanceKind=["instance","part","product"].includes(selection.kind);
-  const kind=instanceKind?"INSTANCE":selection.kind==="face"?"FACE":["body","solid"].includes(selection.kind)?"BODY":selection.kind==="plane"?"PLANE":selection.kind==="axis"?"DATUM_AXIS":["feature","pad","import","sketch"].includes(selection.kind)?"FEATURE":selection.kind.toUpperCase();
+  const kind=instanceKind?"INSTANCE":selection.kind==="face"?"FACE":["body","solid"].includes(selection.kind)?"BODY":selection.kind==="plane"?"PLANE":selection.kind==="axis"?"DATUM_AXIS":["feature","pad","import","sketch"].includes(selection.kind)?"FEATURE":objectTargetKind(selection.entityKind??selection.kind);
   const id=instanceKind?path?.segments.at(-1)?.instanceId??selection.entityId??selection.id:kind==="BODY"?bodyID??selection.id:selection.entityId??selection.id;
-  const effective=instanceScoped?view.resolvedInstances?.find(b=>b.occurrencePath===occurrence&&(!bodyID||b.bodyId===bodyID))?.appearance:source.bodyAppearances?.[bodyID??""];
-  let local=body?.appearance;
-  let name=kind==="BODY"?body?.name:kind==="FEATURE"?part?.features.find(f=>f.id===id)?.name:kind==="PLANE"?part?.datumPlanes.find(p=>p.id===id)?.name:kind==="DATUM_AXIS"?part?.datumAxes?.find(p=>p.id===id)?.name:undefined;
+  let effective=instanceScoped?view.resolvedInstances?.find(b=>b.occurrencePath===occurrence&&(!bodyID||b.bodyId===bodyID))?.appearance:source.bodyAppearances?.[bodyID??""];
+  const feature=part?.features.find(f=>f.id===(selection.result?.featureId??id));
+  const graphicObject=kind==='GEOMETRICAL_SET'?part?.geometricalSets?.find(s=>s.id===id):kind==='REFERENCE_POINT'?part?.datumPoints?.find(s=>s.id===id):kind==='PLANE'?part?.datumPlanes.find(s=>s.id===id):kind==='DATUM_AXIS'?part?.datumAxes?.find(s=>s.id===id):undefined;
+  let local=feature?.type==='GEOMETRY'?feature.appearance:graphicObject?.appearance??body?.appearance;
+  if(!instanceScoped){if(selection.result||feature?.type==='GEOMETRY')effective=source.resultAppearances?.[selection.result?.featureId??id];else if(graphicObject)effective=source.objectAppearances?.[(kind==='PLANE'?'DATUM_PLANE':kind)+':'+id]}
+
+  let name=kind==="BODY"?body?.name:kind==="FEATURE"?part?.features.find(f=>f.id===id)?.name:kind==="PLANE"?part?.datumPlanes.find(p=>p.id===id)?.name:kind==="DATUM_AXIS"?part?.datumAxes?.find(p=>p.id===id)?.name:graphicObject?.name;
   if(instanceScoped){
     const overridden=view.product?.appearanceOverrides?.find(o=>o.instancePath.canonical===occurrence&&(o.bodyId??"")===(instanceKind?"":bodyID??""));
     local=overridden?.appearance;
@@ -50,13 +56,15 @@ export function propertyEditorTarget(view:DocumentView,editingView:DocumentView|
   }
   const faceStyle=kind==="FACE"&&selection.kind==="face"?{...effective,...effective?.faceProperties?.[selection.topologyId],color:effective?.faces?.[selection.topologyId]??effective?.color}:effective;
   const editable=instanceScoped?canEditRoot:Boolean(own&&canEdit);
-  const surface=["INSTANCE","BODY","FACE"].includes(kind);
-  const protectedPlane=kind==="PLANE"&&!part?.datumPlanes.find(p=>p.id===id)?.definition;
-  const supportedName=!protectedPlane&&(instanceScoped?kind==="INSTANCE":["BODY","FEATURE","PLANE","DATUM_AXIS"].includes(kind)&&Boolean(name));
-  const target:PropertyTarget={kind,id,...(instanceScoped?{instancePath:path}:{}),...(kind==="FACE"&&selection.kind==="face"?{bodyId:bodyID,geometryKey:selection.geometryKey,localId:selection.topologyId}:{})};
+  const independent=feature?.type==='GEOMETRY';
+  const surface=["INSTANCE","BODY","FACE"].includes(kind)||!instanceScoped&&(independent||!!graphicObject);
+  const graphicDomain:PropertyEditorTarget['graphicDomain']=kind==='GEOMETRICAL_SET'?'CONTAINER':kind==='REFERENCE_POINT'||feature?.result?.domain==='POINT_SET'?'POINT':kind==='DATUM_AXIS'||feature?.result?.domain==='WIRE_SET'?'CURVE':kind==='PLANE'?'REFERENCE':'SURFACE';
+  const protectedPlane=kind==="PLANE"&&["datum-xy","datum-yz","datum-xz"].includes(id);
+  const supportedName=!protectedPlane&&(instanceScoped?kind==="INSTANCE":["BODY","FEATURE","PLANE","DATUM_AXIS","REFERENCE_POINT","GEOMETRICAL_SET"].includes(kind)&&Boolean(name));
+  const target:PropertyTarget={kind,id,...(instanceScoped?{instancePath:path}:{}),...(kind==="FACE"&&selection.kind==="face"?{bodyId:bodyID,sourceResult:selection.result,geometryKey:selection.geometryKey,localId:selection.topologyId}:{})};
   return {...base,target,selection,documentId:instanceScoped?view.document.id:source.document.id,versionId:instanceScoped?view.document.versionId:source.document.versionId,
     occurrencePath:instanceScoped?undefined:occurrence,title:name??(kind==="FACE"?"所选面":engineeringLabel((selection.entityKind??selection.kind).toUpperCase(),"所选对象")),name,
-    appearance:local,effective:faceStyle,sources:kind==="FACE"&&selection.kind==="face"?{...effective?.sources,...effective?.faceSources?.[selection.topologyId]}:effective?.sources,scope:instanceScoped?"仅当前实例":"当前零件定义",canEdit:editable,canRename:supportedName,canGraphics:surface,
+    appearance:local,hasFaceOverrides:!!(local?.faces?.length||feature?.importedAppearance?.faces?.length),systemColor:independent?'#'+(graphicDomain==='POINT'?CATIA_VISUAL_THEME.engineeringPoint:graphicDomain==='CURVE'?CATIA_VISUAL_THEME.engineeringCurve:CATIA_VISUAL_THEME.engineeringSurface).toString(16).padStart(6,'0'):base.systemColor,effective:faceStyle,sources:kind==="FACE"&&selection.kind==="face"?{...effective?.sources,...effective?.faceSources?.[selection.topologyId]}:effective?.sources,scope:instanceScoped?"仅当前实例":"当前零件定义",canEdit:editable,canRename:supportedName,canGraphics:surface,graphicDomain,
     originalDocumentId:instanceScoped?path?.segments.at(-1)?.referencedDocumentId:undefined,
     reason:!editable?"当前上下文只读；请在有编辑权限的文档中修改。":undefined};
 }
@@ -74,7 +82,8 @@ export function refreshPropertyTargets(targets:PropertyEditorTarget[],view:Docum
     }
     const current=refreshOccurrenceSelection(view,selection);
     if(target.target.kind==="FACE"){
-      const key=path?view.resolvedInstances?.find(v=>v.occurrencePath===path&&v.bodyId===target.target.bodyId)?.geometryKey:
+      const resultID=target.target.sourceResult?.featureId;
+      const key=resultID?(editingView??view).part?.features.find(f=>f.id===resultID)?.result?.geometryKey:path?view.resolvedInstances?.find(v=>v.occurrencePath===path&&v.bodyId===target.target.bodyId)?.geometryKey:
         (editingView??view).part?.bodies.find(b=>b.id===target.target.bodyId)?.geometryKey;
       if(key!==target.target.geometryKey)throw new Error("所选面的几何已变化，请关闭属性并重新选择。草稿未写入文档。");
     }

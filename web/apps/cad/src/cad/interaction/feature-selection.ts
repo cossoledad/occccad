@@ -2,6 +2,9 @@ import type { Selection, SelectionItem, SketchPlane, SketchProfileAnalysis } fro
 import { projectSketchFeatureSelection } from "./selection-mode";
 export type FeaturePickRole = "boolean-region" | "instance" | "direction" | "geometry" | "point" | "profile" | "profile-region" | "sketch-point" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
 export type FeatureSelectionSession = {
+    seedEnabled?:boolean;
+    seedSlot?:string;
+    seedMultiple?:boolean;
     // Reveal selectable topology only for this field; preserve user display
     // preferences and parent/body visibility when the field is released.
     topologyPick?: 'VERTEX' | 'EDGE';

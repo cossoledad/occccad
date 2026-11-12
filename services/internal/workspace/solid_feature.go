@@ -210,6 +210,7 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	replacement.ID, replacement.Order, replacement.Name = current.ID, current.Order, current.Name
 	replacement.Visible = current.Visible
+	replacement.Appearance, replacement.ImportedAppearance = current.Appearance, current.ImportedAppearance
 	*current = replacement
 	normalizePartModel(&model)
 	for i := range model.Parameters {
@@ -592,6 +593,21 @@ func featureInputIDs(feature Feature) []string {
 }
 
 func partHasFailedFeature(model PartModel) bool {
+	for _, v := range model.DatumPoints {
+		if v.EvaluationStatus != "" {
+			return true
+		}
+	}
+	for _, v := range model.DatumPlanes {
+		if v.EvaluationStatus != "" {
+			return true
+		}
+	}
+	for _, v := range model.DatumAxes {
+		if v.EvaluationStatus != "" {
+			return true
+		}
+	}
 	for _, feature := range model.Features {
 		if feature.EvaluationStatus == "FAILED" || feature.EvaluationStatus == "BLOCKED" {
 			return true

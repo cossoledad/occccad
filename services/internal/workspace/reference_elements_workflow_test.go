@@ -91,10 +91,12 @@ func TestReferenceElementsCommandPreviewParametersReopenAndHistory(t *testing.T)
 			t.Fatal("point parameter children", node)
 		}
 	}
-	_, err = service.ApplyCommand(t.Context(), view.Document.ID, CommandRequest{Type: "DELETE_NODE", ActorID: access.DefaultUserID, VersionID: view.Document.VersionID, RequestID: "reject-point-delete", TargetKind: "REFERENCE_POINT", TargetID: p2})
-	if err == nil {
-		t.Fatal("referenced point deletion accepted")
+	run(CommandRequest{Type: "DELETE_NODE", TargetKind: "REFERENCE_POINT", TargetID: p2})
+	if len(view.Part.DatumPoints) != 1 || len(view.Part.RetiredReferences) == 0 {
+		t.Fatal("referenced point was not retired")
 	}
+	run(CommandRequest{Type: "UNDO"})
+
 	run(CommandRequest{Type: "EDIT_REFERENCE_POINT", TargetID: p2, Name: "Edited point", ReferenceConstruction: &ReferenceConstruction{Mode: "POINT_COORDINATES", Coordinates: [3]float64{1, 2, 33}}})
 	if view.Part.DatumPoints[1].Position[2] != 33 {
 		t.Fatal("literal point edit lost to old source", view.Part.DatumPoints)

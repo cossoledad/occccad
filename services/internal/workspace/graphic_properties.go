@@ -11,6 +11,9 @@ import (
 // GraphicProperties are optional, independently inherited display values.
 // Nil means inherit; zero opacity, black, and false are explicit values.
 type GraphicProperties struct {
+	LineStyle       string   `json:"lineStyle,omitempty"`
+	PointSize       *float64 `json:"pointSize,omitempty"`
+	PointSymbol     string   `json:"pointSymbol,omitempty"`
 	Opacity         *float64 `json:"opacity,omitempty"`
 	Roughness       *float64 `json:"roughness,omitempty"`
 	Metalness       *float64 `json:"metalness,omitempty"`
@@ -67,7 +70,7 @@ func patchAppearance(before *SurfaceAppearance, patch map[string]json.RawMessage
 	}
 	for key, value := range patch {
 		switch key {
-		case "color", "opacity", "roughness", "metalness", "edgeColor", "edgeWidth", "edges", "pickable", "edgeOpacityMode":
+		case "color", "opacity", "roughness", "metalness", "edgeColor", "edgeWidth", "edges", "pickable", "edgeOpacityMode", "lineStyle", "pointSize", "pointSymbol":
 		default:
 			return nil, fmt.Errorf("%w: unsupported graphic property %s", ErrValidation, key)
 		}
@@ -100,6 +103,15 @@ func patchAppearance(before *SurfaceAppearance, patch map[string]json.RawMessage
 }
 
 func validateSurfaceStyle(s SurfaceStyle) error {
+	if s.LineStyle != "" && s.LineStyle != "SOLID" && s.LineStyle != "DASHED" {
+		return fmt.Errorf("%w: invalid line style", ErrValidation)
+	}
+	if s.PointSymbol != "" && s.PointSymbol != "CROSS" && s.PointSymbol != "DOT" && s.PointSymbol != "PLUS" {
+		return fmt.Errorf("%w: invalid point symbol", ErrValidation)
+	}
+	if s.PointSize != nil && (!finite(*s.PointSize) || *s.PointSize < 3 || *s.PointSize > 32) {
+		return fmt.Errorf("%w: point size must be between 3 and 32 pixels", ErrValidation)
+	}
 	for _, color := range []string{s.Color, s.EdgeColor} {
 		if color != "" && !opaqueColor.MatchString(color) {
 			return fmt.Errorf("%w: color must be sRGB #rrggbb", ErrValidation)

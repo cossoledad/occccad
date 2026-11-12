@@ -1,3 +1,4 @@
+import {organizationalNode} from './object-operations';
 import {treeRevealState,treeRevealPath,revealExpansion,type TreeRevealIntent} from "./tree-reveal";
 import {solidFeatureNames} from "./solid-feature-model";
 import {historicalCreationTypes,type HistoricalCreationType} from "./historical-creation";
@@ -68,11 +69,11 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, highlightedKeys, editSession, activeDocumentId, activeInstancePath, workingBodyId, allowHistoricalCreation, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onReplace, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onUpdate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, highlightedKeys, editSession, activeDocumentId, activeInstancePath, workingBodyId, workingGeometricalSetId, allowHistoricalCreation, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onReplace, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onUpdate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string;highlightedKeys?:string[]; editSession?: EditSession;
-  activeDocumentId?: string; activeInstancePath?: string; workingBodyId?: string;
+  activeDocumentId?: string; activeInstancePath?: string; workingBodyId?: string;workingGeometricalSetId?:string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
   onOpenDocumentTab?: (node: SpecificationTreeNode) => void;
@@ -229,10 +230,11 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
         });
         const isWorkingBody = node.kind === "BODY" && node.bodyId === workingBodyId &&
           node.documentId === activeDocumentId && (node.instancePath?.canonical ?? "") === (activeInstancePath ?? "");
-        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${descendantHints.has(node.key) && !isSelected ? "selected-descendant" : ""} ${isActiveDocument ? "active-document" : ""} ${isWorkingBody ? "working-body" : ""} ${(highlightedKey === node.key||highlightedKeys?.includes(node.key)) ? "highlighted" : ""} ${node.hidden ? "display-hidden" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
+        const isWorkingSet=node.kind==='GEOMETRICAL_SET'&&node.entityId===workingGeometricalSetId&&node.documentId===activeDocumentId&&(node.instancePath?.canonical??'')===(activeInstancePath??'');
+        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${descendantHints.has(node.key) && !isSelected ? "selected-descendant" : ""} ${isActiveDocument ? "active-document" : ""} ${isWorkingBody||isWorkingSet ? "working-body" : ""} ${(highlightedKey === node.key||highlightedKeys?.includes(node.key)) ? "highlighted" : ""} ${node.hidden ? "display-hidden" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
           data-default-command={defaultCommand} data-action-enabled={actionEnabled} aria-keyshortcuts={defaultCommand==="tree.edit"?"Enter":undefined}
-          data-working-body={isWorkingBody||undefined} aria-selected={isSelected} data-tree-key={node.key}
+          data-working-body={isWorkingBody||undefined} data-working-set={isWorkingSet||undefined} aria-selected={isSelected} data-tree-key={node.key}
           title={node.hiddenByAncestor ? `被上级隐藏：${node.visibilityBlocker}` : node.hidden ? "本地隐藏" : undefined}
           tabIndex={node.key === (visibleKeys.includes(focusedKey ?? "") ? focusedKey : visibleKeys[0]) ? 0 : -1}
           onFocus={() => setFocusedKey(node.key)} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
@@ -268,7 +270,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             node.sourceDocumentId && onOpenDocumentTab ? {
               key: "open-source", icon: menuIcon('tree.open-document'), label: menuLabel('tree.open-document','source'),
               onClick: () => { setContextMenu(undefined); onOpenDocumentTab(node); } } : null,
-            node.kind === "BODY" && onActivate ? { key: "activate-body", icon: menuIcon('tree.activate'), label: menuLabel('tree.activate','body'),
+            ["BODY","GEOMETRICAL_SET"].includes(node.kind??"") && onActivate ? { key: "activate-body", icon: menuIcon('tree.activate'), label: node.kind==='GEOMETRICAL_SET'?'设为工作集合':menuLabel('tree.activate','body'),
               onClick: () => { setContextMenu(undefined); onActivate(node); } } : null,
             node.kind === "SKETCH_ENTITY" ? { key: "construction", icon: menuIcon('tree.construction'),
               label: menuLabel('tree.construction',node.role==='CONSTRUCTION'?'profile':'construction'),
@@ -277,7 +279,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:menuIcon('tree.view-result'),label:menuLabel('tree.view-result'),onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
             onReplace&&node.kind==="INSTANCE"&&node.ownerDocumentId===hostDocumentId&&node.instancePath?.segments?.length===1 ? {key:"replace",icon:menuIcon("product.replace"),label:"替换组件",onClick:()=>{setContextMenu(undefined);onReplace(node)}}:null,
             node.capabilities?.includes("INSERT_AFTER") && onInsertAfter && historicalCreationTypes(node.kind==="SKETCH",!!allowHistoricalCreation&&node.documentId===activeDocumentId&&(node.selection?.occurrencePath??node.instancePath?.canonical??"")===(activeInstancePath??"")).length ? {key:"insert-after",icon:menuIcon("tree.insert-after"),label:menuLabel("tree.insert-after"),children:historicalCreationTypes(node.kind==="SKETCH",!!allowHistoricalCreation&&node.documentId===activeDocumentId&&(node.selection?.occurrencePath??node.instancePath?.canonical??"")===(activeInstancePath??"")).map(type=>({key:`insert-${type}`,label:({SKETCH:"草图",EXTRUDE_ADD:"拉伸添加",EXTRUDE_REMOVE:"拉伸切除"} as Record<string,string>)[type]??solidFeatureNames[type],onClick:()=>{setContextMenu(undefined);onInsertAfter(node,type);}}))}:null,
-            selectedNodes.every(n=>n.capabilities?.includes("MOVE")&&n.presentationRole!=="INPUT_REFERENCE") && onMove ? {key:"move",icon:menuIcon("tree.move"),label:menuLabel("tree.move"),onClick:()=>{setContextMenu(undefined);onMove(node,selectedNodes);}}:null,
+            selectedNodes.every(n=>n.capabilities?.includes("MOVE")&&n.presentationRole!=="INPUT_REFERENCE") && onMove ? {key:"move",icon:menuIcon("tree.move"),label:organizationalNode(node)?"移入集合…":menuLabel("tree.move"),onClick:()=>{setContextMenu(undefined);onMove(node,selectedNodes);}}:null,
             node.capabilities?.includes("EDIT") ? { key: "edit", icon: menuIcon('tree.edit'), label: menuLabel('tree.edit',['PAD','REVOLVE','FEATURE'].includes(node.kind??'')?'definition':'default'),
               disabled:Boolean(registry&&!registry.state("tree.edit",{payload:{node}}).enabled),
               onClick: () => { setContextMenu(undefined); onEdit?.(node); } } : null,

@@ -87,3 +87,43 @@ func TestEngineeringReferencePointDoesNotReplaceSketchThumbnail(t *testing.T) {
 		t.Fatal("sketch and engineering point styles were mixed")
 	}
 }
+
+func TestEngineeringThumbnailHonorsCurveAndPointGraphics(t *testing.T) {
+	width, size := 3.0, 18.0
+	view := workspace.DocumentView{Document: workspace.DocumentSummary{Type: "PART"}, Part: &workspace.PartModel{GeometricalSets: []workspace.GeometricalSet{{ID: "set"}}, Features: []workspace.Feature{
+		{ID: "wire", Type: "GEOMETRY", GeometricalSetID: "set", Result: &workspace.FeatureGeometryResult{ID: "result", Domain: "WIRE_SET", GeometryKey: "wire"}},
+		{ID: "point", Type: "GEOMETRY", GeometricalSetID: "set", Result: &workspace.FeatureGeometryResult{ID: "result", Domain: "POINT_SET", GeometryKey: "point"}},
+	}}, Artifacts: map[string]workspace.Artifact{
+		"wire":  {GeometryKey: "wire", GeometryDomain: "WIRE_SET", Mesh: workspace.Mesh{Edges: []workspace.MeshEdge{{LocalID: 1, Points: []vec{{0, 0, 0}, {20, 0, 10}}}}}},
+		"point": {GeometryKey: "point", GeometryDomain: "POINT_SET", Mesh: workspace.Mesh{TopologyVertices: []visual.Point{{LocalID: 1, Point: vec{10, 10, 5}}}}},
+	}, ResultAppearances: map[string]workspace.ResolvedAppearance{
+		"wire":  {Color: "#ff2200", GraphicProperties: workspace.GraphicProperties{EdgeWidth: &width, LineStyle: "DASHED"}},
+		"point": {Color: "#0066ff", GraphicProperties: workspace.GraphicProperties{PointSize: &size, PointSymbol: "DOT"}},
+	}}
+	styled, err := Render(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image := decode(t, styled)
+	red, blue := 0, 0
+	for y := 0; y < Height; y++ {
+		for x := 0; x < Width; x++ {
+			r, g, b, _ := image.At(x, y).RGBA()
+			if r > 45000 && r > g*2 && r > b*2 {
+				red++
+			}
+			if b > 45000 && b > r*2 {
+				blue++
+			}
+		}
+	}
+	if red < 20 || blue < 20 {
+		t.Fatal("engineering primitive colors missing", red, blue)
+	}
+	view.ResultAppearances["wire"] = workspace.ResolvedAppearance{Color: "#ff2200", GraphicProperties: workspace.GraphicProperties{EdgeWidth: &width, LineStyle: "SOLID"}}
+	view.ResultAppearances["point"] = workspace.ResolvedAppearance{Color: "#0066ff", GraphicProperties: workspace.GraphicProperties{PointSize: &size, PointSymbol: "PLUS"}}
+	changed, err := Render(view)
+	if err != nil || bytes.Equal(styled, changed) {
+		t.Fatal("line or marker presentation ignored", err)
+	}
+}

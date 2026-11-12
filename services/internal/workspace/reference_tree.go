@@ -14,7 +14,7 @@ func referenceStructure(model PartModel, legacy []DocumentStructureNode, path, d
 		containers[p.ID] = p.GeometricalSetID
 		caps := []string{}
 		if editable {
-			caps = []string{"EDIT", "DELETE"}
+			caps = []string{"EDIT", "DELETE", "MOVE"}
 		}
 		legacy = append(legacy, DocumentStructureNode{ID: path + "/point:" + p.ID, Kind: "REFERENCE_POINT", EntityID: p.ID, Name: p.Name, DocumentID: doc, VersionID: revision, LocalVisible: boolPointer(visibleOrDefault(p.Visible)), Capabilities: caps})
 	}
@@ -30,7 +30,7 @@ func referenceStructure(model PartModel, legacy []DocumentStructureNode, path, d
 		}
 		containers[f.ID] = f.GeometricalSetID
 		digest, _ := featureDefinitionDigest(model, f.ID)
-		node := featureStructureNode(f, path+"/geometrical-set:"+f.GeometricalSetID, doc, revision, digest, editable && !dependents[f.ID], editable)
+		node := featureStructureNode(f, path+"/geometrical-set:"+f.GeometricalSetID, doc, revision, digest, editable, editable)
 		if f.Result != nil {
 			node.GeometryKey = f.Result.GeometryKey
 		}
@@ -38,8 +38,29 @@ func referenceStructure(model PartModel, legacy []DocumentStructureNode, path, d
 	}
 	children := map[string][]DocumentStructureNode{}
 	for _, node := range legacy {
+		for _, v := range model.DatumPoints {
+			if v.ID == node.EntityID {
+				node.EvaluationStatus = v.EvaluationStatus
+				node.Diagnostic = v.Diagnostic
+			}
+		}
+		for _, v := range model.DatumPlanes {
+			if v.ID == node.EntityID {
+				node.EvaluationStatus = v.EvaluationStatus
+				node.Diagnostic = v.Diagnostic
+			}
+		}
+		for _, v := range model.DatumAxes {
+			if v.ID == node.EntityID {
+				node.EvaluationStatus = v.EvaluationStatus
+				node.Diagnostic = v.Diagnostic
+			}
+		}
 		container := containers[node.EntityID]
 		node.OwnerEntityID = container
+		if editable && node.Kind != "ORIGIN" && node.Kind != "AXIS_SYSTEM" && (container != "" || node.Kind == "REFERENCE_POINT" || node.Kind == "DATUM_AXIS" || node.Kind == "PLANE" && !isStandardDatumPlane(node.EntityID)) {
+			node.Capabilities = append(node.Capabilities, "MOVE")
+		}
 		for _, p := range model.Parameters {
 			if p.OwnerFeatureID != node.EntityID {
 				continue
@@ -69,7 +90,7 @@ func referenceStructure(model PartModel, legacy []DocumentStructureNode, path, d
 			seen[set.ID] = true
 			caps := []string{}
 			if editable {
-				caps = []string{"EDIT", "DELETE"}
+				caps = []string{"EDIT", "DELETE", "MOVE"}
 			}
 			node := DocumentStructureNode{ID: path + "/geometrical-set:" + set.ID, Kind: "GEOMETRICAL_SET", EntityID: set.ID, Name: set.Name, OwnerEntityID: set.ParentID, DocumentID: doc, VersionID: revision, LocalVisible: boolPointer(visibleOrDefault(set.Visible)), Capabilities: caps}
 			node.Children = build(set.ID, seen)

@@ -42,11 +42,15 @@ export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPrevi
   },[request,canModify,changedGraphics,valid,onPreviewRequest,onPreview,first.documentId,first.versionId,first.occurrencePath,retry]);
   useEffect(()=>()=>onPreview(undefined),[onPreview]);
   const set=(key:keyof SurfaceStyle,value:string|number|boolean|null)=>setAppearance(s=>({...s,[key]:value}));
-  const defaults:SurfaceStyle={color:first.systemColor??palette.solid,opacity:1,roughness:.5,metalness:.04,edges:true,pickable:true,edgeColor:palette.edge,edgeWidth:1,edgeOpacityMode:"FOLLOW"};
+  const defaults:SurfaceStyle={lineStyle:"SOLID",pointSize:11,pointSymbol:"CROSS",color:first.systemColor??palette.solid,opacity:1,roughness:.5,metalness:.04,edges:true,pickable:true,edgeColor:palette.edge,edgeWidth:1,edgeOpacityMode:"FOLLOW"};
   const previewEntry=(target:PropertyEditorTarget)=>previewAppearances?.find(p=>{
     const path=target.target.instancePath?.canonical??"";
     const matches=path?p.occurrencePath===path||target.target.kind==="INSTANCE"&&p.occurrencePath.startsWith(path+"/"):p.documentId===target.documentId;
-    return matches&&(target.target.kind==="BODY"?p.bodyId===target.target.id:target.target.kind==="FACE"?p.bodyId===target.target.bodyId:true);
+    if(!matches)return false;
+    if(target.target.sourceResult)return p.sourceResult?.featureId===target.target.sourceResult.featureId&&p.sourceResult?.resultId===target.target.sourceResult.resultId;
+    if(target.target.kind==='FEATURE')return p.sourceResult?.featureId===target.target.id;
+    if(['GEOMETRICAL_SET','REFERENCE_POINT','PLANE','DATUM_AXIS'].includes(target.target.kind))return p.objectId===(target.target.kind==='PLANE'?'DATUM_PLANE':target.target.kind)+':'+target.target.id;
+    return !p.sourceResult&&!p.objectId&&(target.target.kind==="BODY"?p.bodyId===target.target.id:target.target.kind==="FACE"?p.bodyId===target.target.bodyId:true);
   })?.appearance;
   const current=(key:keyof SurfaceStyle)=>{
     if(appearance[key]===null&&changedGraphics){
@@ -59,37 +63,39 @@ export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPrevi
     return appearance[key]??commonStyle(targets,key).value??defaults[key];
   };
 
-  const mode=(key:keyof SurfaceStyle)=><Select aria-label={`${({color:"表面颜色",opacity:"表面透明度",edgeColor:"边线颜色",edgeOpacityMode:"透明边线",edgeWidth:"边线宽度",roughness:"粗糙度",metalness:"金属度",edges:"显示边线",pickable:"可选择性"})[key]}来源`} size="small" disabled={!editable} placeholder="多个值" value={key in appearance?appearance[key]===null?"inherit":"custom":targets.some(t=>(t.appearance?.[key]!==undefined)!==(first.appearance?.[key]!==undefined))?undefined:first.appearance?.[key]!==undefined?"custom":"inherit"}
+  const mode=(key:keyof SurfaceStyle)=><Select aria-label={`${({color:"表面颜色",opacity:"表面透明度",edgeColor:"边线颜色",edgeOpacityMode:"透明边线",edgeWidth:"边线宽度",roughness:"粗糙度",metalness:"金属度",lineStyle:"线型",pointSize:"点大小",pointSymbol:"点符号",edges:"显示边线",pickable:"可选择性"})[key]}来源`} size="small" disabled={!editable} placeholder="多个值" value={key in appearance?appearance[key]===null?"inherit":"custom":targets.some(t=>(t.appearance?.[key]!==undefined)!==(first.appearance?.[key]!==undefined))?undefined:first.appearance?.[key]!==undefined?"custom":"inherit"}
     onChange={v=>set(key,v==="inherit"?null:current(key)!)} options={[{value:"inherit",label:"继承"},{value:"custom",label:"自定义"}]}/>;
   const color=(key:"color"|"edgeColor",label:string)=><CommandField label={label} width="content"><Space className="command-property-controls"><ColorPicker value={/^#[0-9a-fA-F]{6}$/.test(String(current(key)))?current(key) as string:defaults[key]} disabledAlpha disabled={!editable} onChange={v=>set(key,v.toHexString())}/><Input style={{width:94}} aria-label={key==="color"?"颜色 HEX":"边线 HEX"} maxLength={7} placeholder="多个值" value={commonStyle(targets,key).mixed&&!Object.hasOwn(appearance,key)?"":String(current(key))} disabled={!editable} status={/^#[0-9a-fA-F]{6}$/.test(String(current(key)))?undefined:"error"} onChange={e=>set(key,e.target.value)}/>{mode(key)}</Space></CommandField>;
 
-  const numeric=(key:"roughness"|"metalness"|"edgeWidth",label:string)=><CommandField label={label} width="content"><Space className="command-property-controls"><InputNumber aria-label={label} placeholder="多个值" value={commonStyle(targets,key).mixed&&!Object.hasOwn(appearance,key)?undefined:current(key) as number} min={key==="edgeWidth"?.5:0} max={key==="edgeWidth"?8:1} step={key==="edgeWidth"?.5:.05} disabled={!editable} onChange={v=>{if(v!==null)set(key,v)}}/>{mode(key)}</Space></CommandField>;
+  const numeric=(key:"roughness"|"metalness"|"edgeWidth"|"pointSize",label:string)=><CommandField label={label} width="content"><Space className="command-property-controls"><InputNumber aria-label={label} placeholder="多个值" value={commonStyle(targets,key).mixed&&!Object.hasOwn(appearance,key)?undefined:current(key) as number} min={key==="pointSize"?3:key==="edgeWidth"?.5:0} max={key==="pointSize"?32:key==="edgeWidth"?8:1} step={key==="pointSize"?1:key==="edgeWidth"?.5:.05} disabled={!editable} onChange={v=>{if(v!==null)set(key,v)}}/>{mode(key)}</Space></CommandField>;
   const projected=previewEntry(first);
   const colorSource=projected?(first.target.kind==="FACE"?projected.faceSources?.[first.target.localId??0]?.color??projected.sources?.color:projected.sources?.color):first.sources?.color;
-  const sourceLabels:Record<string,string>={SYSTEM:"系统默认",DOCUMENT_DEFAULT:"零件默认外观",BODY:"实体外观",FACE:"分面外观",INSTANCE:"实例覆盖",INSTANCE_FACE:"实例分面覆盖",ASSEMBLY_DEFAULT:"装配默认外观",IMPORTED_INSTANCE:"导入的实例外观"};
+  const sourceLabels:Record<string,string>={SYSTEM:"系统默认",DOCUMENT_DEFAULT:"零件默认外观",BODY:"实体外观",FACE:"分面外观",INSTANCE:"实例覆盖",INSTANCE_FACE:"实例分面覆盖",ASSEMBLY_DEFAULT:"装配默认外观",IMPORTED_INSTANCE:"导入的实例外观",GEOMETRICAL_SET:"几何图形集",GEOMETRY_RESULT:"几何结果",IMPORTED_RESULT:"导入外观",REFERENCE_POINT:"参考点",DATUM_PLANE:"参考面",DATUM_AXIS:"参考线"};
   const basic=<Space orientation="vertical" style={{width:"100%"}}>
     {rename?<CommandField  label={<><span>{first.target.kind==="DOCUMENT"?"文档名称":first.target.kind==="INSTANCE"?"实例名称":"名称"}</span></>} width="expression"><Input aria-label="属性名称" value={name} disabled={!editable} status={nameValid?undefined:"error"} onChange={e=>{setNameDirty(true);setName(e.target.value)}}/></CommandField>:<Typography.Text>{single?first.title:`已选择 ${targets.length} 个对象`}</Typography.Text>}
     {single&&first.target.kind==="DOCUMENT"&&<CommandField label="描述" width="expression"><Input.TextArea aria-label="文档描述" value={description} disabled={!editable} autoSize={{minRows:2,maxRows:5}} onChange={e=>{setDescriptionDirty(true);setDescription(e.target.value)}}/></CommandField>}
     <Typography.Text type="secondary">名称可修改，已有引用保持关联。</Typography.Text>
     {first.originalDocumentId&&<Button type="link" disabled={changedName||changedDescription||changedGraphics||pending} onClick={()=>onOpenOriginal?.(first.originalDocumentId!)}>打开原始文档</Button>}
   </Space>;
-  const graphic=<Space orientation="vertical" style={{width:"100%"}}>
-    {color("color","表面颜色")}
-    {commonStyle(targets,"color").mixed&&!Object.hasOwn(appearance,"color")&&<Typography.Text type="secondary">已选对象的颜色不同；未修改的字段将保留。</Typography.Text>}
-    <CommandField label="表面透明度" width="content"><Space className="command-property-controls"><InputNumber aria-label="表面透明度" min={0} max={100} placeholder="多个值" value={commonStyle(targets,"opacity").mixed&&!Object.hasOwn(appearance,"opacity")?undefined:Math.round((1-(current("opacity") as number))*100)} suffix="%" disabled={!editable} onChange={v=>{if(v!==null)set("opacity",1-v/100)}}/>{mode("opacity")}</Space></CommandField>
-    <Slider aria-label="表面透明度滑块" min={0} max={100} value={Math.round((1-(current("opacity") as number))*100)} disabled={!editable} onChange={v=>set("opacity",1-v/100)}/>
-    {targets.every(t=>t.target.kind!=="FACE")&&<>
-      <Checkbox disabled={!editable} indeterminate={commonStyle(targets,"edges").mixed&&!Object.hasOwn(appearance,"edges")} checked={current("edges") as boolean} onChange={e=>set("edges",e.target.checked)}>显示边线</Checkbox>
-      <CommandField label="透明边线" width="content"><Space className="command-property-controls"><Select aria-label="透明边线" disabled={!editable} value={current("edgeOpacityMode")} onChange={v=>set("edgeOpacityMode",v)} options={[{value:"FOLLOW",label:"随表面淡化"},{value:"CLEAR",label:"保持清晰"}]}/>{mode("edgeOpacityMode")}</Space></CommandField>
+  const surfaceFields=targets.every(t=>!t.graphicDomain||['SURFACE','CONTAINER'].includes(t.graphicDomain));
+  const curveFields=targets.every(t=>['CURVE','CONTAINER'].includes(t.graphicDomain??''));
+  const pointFields=targets.every(t=>['POINT','CONTAINER'].includes(t.graphicDomain??''));
+  const enumeration=(key:'lineStyle'|'pointSymbol',label:string,options:{value:string;label:string}[])=><CommandField label={label} width="content"><Space className="command-property-controls"><Select aria-label={label} disabled={!editable} value={current(key)} onChange={v=>set(key,v)} options={options}/>{mode(key)}</Space></CommandField>;
+  const graphic=<div className="command-form">
+    {color("color",curveFields?"曲线颜色":pointFields?"点颜色":"颜色")}
+    <CommandField label="透明度" width="content"><Space className="command-property-controls"><InputNumber aria-label="表面透明度" min={0} max={100} placeholder="多个值" value={commonStyle(targets,"opacity").mixed&&!Object.hasOwn(appearance,"opacity")?undefined:Math.round((1-(current("opacity") as number))*100)} suffix="%" disabled={!editable} onChange={v=>{if(v!==null)set("opacity",1-v/100)}}/>{mode("opacity")}</Space></CommandField>
+    {curveFields&&<>{numeric('edgeWidth','线宽（px）')}{enumeration('lineStyle','线型',[{value:'SOLID',label:'实线'},{value:'DASHED',label:'虚线'}])}</>}
+    {pointFields&&<>{numeric('pointSize','点大小（px）')}{enumeration('pointSymbol','点符号',[{value:'CROSS',label:'叉号'},{value:'PLUS',label:'十字'},{value:'DOT',label:'圆点'}])}</>}
+    {surfaceFields&&<>
+      {targets.every(t=>t.target.kind!=='FACE')&&<><Checkbox disabled={!editable} checked={current('edges') as boolean} onChange={e=>set('edges',e.target.checked)}>显示边线</Checkbox>{color('edgeColor','边线颜色')}{numeric('edgeWidth','边线宽度（px）')}</>}
+      {numeric('roughness','粗糙度')}{numeric('metalness','金属度')}
     </>}
-      <Checkbox disabled={!editable} indeterminate={commonStyle(targets,"pickable").mixed&&!Object.hasOwn(appearance,"pickable")} checked={current("pickable") as boolean} onChange={e=>set("pickable",e.target.checked)}>允许从视区选择</Checkbox>
-    <Collapse size="small" items={[{key:"advanced",label:"高级外观",children:<Space orientation="vertical" style={{width:"100%"}}>{numeric("roughness","粗糙度")}{numeric("metalness","金属度")}{targets.every(t=>t.target.kind!=="FACE")&&<>{color("edgeColor","边线颜色")}{numeric("edgeWidth","边线宽度（px）")}</>}</Space>}]}/>
-    {targets.every(t=>["BODY","INSTANCE","DOCUMENT"].includes(t.target.kind))&&targets.some(t=>Boolean(t.appearance?.faces?.length))&&<Checkbox disabled={!editable} checked={clearFaces} onChange={e=>setClearFaces(e.target.checked)}>清除当前目标的分面外观覆盖</Checkbox>}
-    <Button type="link" disabled={!editable} onClick={()=>setAppearance(Object.fromEntries(Object.keys(defaults).map(key=>[key,null])))}>恢复各项继承</Button>
-    <Typography.Text type="secondary" >颜色来源：{appearance.color!==undefined&&appearance.color!==null?"当前修改（预览）":targets.some(t=>t.sources?.color?.kind!==first.sources?.color?.kind)?"多个来源":sourceLabels[colorSource?.kind??"SYSTEM"]}</Typography.Text>
-    {Boolean(projected?.unresolvedFaces||projected?.issues?.length)&&<Alert type="warning" title="部分外观引用已失效" description="请重新设置对应面的外观或清除分面覆盖；处理前不能导出 STEP。"/>}
-    <Typography.Text type="secondary">修改表面属性会保留其他字段和已有分面赋色。</Typography.Text>
-  </Space>;
+    <Checkbox disabled={!editable} indeterminate={commonStyle(targets,"pickable").mixed&&!Object.hasOwn(appearance,"pickable")} checked={current("pickable") as boolean} onChange={e=>set("pickable",e.target.checked)}>允许从视区选择</Checkbox>
+    {targets.every(t=>['BODY','FEATURE','INSTANCE','DOCUMENT'].includes(t.target.kind))&&targets.some(t=>Boolean(t.hasFaceOverrides||t.appearance?.faces?.length))&&<Checkbox disabled={!editable} checked={clearFaces} onChange={e=>setClearFaces(e.target.checked)}>清除分面覆盖</Checkbox>}
+    <Button type="link" disabled={!editable} onClick={()=>setAppearance(Object.fromEntries(Object.keys(defaults).map(key=>[key,null])))}>恢复继承</Button>
+    <Typography.Text type="secondary">颜色来源：{appearance.color!==undefined&&appearance.color!==null?'当前修改':sourceLabels[colorSource?.kind??'SYSTEM']??'对象属性'}</Typography.Text>
+    {Boolean(projected?.unresolvedFaces||projected?.issues?.length)&&<Alert type="warning" title="部分外观引用已失效"/>}
+  </div>;
   const info=<><Descriptions column={1} size="small" items={[{key:"scope",label:"作用范围",children:first.scope},{key:"object",label:"对象",children:first.title},{key:"path",label:"所在位置",children:first.target.instancePath?.display??"当前文档"}]}/>{targets.every(target=>target.target.kind==="INSTANCE")&&<CommandField label="属性基线" width="content"><Button aria-label="加载最新属性（保留修改）" type="link" disabled={pending} loading={refreshing} onClick={async()=>{setRefreshing(true);try{await onRefresh();setCommitError(undefined);setPreviewError(undefined);setRetry(v=>v+1)}catch(error){setCommitError(error instanceof Error?error.message:String(error))}finally{setRefreshing(false)}}}>加载最新属性（保留修改）</Button></CommandField>}</>;
   return <CommandDialog id="object-properties" open title={`属性 · ${single?first.title:`${targets.length} 个对象`}`} size="M" onClose={onClose} confirmLoading={pending} confirmDisabled={!editable||!valid||!(changedName||changedDescription||changedGraphics)} onConfirm={async()=>{try{await onApply(request)}catch(error){setCommitError(error instanceof Error?error.message:String(error));throw error}}}>
     <Typography.Paragraph type="secondary">{first.scope} · 确定后保存到文档历史</Typography.Paragraph>

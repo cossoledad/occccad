@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -75,14 +76,28 @@ func TestMirrorPlaneReflectionAndValidation(t *testing.T) {
 	}
 }
 
-func TestMirrorDatumDependencyAndDeleteProtection(t *testing.T) {
+func TestMirrorDatumDependencyAndMissingSupport(t *testing.T) {
 	model := newPartModel()
 	model.DatumPlanes = append(model.DatumPlanes, DatumPlane{ID: "mirror-plane", Plane: "CUSTOM", Normal: [3]float64{1, 0, 0}, UDirection: [3]float64{0, 1, 0}, Size: 180})
 	model.Features = []Feature{{ID: "source", Type: "IMPORT_BODY", BodyID: model.ActiveBodyID}, {ID: "mirror", Type: "SOLID_PATTERN", BodyID: model.ActiveBodyID, Operation: "ADD", Pattern: &FeaturePattern{PatternDefinition: PatternDefinition{ID: "mirror", Kind: "MIRROR", Distribution: "FIXED_STEP", Count: 2, Direction: [3]float64{1, 0, 0}, MirrorPlaneID: "mirror-plane"}, Source: FeatureStageRef{BodyID: model.ActiveBodyID, FeatureID: "source"}, SourceKind: "BODY_STAGE"}}}
 	normalizePartModel(&model)
-	if _, _, e := deleteDatum(model, "DATUM_PLANE", "mirror-plane"); e == nil {
-		t.Fatal("deleted mirror support")
+	next, _, err := deleteDatum(model, "DATUM_PLANE", "mirror-plane")
+	if err != nil {
+		t.Fatal(err)
 	}
+	var missing PartModel
+	if err = json.Unmarshal(next, &missing); err != nil {
+		t.Fatal(err)
+	}
+	graph, _, err := buildPartEvaluation(missing, "missing-revision", "hash", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markRetiredReferenceFailures(&missing, graph)
+	if missing.Features[1].EvaluationStatus != "FAILED" {
+		t.Fatal("deleted mirror plane was not diagnosed")
+	}
+
 	_, manifest, e := buildPartEvaluation(model, "revision", "hash", []modelcore.DependencyKey{"datum:mirror-plane"}, nil)
 	if e != nil {
 		t.Fatal(e)

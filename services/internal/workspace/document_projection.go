@@ -33,13 +33,14 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 		return view, err
 	}
 	view.Part = &model
+	view.ObjectAppearances = partObjectAppearances(model)
 	view.BodyAppearances = map[string]ResolvedAppearance{}
 	view.ResultAppearances = map[string]ResolvedAppearance{}
 	for _, feature := range model.Features {
 		if feature.Result == nil {
 			continue
 		}
-		appearance, err := service.resultAppearance(ctx, feature, model.DefaultAppearance)
+		appearance, err := service.partResultAppearance(ctx, model, feature)
 		if err != nil {
 			return view, err
 		}

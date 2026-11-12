@@ -31,13 +31,14 @@ type OccurrenceAppearance struct {
 }
 
 type PropertyTarget struct {
-	Kind         string                         `json:"kind"`
-	ID           string                         `json:"id"`
-	InstancePath *InstancePath                  `json:"instancePath,omitempty"`
-	BodyID       string                         `json:"bodyId,omitempty"`
-	GeometryKey  string                         `json:"geometryKey,omitempty"`
-	LocalID      uint64                         `json:"localId,omitempty"`
-	Anchor       *modelcore.SemanticTopologyRef `json:"anchor,omitempty"`
+	SourceResult *modelcore.GeometryResultReference `json:"sourceResult,omitempty"`
+	Kind         string                             `json:"kind"`
+	ID           string                             `json:"id"`
+	InstancePath *InstancePath                      `json:"instancePath,omitempty"`
+	BodyID       string                             `json:"bodyId,omitempty"`
+	GeometryKey  string                             `json:"geometryKey,omitempty"`
+	LocalID      uint64                             `json:"localId,omitempty"`
+	Anchor       *modelcore.SemanticTopologyRef     `json:"anchor,omitempty"`
 }
 
 type PropertyUpdateRequest struct {
@@ -161,13 +162,17 @@ func (s *Service) adaptProperties(ctx context.Context, documentID, documentType 
 			if input.Name != nil {
 				return "", nil, fmt.Errorf("%w: topology does not have an editable name", ErrValidation)
 			}
-			selection, err := s.BindPersistentSelection(ctx, sourceID, BindPersistentSelectionRequest{SourceVersionID: sourceVersion, BodyID: t.BodyID, GeometryKey: t.GeometryKey, Kind: "FACE", LocalID: t.LocalID})
+			selection, err := s.BindPersistentSelection(ctx, sourceID, BindPersistentSelectionRequest{SourceVersionID: sourceVersion, BodyID: t.BodyID, Result: t.SourceResult, GeometryKey: t.GeometryKey, Kind: "FACE", LocalID: t.LocalID})
 			if err != nil {
 				return "", nil, err
 			}
 			t.Anchor = &selection.Anchor
 			t.BodyID = selection.SourceBodyID
 			t.ID = selection.SourceBodyID
+			t.SourceResult = selection.SourceResult
+			if t.SourceResult != nil {
+				t.ID = t.SourceResult.FeatureID
+			}
 			t.GeometryKey = ""
 			t.LocalID = 0 // exchange/pick locators never enter the Domain Command
 		} else {
@@ -197,6 +202,12 @@ func applyPartProperties(raw, payload json.RawMessage) (json.RawMessage, modelco
 		if t.InstancePath != nil {
 			return nil, set, fmt.Errorf("%w: Part properties cannot address an occurrence", ErrValidation)
 		}
+		if handled, err := applyPartObjectProperties(&model, t, input, &set); handled {
+			if err != nil {
+				return nil, set, err
+			}
+			continue
+		}
 		switch t.Kind {
 		case "DOCUMENT":
 			if input.Name != nil || input.Description != nil {
@@ -216,6 +227,14 @@ func applyPartProperties(raw, payload json.RawMessage) (json.RawMessage, modelco
 				}
 				model.DefaultAppearance = after
 				add(t.ID, "document.appearance", before, after)
+				beforeGeometry := model.GeometryDefaultAppearance
+				afterGeometry, err := patchAppearance(beforeGeometry, input.Appearance, input.ClearFaceOverrides)
+				if err != nil {
+					return nil, set, err
+				}
+				model.GeometryDefaultAppearance = afterGeometry
+				add(t.ID, "document.geometry-appearance", beforeGeometry, afterGeometry)
+
 			}
 		case "BODY", "FACE":
 			id := t.ID
@@ -241,53 +260,7 @@ func applyPartProperties(raw, payload json.RawMessage) (json.RawMessage, modelco
 				add(id, "body.appearance", before, after)
 				set.ImpactSeeds = append(set.ImpactSeeds, modelcore.DependencyKey("appearance:"+id))
 			}
-		case "FEATURE", "SKETCH", "PLANE", "DATUM_AXIS":
-			if len(input.Appearance) > 0 || input.ClearFaceOverrides {
-				return nil, set, fmt.Errorf("%w: this object has no independent surface appearance", ErrValidation)
-			}
-			found := false
-			if t.Kind == "FEATURE" || t.Kind == "SKETCH" {
-				for i := range model.Features {
-					if model.Features[i].ID == t.ID {
-						found = true
-						if input.Name != nil {
-							before := model.Features[i].Name
-							model.Features[i].Name = *input.Name
-							add(t.ID, "feature.name", before, *input.Name)
-						}
-						break
-					}
-				}
-			}
-			if t.Kind == "PLANE" {
-				for i := range model.DatumPlanes {
-					if model.DatumPlanes[i].ID == t.ID && model.DatumPlanes[i].Definition != nil {
-						found = true
-						if input.Name != nil {
-							before := model.DatumPlanes[i].Name
-							model.DatumPlanes[i].Name = *input.Name
-							add(t.ID, "datum-plane.name", before, *input.Name)
-						}
-						break
-					}
-				}
-			}
-			if t.Kind == "DATUM_AXIS" {
-				for i := range model.DatumAxes {
-					if model.DatumAxes[i].ID == t.ID {
-						found = true
-						if input.Name != nil {
-							before := model.DatumAxes[i].Name
-							model.DatumAxes[i].Name = *input.Name
-							add(t.ID, "datum-axis.name", before, *input.Name)
-						}
-						break
-					}
-				}
-			}
-			if !found {
-				return nil, set, fmt.Errorf("%w: property target does not exist or is protected", ErrValidation)
-			}
+
 		default:
 			return nil, set, fmt.Errorf("%w: unsupported property target %s", ErrValidation, t.Kind)
 		}
@@ -535,7 +508,7 @@ func displayPropertiesOnly(set modelcore.ChangeSet) bool {
 	}
 	for _, c := range set.Changes {
 		switch c.Target.SlotID {
-		case "document.metadata", "document.appearance", "body.appearance", "body.name", "feature.name", "datum-plane.name", "datum-axis.name", "product.appearance-overrides", "instance.name":
+		case "document.metadata", "document.appearance", "document.geometry-appearance", "body.appearance", "body.name", "feature.name", "datum-plane.name", "datum-axis.name", "product.appearance-overrides", "instance.name", "feature.appearance", "datum-plane.appearance", "datum-axis.appearance", "reference-point.appearance", "reference-point.name", "geometrical-set.appearance", "geometrical-set.name":
 		default:
 			return false
 		}

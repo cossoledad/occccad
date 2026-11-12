@@ -5,6 +5,7 @@ import {sketchGeometryInput,type GeometryReferenceRole} from './geometric-featur
 
 export function acceptsGeometryReference(view:DocumentView,s:SelectionItem,role:GeometryReferenceRole):boolean{
  const feature=view.part?.features.find(f=>f.id===(s.result?.featureId??s.entityId??s.id));
+ const id=s.entityId??s.id,reference=[...(view.part?.datumPoints??[]),...(view.part?.datumAxes??[]),...(view.part?.datumPlanes??[])].find(v=>v.id===id);if(reference?.evaluationStatus||feature?.evaluationStatus==='FAILED'||feature?.evaluationStatus==='BLOCKED')return false;
  if(role==='point')return s.kind==='vertex'||['reference-point','datum-point','axis-system'].includes(s.kind)||s.entityKind==='REFERENCE_POINT'||s.kind==='visual'&&s.visualType==='POINT'&&!!s.sketchReference||feature?.result?.domain==='POINT_SET';
  if(s.kind==='plane'||s.kind==='face'||feature?.result?.domain==='SHEET_SET')return role==='plane'||role==='direction';
  if(role==='plane')return false;

@@ -16,6 +16,8 @@ export type EditSession = {
     rootSnapshotDigest?: string;
   };
   workingBodyId?: string;
+  workingGeometricalSetId?:string;
+  workingGeometricalSetAncestors?:string[];
   activationGeneration: number;
 };
 
@@ -110,4 +112,14 @@ export function isEditTargetNode(session: EditSession | undefined, node: Activat
 
 export function withWorkingBody(session: EditSession, workingBodyId: string): EditSession {
   return { ...session, workingBodyId };
+}
+
+export function withWorkingGeometricalSet(session:EditSession,id:string,sets:NonNullable<NonNullable<DocumentView['part']>['geometricalSets']>):EditSession {
+ const ancestors:string[]=[],seen=new Set<string>();let next:string|undefined=id;
+ while(next&&!seen.has(next)){seen.add(next);ancestors.push(next);next=sets.find(s=>s.id===next)?.parentId}
+ return {...session,workingGeometricalSetId:id,workingGeometricalSetAncestors:ancestors};
+}
+export function workingGeometricalSet(session:EditSession|undefined,part:DocumentView['part']):string|undefined {
+ const sets=part?.geometricalSets??[];
+ return [session?.workingGeometricalSetId,...session?.workingGeometricalSetAncestors??[]].find(id=>sets.some(s=>s.id===id))??sets[0]?.id;
 }

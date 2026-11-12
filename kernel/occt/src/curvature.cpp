@@ -1,14 +1,21 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepClass_FaceClassifier.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepLProp_SLProps.hxx>
 #include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
+#include <BRep_Tool.hxx>
+#include <Bnd_Box.hxx>
 #include <GCPnts_UniformAbscissa.hxx>
 #include <Standard_Failure.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TopExp.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
 
 #include <internal/curvature.hpp>
 
@@ -25,6 +32,80 @@ Vec3 vec(const gp_Vec& p) {
 }
 bool finite(double v) {
     return std::isfinite(v);
+}
+void boundary_quality(const std::vector<TopoDS_Shape>& shapes, MeasurementResult& result,
+                      const std::function<bool()>& cancelled) {
+    const auto check = [&] {
+        if (cancelled && cancelled())
+            throw std::runtime_error("MEASUREMENT_CANCELLED");
+    };
+    BRep_Builder builder;
+    TopoDS_Compound compound;
+    builder.MakeCompound(compound);
+    for (const auto& shape : shapes)
+        builder.Add(compound, shape);
+    TopTools_IndexedDataMapOfShapeListOfShape adjacent;
+    TopExp::MapShapesAndAncestors(compound, TopAbs_EDGE, TopAbs_FACE, adjacent);
+    std::vector<TopoDS_Edge> free;
+    result.boundary_complete = true;
+    for (int i = 1; i <= adjacent.Extent(); ++i) {
+        check();
+        const auto edge = TopoDS::Edge(adjacent.FindKey(i));
+        const auto& faces = adjacent.FindFromIndex(i);
+        if (faces.Extent() != 1 || BRep_Tool::Degenerated(edge) ||
+            BRep_Tool::IsClosed(edge, TopoDS::Face(faces.First())))
+            continue;
+        free.push_back(edge);
+        if (free.size() > 256) {
+            result.boundary_complete = false;
+            break;
+        }
+    }
+    if (free.size() > 256)
+        free.resize(256);
+    for (size_t i = 0; i < free.size(); ++i) {
+        check();
+        BRepAdaptor_Curve c(free[i]);
+        MeasurementResult::BoundaryEdge edge;
+        edge.edge_id = i + 1;
+        GCPnts_UniformAbscissa samples(c, 17);
+        if (!samples.IsDone()) {
+            result.boundary_complete = false;
+            continue;
+        }
+        for (int j = 1; j <= samples.NbPoints(); ++j)
+            edge.points.push_back(vec(c.Value(samples.Parameter(j))));
+        result.boundary_edges.push_back(std::move(edge));
+    }
+    if (free.size() > 64) {
+        result.boundary_complete = false;
+        return;
+    }
+    std::vector<Bnd_Box> boxes(free.size());
+    for (size_t i = 0; i < free.size(); ++i) {
+        BRepBndLib::Add(free[i], boxes[i]);
+        boxes[i].Enlarge(.01);
+    }
+    for (size_t i = 0; i < free.size(); ++i)
+        for (size_t j = i + 1; j < free.size(); ++j) {
+            check();
+            if (boxes[i].IsOut(boxes[j]))
+                continue;
+            BRepExtrema_DistShapeShape distance(free[i], free[j]);
+            if (!distance.IsDone() || distance.NbSolution() == 0) {
+                result.boundary_complete = false;
+                continue;
+            }
+            const double gap = distance.Value();
+            if (gap <= 1e-7 || gap > .01)
+                continue;
+            if (result.gap_candidates.size() >= 256) {
+                result.boundary_complete = false;
+                return;
+            }
+            result.gap_candidates.push_back({i + 1, j + 1, vec(distance.PointOnShape1(1)),
+                                             vec(distance.PointOnShape2(1)), gap});
+        }
 }
 }  // namespace
 MeasurementResult analyze_curvature(const std::vector<TopoDS_Shape>& shapes, uint32_t count,
@@ -147,6 +228,7 @@ MeasurementResult analyze_curvature(const std::vector<TopoDS_Shape>& shapes, uin
     if (r.curvature.empty())
         throw std::invalid_argument("CURVATURE_NO_REGULAR_SAMPLES");
     r.complete = true;
+    boundary_quality(shapes, r, cancelled);
     return r;
 }
 }  // namespace occccad::kernel::detail

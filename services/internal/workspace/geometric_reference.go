@@ -17,7 +17,7 @@ func geometryReferences(d *GeometricFeatureDefinition) []GeometricInput {
 		return nil
 	}
 	var out []GeometricInput
-	for _, ref := range []*GeometricInput{d.Direction, d.Axis, d.MirrorPlane, d.KeepPoint} {
+	for _, ref := range []*GeometricInput{d.Direction, d.Axis, d.MirrorPlane, d.KeepPoint, d.SecondKeepPoint} {
 		if ref != nil {
 			out = append(out, *ref)
 		}
@@ -140,6 +140,9 @@ func (s *Service) geometryReferenceFrame(ctx context.Context, requestID string, 
 	if input.Kind == "PLANE" {
 		for _, p := range model.DatumPlanes {
 			if p.ID == input.PlaneID {
+				if p.EvaluationStatus != "" {
+					return frame, snapshot, fmt.Errorf("%w: INPUT_REFERENCE_MISSING", ErrValidation)
+				}
 				frame = datumFrame{origin: p.Origin, direction: p.Normal, u: p.UDirection, plane: true}
 				break
 			}
@@ -152,6 +155,16 @@ func (s *Service) geometryReferenceFrame(ctx context.Context, requestID string, 
 		frame = datumFrame{origin: position, point: true}
 	} else if input.Kind == "DATUM" && input.Datum != nil {
 		ref := *input.Datum
+		for _, v := range model.DatumPoints {
+			if v.ID == ref.EntityID && v.EvaluationStatus != "" {
+				return frame, snapshot, fmt.Errorf("%w: INPUT_REFERENCE_MISSING", ErrValidation)
+			}
+		}
+		for _, v := range model.DatumAxes {
+			if v.ID == ref.EntityID && v.EvaluationStatus != "" {
+				return frame, snapshot, fmt.Errorf("%w: INPUT_REFERENCE_MISSING", ErrValidation)
+			}
+		}
 		switch ref.Kind {
 		case "POINT":
 			for _, p := range model.DatumPoints {

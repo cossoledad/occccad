@@ -499,6 +499,7 @@ message GeometryFeatureSpec {
     GeometrySurfaceDefinition surface = 8;
     ImportTopologySeed import_seed = 9; // IMPORTED: frozen first-registration identities
     ArtifactReference import_brep = 10;
+    double construction_tolerance = 11; // mm, explicit fitting/connection policy; zero uses kernel precision
 }
 
 // Evaluated values of an engineering surface definition. References (including
@@ -512,6 +513,7 @@ message GeometrySurfaceDefinition {
     GeometryFeatureInput guide = 6; // one guide; exact bounded border or auxiliary frame according to frame_mode
     repeated GeometrySectionControl sections = 7;
     repeated GeometryBoundaryControl boundaries = 8;
+    Vec3 second_keep_point = 9; // explicit retained region on the second mutual-trim support
 }
 message GeometrySectionControl {
     string id = 1;
@@ -1676,7 +1678,12 @@ message MeasureGeometryResponse {
     string kernel_build = 6;
     repeated CurvatureSample curvature = 7;
     uint32 undefined_samples = 8;
+    repeated QualityBoundaryEdge boundary_edges = 9;
+    repeated QualityGapCandidate gap_candidates = 10;
+    bool boundary_complete = 11;
 }
+message QualityBoundaryEdge { uint64 edge_id = 1; repeated Vec3 points = 2; }
+message QualityGapCandidate { uint64 first_edge = 1; uint64 second_edge = 2; Vec3 first = 3; Vec3 second = 4; double distance_mm = 5; }
 message CurvatureSample {
     Vec3 position = 1;
     Vec3 normal = 2;

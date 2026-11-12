@@ -1,3 +1,4 @@
+import {organizationalNode} from '../object-operations';
 import type {HistoricalCreationType} from "../historical-creation";
 import {copyTextToClipboard} from "../../../utils/clipboard";
 import type {ComponentProps} from 'react';
@@ -34,7 +35,7 @@ export function structureCommands(actions:StructureActions={},currentNodes:reado
    if(!actions[action])return false;
    if(action==="onUpdate"||action==="onReconnect"){try{return Boolean(current(invocation).node.capabilities?.includes(action==="onUpdate"?"UPDATE":"RECONNECT"));}catch{return false;}}
    if(action!=="onEdit"&&action!=="onMove"&&action!=="onInsertAfter")return true;
-   try{const {node,nodes}=current(invocation,action==="onMove");return (action!=="onMove"||!nodes?.length||nodes.every(n=>n.presentationRole!=="INPUT_REFERENCE"&&n.capabilities?.includes("MOVE")&&n.documentId===node.documentId&&n.bodyId===node.bodyId&&(n.selection?.occurrencePath??"")===(node.selection?.occurrencePath??"")))&&node.presentationRole!=="INPUT_REFERENCE"&&Boolean(node.capabilities?.includes(action==="onMove"?"MOVE":action==="onInsertAfter"?"INSERT_AFTER":"EDIT"));}catch{return false;}
+   try{const {node,nodes}=current(invocation,action==="onMove");return (action!=="onMove"||!nodes?.length||nodes.every(n=>n.presentationRole!=="INPUT_REFERENCE"&&n.capabilities?.includes("MOVE")&&n.documentId===node.documentId&&(nodes.every(organizationalNode)||n.bodyId===node.bodyId)&&(n.selection?.occurrencePath??"")===(node.selection?.occurrencePath??"")))&&node.presentationRole!=="INPUT_REFERENCE"&&Boolean(node.capabilities?.includes(action==="onMove"?"MOVE":action==="onInsertAfter"?"INSERT_AFTER":"EDIT"));}catch{return false;}
   },execute:invocation=>{
    const target=current(invocation,action==="onMove");
    const capability:Partial<Record<keyof StructureActions,string>>={onInsertAfter:'INSERT_AFTER',onMove:'MOVE',onEdit:'EDIT',onCreatePart:'CREATE_PART',onDetach:'DETACH',onReconnect:'RECONNECT',onRefresh:'REFRESH',onUpdate:'UPDATE',onToggleConstruction:'DELETE',onToggleSuppression:'SUPPRESS'};

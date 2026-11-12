@@ -103,7 +103,7 @@ export class SelectionIndex {
   pickAll(raycaster: THREE.Raycaster,
     accepts: (selection: Exclude<Selection, null>) => boolean = () => true, limit=256, options:PickOptions={}): SelectionHit[] {
     const visible = (root: THREE.Object3D) => {
-      for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible) return false;
+      for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible||object.userData.appearancePickable===false) return false;
       return true;
     };
     const activePicks = this.picks.filter((binding) => visible(binding.root));

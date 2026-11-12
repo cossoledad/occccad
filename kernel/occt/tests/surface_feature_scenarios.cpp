@@ -162,6 +162,39 @@ TEST(SurfaceFeature, TrimUsesRetainedDesignPointAndRejectsBoundaryAmbiguity) {
     s.surface.keep_point = {25, 0, 5};
     EXPECT_THROW(k.evaluateGeometryFeature(s), std::invalid_argument);
 }
+TEST(SurfaceFeature, SplitUsesOnSurfaceCurveAndMutualTrimKeepsBothChosenSides) {
+    OcctKernel k;
+    const auto source = sheet(k);
+    const auto cut = k.evaluateGeometryFeature(source_line("cut", {25, 0, 0}, {25, 0, 20}));
+    auto s = surface_spec("split", "SURFACE_TRIM", {source_input(k, source), source_input(k, cut)});
+    s.surface.has_keep_point = true;
+    s.surface.keep_point = {5, 0, 5};
+    const auto split = k.evaluateGeometryFeature(s);
+    EXPECT_NEAR(surface_area(k, split.geometry_id), 500, 1e-6);
+    names(split);
+    const auto crossLine =
+        k.evaluateGeometryFeature(source_line("cross-line", {0, -10, 10}, {50, -10, 10}));
+    GeometryFeatureSpec cross;
+    cross.feature_id = "cross-sheet";
+    cross.operation = "SURFACE_EXTRUDE";
+    cross.inputs = {source_input(k, crossLine)};
+    cross.parameters.direction = {0, 1, 0};
+    cross.parameters.distance = 20;
+    const auto other = k.evaluateGeometryFeature(cross);
+    s = surface_spec("mutual", "SURFACE_MUTUAL_TRIM",
+                     {source_input(k, source), source_input(k, other)});
+    s.surface.has_keep_point = true;
+    s.surface.keep_point = {5, 0, 5};
+    s.surface.has_second_keep_point = true;
+    s.surface.second_keep_point = {5, 5, 10};
+    const auto trimmed = k.evaluateGeometryFeature(s);
+    EXPECT_NEAR(surface_area(k, trimmed.geometry_id), 1000, 1e-6);
+    const auto expected = names(trimmed);
+    OcctKernel cold;
+    EXPECT_EQ(expected, names(cold.evaluateGeometryFeature(s)));
+    s.surface.has_second_keep_point = false;
+    EXPECT_THROW(k.evaluateGeometryFeature(s), std::invalid_argument);
+}
 TEST(SurfaceFeature, ExtendUsesExactFreeBoundaryAndStableConstructionRoles) {
     OcctKernel k;
     const auto source = sheet(k);

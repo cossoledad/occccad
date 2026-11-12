@@ -10,6 +10,7 @@
 | 几何测量交互 | 依据实机反馈完善专用上下文来源、标签排布和选择语义；保持临时计算、保留/更新及标注历史边界 | [几何测量](../docs/architecture/current/geometric-measurement.md) |
 | 零件持续建模性能 | 在语义索引/共享检查点、未变面网格复用、无损传输和批量高亮基础上，扩大复杂 STEP/长特征链样本；继续削减首次完整剖分与精确布尔成本，建立进程整体内存控制，并覆盖尚不能中断的积分/构造器；首个有效操作与修改参数分别测量 | [Part 求值](../docs/architecture/current/part-feature-evaluation.md#零件增量求值)、[测量边界](../docs/validation/part-feature-performance.md) |
 | 空间分析与干涉性能 | 优化持续变化构型的精确交集成本及大装配规模；分别验证复杂实体、显示精度、失效、取消与只读边界 | [空间分析](../docs/architecture/current/product-assembly.md#空间分析对象与手动更新) |
+| Part 关联更新扩展 | 在已交付的[对象生命周期](../docs/architecture/current/part-object-lifecycle.md)基础上，扩大跨文档影响定位、复杂拓扑修复和大删除闭包的并发/容量验收；保持当前显式失败及 Naming 边界 | [持续建模](../docs/architecture/current/part-design-workflow.md) |
 | 历史与上下文扩展 | 跨 Body 历史创建、更多受约束移动、深层上下文编辑及跨层更新编排；逐项明确合法来源、默认构型与 occurrence 一致性 | [实体 Feature](../docs/architecture/current/solid-features.md)、[编辑上下文](../docs/architecture/current/product-edit-context.md) |
 | 骨架与跨零件引用 | 从消费参数或几何输入建立引用，在所属对象内编辑/修复；新引用编辑器、带链接复制及深层编排仍待实施，复用内部 UpdatePlan | [流程设计](skeleton-reference-workflow.md) |
 | 柔性场景与交换验收 | 单独定义适用模型、数据合同与真实交换/重建检验，再纳入当前能力 | [Product](../docs/architecture/current/product-assembly.md) |

@@ -6755,6 +6755,50 @@
       }
     },
     {
+      "id": "geometry.surface-revolve",
+      "name": "旋转曲面",
+      "helpText": "选择轮廓曲线和关联旋转轴，创建旋转曲面",
+      "iconKey": "revolve",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
       "id": "geometry.thicken",
       "name": "加厚",
       "helpText": "加厚",
@@ -7462,6 +7506,50 @@
       "id": "geometry.surface-trim",
       "name": "裁剪曲面",
       "helpText": "裁剪曲面",
+      "iconKey": "pocket",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-mutual-trim",
+      "name": "互裁曲面",
+      "helpText": "两张曲面互相裁剪，分别选择保留点并连接结果",
       "iconKey": "pocket",
       "repeatable": false,
       "implementation": "form",
@@ -8850,6 +8938,11 @@
           "order": 0
         },
         {
+          "commandId": "geometry.surface-revolve",
+          "groupKey": "primary",
+          "order": 0
+        },
+        {
           "commandId": "geometry.surface-sweep",
           "groupKey": "primary",
           "order": 10
@@ -8885,6 +8978,11 @@
       "commands": [
         {
           "commandId": "geometry.surface-trim",
+          "groupKey": "primary",
+          "order": 0
+        },
+        {
+          "commandId": "geometry.surface-mutual-trim",
           "groupKey": "primary",
           "order": 0
         },

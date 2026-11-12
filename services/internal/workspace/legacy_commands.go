@@ -25,11 +25,29 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 
 	}
 	switch request.Type {
-	case "CREATE_GEOMETRICAL_SET", "EDIT_GEOMETRICAL_SET", "DELETE_GEOMETRICAL_SET":
+	case "MOVE_TO_GEOMETRICAL_SET", "DISSOLVE_GEOMETRICAL_SET":
 		if documentType != "PART" {
 			break
 		}
-		action := map[string]string{"CREATE_GEOMETRICAL_SET": "CREATE", "EDIT_GEOMETRICAL_SET": "EDIT", "DELETE_GEOMETRICAL_SET": "DELETE"}[request.Type]
+		targets := []deleteNodePayload{}
+		for _, t := range request.Targets {
+			targets = append(targets, deleteNodePayload{TargetKind: t.TargetKind, TargetID: t.TargetID})
+		}
+		if request.Type == "DISSOLVE_GEOMETRICAL_SET" {
+			return typeGeometricalSet, geometricalSetPayload{Action: "DISSOLVE", Set: GeometricalSet{ID: request.TargetID, ParentID: request.GeometricalSetID}}, nil
+		}
+		return typeGeometricalSet, geometricalSetPayload{Action: "MOVE", Set: GeometricalSet{ID: request.GeometricalSetID}, Targets: targets}, nil
+	case "DELETE_GEOMETRICAL_SET":
+		if documentType != "PART" {
+			break
+		}
+		return typeDeletePartNode, deleteNodePayload{TargetKind: "GEOMETRICAL_SET", TargetID: request.TargetID, Options: request.DeleteOptions}, nil
+	case "CREATE_GEOMETRICAL_SET", "EDIT_GEOMETRICAL_SET":
+		if documentType != "PART" {
+			break
+		}
+		action := map[string]string{"CREATE_GEOMETRICAL_SET": "CREATE", "EDIT_GEOMETRICAL_SET": "EDIT"}[request.Type]
+
 		id := request.TargetID
 		if action == "CREATE" {
 			id = commandEntityID("geometrical-set", request.RequestID)
@@ -199,11 +217,17 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return typeOccurrenceVisibility, occurrenceVisibilityPayload{InstancePath: *request.InstancePath,
 			EntityKind: strings.ToUpper(request.TargetKind), EntityID: request.TargetID, Mode: strings.ToUpper(request.VisibilityMode)}, nil
-	case "CREATE_BODY", "DELETE_BODY", "RENAME_BODY", "SET_ACTIVE_BODY":
+	case "DELETE_BODY":
 		if documentType != "PART" {
 			break
 		}
-		action := map[string]string{"CREATE_BODY": "CREATE", "DELETE_BODY": "DELETE", "RENAME_BODY": "RENAME", "SET_ACTIVE_BODY": "ACTIVATE"}[request.Type]
+		return typeDeletePartNode, deleteNodePayload{TargetKind: "BODY", TargetID: request.BodyID, Options: request.DeleteOptions}, nil
+	case "CREATE_BODY", "RENAME_BODY", "SET_ACTIVE_BODY":
+		if documentType != "PART" {
+			break
+		}
+		action := map[string]string{"CREATE_BODY": "CREATE", "RENAME_BODY": "RENAME", "SET_ACTIVE_BODY": "ACTIVATE"}[request.Type]
+
 		id := request.BodyID
 		if request.Type == "CREATE_BODY" {
 			id = commandEntityID("body", request.RequestID)
@@ -1982,13 +2006,13 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
 		}
 		if documentType == "PART" {
-			if kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_EXTERNAL_GEOMETRY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" && kind != "REFERENCE_POINT" && kind != "GEOMETRICAL_SET" {
+			if kind != "BODY" && kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_EXTERNAL_GEOMETRY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" && kind != "REFERENCE_POINT" && kind != "GEOMETRICAL_SET" {
 				break
 			}
 			if ((kind == "SKETCH_ENTITY" || kind == "SKETCH_EXTERNAL_GEOMETRY") || kind == "SKETCH_CONSTRAINT" || kind == "SKETCH_PATTERN_DEFINITION") && owner == "" {
 				return "", nil, fmt.Errorf("%w: sketch child deletion requires its owning sketch", ErrValidation)
 			}
-			return typeDeletePartNode, deleteNodePayload{TargetKind: kind, TargetID: id, OwnerEntityID: owner}, nil
+			return typeDeletePartNode, deleteNodePayload{TargetKind: kind, TargetID: id, OwnerEntityID: owner, Options: request.DeleteOptions}, nil
 		}
 		if documentType == "PRODUCT" && (kind == "INSTANCE" || kind == "ASSEMBLY_CONSTRAINT") {
 			return typeDeleteProductNode, deleteNodePayload{TargetKind: kind, TargetID: id}, nil
@@ -2008,7 +2032,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
 			}
 			if documentType == "PART" {
-				if kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_EXTERNAL_GEOMETRY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" && kind != "REFERENCE_POINT" && kind != "GEOMETRICAL_SET" {
+				if kind != "BODY" && kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_EXTERNAL_GEOMETRY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" && kind != "REFERENCE_POINT" && kind != "GEOMETRICAL_SET" {
 					valid = false
 					break
 				}
@@ -2030,9 +2054,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		if documentType == "PART" {
-			return typeDeletePartNodes, deleteNodesPayload{Targets: targets}, nil
+			return typeDeletePartNodes, deleteNodesPayload{Targets: targets, Options: request.DeleteOptions, PlanDigest: request.DeletePlanDigest}, nil
 		}
-		return typeDeleteProductNodes, deleteNodesPayload{Targets: targets}, nil
+		return typeDeleteProductNodes, deleteNodesPayload{Targets: targets, Options: request.DeleteOptions, PlanDigest: request.DeletePlanDigest}, nil
 	}
 	return "", nil, fmt.Errorf("%w: command %s is not valid for a %s", ErrValidation, request.Type, documentType)
 }

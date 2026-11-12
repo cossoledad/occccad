@@ -92,26 +92,28 @@ type GeometryBoundaryControl struct {
 	Tension    float64         `json:"tension"`
 }
 type GeometricFeatureDefinition struct {
-	Surface     *GeometrySurfaceDefinition  `json:"surface,omitempty"`
-	KeepPoint   *GeometricInput             `json:"keepPoint,omitempty"`
-	Direction   *GeometricInput             `json:"direction,omitempty"`
-	Axis        *GeometricInput             `json:"axis,omitempty"`
-	MirrorPlane *GeometricInput             `json:"mirrorPlane,omitempty"`
-	Kind        string                      `json:"kind"`
-	Inputs      []GeometricInput            `json:"inputs,omitempty"`
-	Curve       *GeometryCurveDefinition    `json:"curve,omitempty"`
-	Parameters  GeometryOperationParameters `json:"parameters"`
+	ConstructionTolerance float64                     `json:"constructionTolerance,omitempty"`
+	SecondKeepPoint       *GeometricInput             `json:"secondKeepPoint,omitempty"`
+	Surface               *GeometrySurfaceDefinition  `json:"surface,omitempty"`
+	KeepPoint             *GeometricInput             `json:"keepPoint,omitempty"`
+	Direction             *GeometricInput             `json:"direction,omitempty"`
+	Axis                  *GeometricInput             `json:"axis,omitempty"`
+	MirrorPlane           *GeometricInput             `json:"mirrorPlane,omitempty"`
+	Kind                  string                      `json:"kind"`
+	Inputs                []GeometricInput            `json:"inputs,omitempty"`
+	Curve                 *GeometryCurveDefinition    `json:"curve,omitempty"`
+	Parameters            GeometryOperationParameters `json:"parameters"`
 }
 
 var geometryKinds = map[string]int{
 	"IMPORTED": 0, "LINE": 0, "CIRCLE": 0, "ARC": 0, "SPLINE": 0,
 	"POINT_ON_CURVE": 1, "EXTRACT": 1, "BOUNDARY": 1, "COMPOSITE": -1,
-	"SURFACE_EXTRUDE": 1, "THICKEN": 1,
+	"SURFACE_EXTRUDE": 1, "SURFACE_REVOLVE": 1, "THICKEN": 1,
 	"TRANSLATE": 1, "ROTATE": 1, "MIRROR": 1,
 	"SPLIT": 1, "TRIM": 1, "EXTEND": 1, "G1_CONNECT": 2,
 	"OFFSET": 2, "PROJECT": 2, "INTERSECTION": 2,
 	"SURFACE_SWEEP": 2, "SURFACE_LOFT": -1, "SURFACE_FILL": -1,
-	"SURFACE_TRIM": 2, "SURFACE_EXTEND": 2, "SURFACE_JOIN": -1,
+	"SURFACE_TRIM": 2, "SURFACE_MUTUAL_TRIM": 2, "SURFACE_EXTEND": 2, "SURFACE_JOIN": -1,
 	"SURFACE_SEW": -1, "SURFACE_OFFSET": 1, "CLOSE_SURFACE": 1,
 	"SURFACE_BOUNDARY": 4, "SURFACE_BLEND": 2,
 }
@@ -150,6 +152,15 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 		return nil
 	}
 	d := f.Geometry
+	if d.ConstructionTolerance != 0 && (!finite(d.ConstructionTolerance) || d.ConstructionTolerance < 1e-7 || d.ConstructionTolerance > 0.01) {
+		return fmt.Errorf("%w: GEOMETRY_TOLERANCE_OUT_OF_RANGE", ErrValidation)
+	}
+	if d.SecondKeepPoint != nil && d.Kind != "SURFACE_MUTUAL_TRIM" {
+		return fmt.Errorf("%w: GEOMETRY_REFERENCE_ROLE_INVALID", ErrValidation)
+	}
+	if d.Kind == "SURFACE_MUTUAL_TRIM" && (d.KeepPoint == nil || d.SecondKeepPoint == nil) {
+		return fmt.Errorf("%w: SURFACE_TRIM_KEEP_POINT_REQUIRED", ErrValidation)
+	}
 	if f.ImportedAppearance != nil && d.Kind != "IMPORTED" {
 		return fmt.Errorf("%w: IMPORT_APPEARANCE_REQUIRES_IMPORTED_RESULT", ErrValidation)
 	}
@@ -175,13 +186,13 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 	} else if d.Surface != nil {
 		return fmt.Errorf("%w: SURFACE_DEFINITION_UNEXPECTED", ErrValidation)
 	}
-	if d.KeepPoint != nil && d.Kind != "SURFACE_TRIM" {
+	if d.KeepPoint != nil && d.Kind != "SURFACE_TRIM" && d.Kind != "SURFACE_MUTUAL_TRIM" {
 		return fmt.Errorf("%w: GEOMETRY_REFERENCE_ROLE_INVALID", ErrValidation)
 	}
 	if d.Curve != nil && d.Curve.Support != nil && !slices.Contains([]string{"CIRCLE", "ARC"}, d.Kind) {
 		return fmt.Errorf("%w: GEOMETRY_REFERENCE_ROLE_INVALID", ErrValidation)
 	}
-	if d.Direction != nil && !slices.Contains([]string{"SURFACE_EXTRUDE", "TRANSLATE", "PROJECT"}, d.Kind) || d.Axis != nil && d.Kind != "ROTATE" || d.MirrorPlane != nil && d.Kind != "MIRROR" {
+	if d.Direction != nil && !slices.Contains([]string{"SURFACE_EXTRUDE", "TRANSLATE", "PROJECT"}, d.Kind) || d.Axis != nil && d.Kind != "ROTATE" && d.Kind != "SURFACE_REVOLVE" || d.MirrorPlane != nil && d.Kind != "MIRROR" {
 		return fmt.Errorf("%w: GEOMETRY_REFERENCE_ROLE_INVALID", ErrValidation)
 	}
 	for _, reference := range geometryReferences(d) {
@@ -322,6 +333,9 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 			}
 		}
 	}
+	if d.Surface == nil && d.ConstructionTolerance > 0 {
+		add("tolerance", "Tolerance", "mm", &d.ConstructionTolerance)
+	}
 	if c := d.Curve; c != nil {
 		for i := range c.Points {
 			p := &c.Points[i]
@@ -369,7 +383,7 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 	if (d.Kind == "ROTATE" || d.Kind == "MIRROR") && d.Axis == nil && d.MirrorPlane == nil {
 		vector("origin", &d.Parameters.Origin, "mm")
 	}
-	if d.Kind == "ROTATE" {
+	if d.Kind == "ROTATE" || d.Kind == "SURFACE_REVOLVE" {
 		add("angle", "Angle", "deg", &d.Parameters.Angle)
 	}
 	if d.Kind == "POINT_ON_CURVE" || d.Kind == "SPLIT" || d.Kind == "TRIM" {
@@ -541,6 +555,13 @@ func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, mod
 		return nil, fmt.Errorf("%w: GEOMETRY_DEFINITION_REQUIRED", ErrValidation)
 	}
 	spec := &compiledGeometryFeature{GeometryFeatureSpec: &workerv1.GeometryFeatureSpec{FeatureId: f.ID, ResultId: "result", Operation: d.Kind, Parameters: &workerv1.GeometryOperationDefinition{Direction: geometryVec(d.Parameters.Direction), Origin: geometryVec(d.Parameters.Origin), Distance: d.Parameters.Distance, Angle: d.Parameters.Angle * math.Pi / 180, Start: d.Parameters.Start, End: d.Parameters.End, Side: d.Parameters.Side, Tension: d.Parameters.Tension}}}
+	spec.ConstructionTolerance = d.ConstructionTolerance
+	if spec.ConstructionTolerance == 0 {
+		spec.ConstructionTolerance = 1e-7
+	}
+	if d.Surface != nil {
+		spec.ConstructionTolerance = d.Surface.Tolerance
+	}
 	if d.Kind == "IMPORTED" {
 		seed, err := s.importSeed(ctx, f)
 		if err != nil {
@@ -563,6 +584,16 @@ func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, mod
 	}
 	if d.Surface != nil {
 		spec.Surface = &workerv1.GeometrySurfaceDefinition{Ruled: d.Surface.Ruled, FrameMode: d.Surface.FrameMode, Tolerance: d.Surface.Tolerance}
+		if d.SecondKeepPoint != nil {
+			frame, err := resolve(*d.SecondKeepPoint)
+			if err != nil {
+				return nil, err
+			}
+			if !frame.point {
+				return nil, fmt.Errorf("%w: SURFACE_TRIM_KEEP_POINT_REQUIRED", ErrValidation)
+			}
+			spec.Surface.SecondKeepPoint = geometryVec(frame.origin)
+		}
 		if d.KeepPoint != nil {
 			frame, err := resolve(*d.KeepPoint)
 			if err != nil {

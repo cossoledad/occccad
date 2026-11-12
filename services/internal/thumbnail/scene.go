@@ -72,6 +72,7 @@ type meshInstance struct {
 	domain     string
 }
 type sceneLine struct {
+	appearance   workspace.ResolvedAppearance
 	points       []vec
 	construction bool
 	engineering  bool
@@ -174,7 +175,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 					continue
 				}
 				s.include(v)
-				s.lines = append(s.lines, sceneLine{points: []vec{v}, engineering: true})
+				s.lines = append(s.lines, sceneLine{points: []vec{v}, engineering: true, appearance: appearance})
 			}
 		}
 		for _, primitive := range a.Visualization.Primitives {
@@ -283,7 +284,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 		}
 		hasModelDisplay := len(s.meshes)+len(s.lines) > 0
 		for _, point := range view.Part.DatumPoints {
-			if point.Visible != nil && !*point.Visible || !workspace.GeometryFeatureVisible(*view.Part, workspace.Feature{GeometricalSetID: point.GeometricalSetID}) || !valid(point.Position) {
+			if point.EvaluationStatus != "" || point.Visible != nil && !*point.Visible || !workspace.GeometryFeatureVisible(*view.Part, workspace.Feature{GeometricalSetID: point.GeometricalSetID}) || !valid(point.Position) {
 				continue
 			}
 			vertices++
@@ -294,7 +295,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				return nil, err
 			}
 			s.include(point.Position)
-			s.lines = append(s.lines, sceneLine{points: []vec{point.Position}, engineering: true})
+			s.lines = append(s.lines, sceneLine{points: []vec{point.Position}, engineering: true, appearance: view.ObjectAppearances["REFERENCE_POINT:"+point.ID]})
 		}
 		if !hasModelDisplay {
 			if err := appendSketchFallback(ctx, s, view.Part.Features); err != nil {

@@ -20,7 +20,7 @@ func TestGeometryFeatureOwnerParametersHistoryAndDependencies(t *testing.T) {
 	var m PartModel
 	json.Unmarshal(created, &m)
 	f := m.Features[0]
-	if f.BodyID != "" || f.GeometricalSetID == "" || len(m.GeometricalSets) != 1 || len(m.Parameters) != 6 {
+	if f.BodyID != "" || f.GeometricalSetID == "" || len(m.GeometricalSets) != 1 || len(m.Parameters) != 7 {
 		t.Fatalf("incorrect independent ownership/parameters: %+v", m)
 	}
 	values, err := partHistoryValues(created, changes)

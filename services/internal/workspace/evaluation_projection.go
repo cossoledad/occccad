@@ -195,6 +195,8 @@ func ensureFeatureParameters(model *PartModel) {
 }
 
 func geometryFeatureDefinition(feature Feature) Feature {
+	feature.Appearance = nil
+	feature.GeometricalSetID = ""
 	feature.ImportedAppearance = nil
 	feature.Visible = nil
 	feature.EvaluationStatus = ""
@@ -202,6 +204,7 @@ func geometryFeatureDefinition(feature Feature) Feature {
 	feature.Result = nil
 	feature.Name = ""
 	if feature.Sketch != nil {
+		feature.BodyID = ""
 		copySketch := *feature.Sketch
 		copySketch.Entities = append([]SketchEntity(nil), copySketch.Entities...)
 		for i := range copySketch.Entities {
@@ -438,7 +441,7 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	if err := validateSketchReferenceParameterDependencies(*model); err != nil {
 		return err
 	}
-	values, err := resolveParameterDefinitions(model.Parameters)
+	values, err := resolvePartParameterDefinitions(model)
 	if err != nil {
 		return err
 	}
@@ -584,6 +587,9 @@ func validateAndResolvePartParameters(model *PartModel) error {
 }
 
 func validatePartStructure(model PartModel) error {
+	if err := validatePartObjectStyles(model); err != nil {
+		return err
+	}
 	if err := validateGeometricalSets(model); err != nil {
 		return err
 	}
@@ -624,8 +630,9 @@ func validatePartStructure(model PartModel) error {
 		}
 	}
 
+	validationModel := retiredValidationContext(model)
 	datums := map[string]struct{}{}
-	for _, datum := range model.DatumPlanes {
+	for _, datum := range validationModel.DatumPlanes {
 		if datum.ID == "" {
 			return fmt.Errorf("%w: datum plane identity is required", ErrValidation)
 		}
@@ -635,6 +642,11 @@ func validatePartStructure(model PartModel) error {
 		datums[datum.ID] = struct{}{}
 	}
 	features := map[string]Feature{}
+	for _, o := range model.RetiredReferences {
+		if o.Feature != nil {
+			features[o.ID] = *o.Feature
+		}
+	}
 	for _, feature := range model.Features {
 		if feature.ID == "" {
 			return fmt.Errorf("%w: feature identity is required", ErrValidation)
@@ -718,7 +730,7 @@ func validatePartStructure(model PartModel) error {
 		if err := validateFeaturePattern(feature, features); err != nil {
 			return err
 		}
-		if err := validateGeometricFeature(feature, features, model); err != nil {
+		if err := validateGeometricFeature(feature, features, validationModel); err != nil {
 			return err
 		}
 		if err := validateSolidStage(feature, features); err != nil {
@@ -739,7 +751,15 @@ func validatePartStructure(model PartModel) error {
 				}
 			}
 			if !found {
-				return fmt.Errorf("%w: local input slot is missing; manage the input port before deleting its geometry", ErrValidation)
+				for _, retired := range model.RetiredReferences {
+					if contextInputTargetsObject(input, retired) && retired.Feature != nil && retired.Feature.Sketch != nil {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				return fmt.Errorf("%w: local input slot is missing", ErrValidation)
 			}
 		}
 
@@ -770,11 +790,20 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		return nil, modelcore.EvaluationManifest{}, err
 	}
 	nodes := []modelcore.DependencyNode{}
+	for _, o := range model.RetiredReferences {
+		for _, key := range o.dependencyKeys() {
+			data, _ := json.Marshal(struct{ Kind, ID string }{o.Kind, o.ID})
+			nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 0, Type: "MISSING_REFERENCE", CanonicalInput: data})
+		}
+	}
 	defaultAppearance, _ := json.Marshal(model.DefaultAppearance)
 	metadata, _ := json.Marshal(model.Metadata)
 	nodes = append(nodes, modelcore.DependencyNode{Key: "appearance:document", Phase: 0, Type: "APPEARANCE", CanonicalInput: defaultAppearance}, modelcore.DependencyNode{Key: "metadata:document", Phase: 0, Type: "METADATA", CanonicalInput: metadata})
 	edges := []modelcore.DependencyEdge{}
 	for _, datum := range model.DatumPlanes {
+		datum.Appearance = nil
+		datum.EvaluationStatus = ""
+		datum.Diagnostic = ""
 		datum.Visible = nil
 		datum.Name = ""
 		datum.GeometricalSetID = ""
@@ -790,6 +819,9 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 1, Type: "AXIS_SYSTEM", CanonicalInput: data})
 	}
 	for _, datum := range model.DatumAxes {
+		datum.Appearance = nil
+		datum.EvaluationStatus = ""
+		datum.Diagnostic = ""
 		datum.Visible = nil
 		datum.Name = ""
 		datum.GeometricalSetID = ""
@@ -797,6 +829,9 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 2, Type: "DATUM_AXIS", CanonicalInput: data})
 	}
 	for _, point := range model.DatumPoints {
+		point.Appearance = nil
+		point.EvaluationStatus = ""
+		point.Diagnostic = ""
 		point.Name = ""
 		point.Visible = nil
 		point.GeometricalSetID = ""
@@ -1141,8 +1176,12 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			}
 		case "TOPOLOGY":
 			source := ""
-			if publication.Target.PersistentSelection != nil {
-				source = bodyTips[publication.Target.PersistentSelection.SourceBodyID]
+			if selection := publication.Target.PersistentSelection; selection != nil {
+				if selection.SourceResult != nil {
+					source = selection.SourceResult.FeatureID
+				} else {
+					source = bodyTips[selection.SourceBodyID]
+				}
 			}
 			if source != "" && featureIDs[source] {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + source), Target: key, Kind: modelcore.ReadTopology})

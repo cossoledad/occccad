@@ -165,7 +165,7 @@ STEP/BREP 交换需支持 Wire/Sheet/Solid 及混合内容分类，保留 Part/P
 | B：关联曲线网络 | Extract、Boundary、有限线/圆弧/3D 样条、点在曲线、Composite、投影/交线、平面内 Offset、限定端点/方向的 G1 连接、曲线 Split/Trim/Extend 与基本变换 | 多支路和方向稳定，原 Sweep 能消费正式曲线输入；缺失/分裂不猜绑 |
 | C：工程曲面版本 | 单路径 Sweep、开放/闭合截面 Loft、G0 Fill；Surface Trim/Extend、Join/Sew、有限范围常量 Offset、Close；开放及混合 STEP/BREP 交换 | 按用户确认范围实施，具体接纳域以 current 为准；从曲面构造到实体、参数历史和冷热命名贯通，几何/交互/交换分层验收，不扩大为工业模型保证 |
 | D：形状与质量控制 | 导向、spine、对应、逐边支撑 G1/受限 G2、Boundary/Blend 和曲率分析 | 首版按 [当前接纳范围](../docs/architecture/current/wireframe-surfaces.md#形状控制与连续性接纳) 实施；全边构造/正则性验证、稳定对应、参数/历史及只读分析。双导向、法则和通用支撑另行接纳 |
-| E：后续候选 | Surface Revolve、一般曲面 Split/互裁与外推、测量/发布/Product 互用、斑马纹；自由曲面匹配/控制点编辑、更复杂偏移修补、Law/Isoparametric、Ordered Geometrical Set、Class-A 专项 | 单独设计与测量，不扩大 A–D 承诺；SubD/点云/展开另立领域评审 |
+| E：后续候选 | 一般曲面外推、测量/发布/Product 互用、斑马纹；自由曲面匹配/控制点编辑、更复杂偏移修补、Law/Isoparametric、Ordered Geometrical Set、Class-A 专项 | 单独设计与测量，不扩大 A–D 承诺；SubD/点云/展开另立领域评审 |
 
 阶段是实现优先级，不是将质量和历史推迟到末期；A 起即有域校验、来源 Naming、基本分析、参数化及历史。先完成 A 的可运行闭环，再扩展 B/C，避免先堆数十个无完整下游能力的命令。
 

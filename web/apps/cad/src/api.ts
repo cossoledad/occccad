@@ -400,8 +400,9 @@ export const restApi = {
     restApi.command(documentId, { type: "DELETE_PUBLICATION", publicationId }),
   deleteNode: (documentId: string, targetKind: string, targetId: string, ownerEntityId?: string) =>
     restApi.command(documentId, { type: "DELETE_NODE", targetKind, targetId, ownerEntityId }),
-  deleteNodes: (documentId: string, targets: Array<{ targetKind: string; targetId: string; ownerEntityId?: string }>) =>
-    restApi.command(documentId, { type: "DELETE_NODES", targets }),
+  getPartDeletePlan:(documentId:string,input:{versionId:string;targets:import('./features/workbench/object-operations').ObjectDeleteTarget[];options:import('./types').DeleteOptions},signal?:AbortSignal)=>request<import('./types').PartDeletePlan>(`/api/documents/${documentId}/delete-plan`,{method:'POST',body:JSON.stringify(input),signal}),
+  deleteNodes: (documentId: string, targets: Array<{ targetKind: string; targetId: string; ownerEntityId?: string }>,options?:{versionId:string;deleteOptions:import('./types').DeleteOptions;deletePlanDigest:string}) =>
+    restApi.command(documentId, { type: "DELETE_NODES", targets,...options }),
   pad: (documentId: string, sketchId: string, length: number, intentRequestId?: string) =>
     restApi.command(documentId, { type: "PAD_SKETCH", sketchId, length,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),

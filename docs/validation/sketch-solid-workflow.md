@@ -14,6 +14,18 @@
 
 运行 `mise run check --scope sketch`、`--scope workspace`、`--scope web`，按测试路由选择真实集成与浏览器场景。Node/Mock、Router/Worker、浏览器及合同完整性是不同证据层；零匹配、skip、未执行和旧快照通过都不能替代本次验收。
 
+## Part 对象与工程曲面检验
+
+| 验收链 | 必须观察的结果 | 执行入口 |
+|---|---|---|
+| 预选与表单 | 兼容点列/曲线/草图按角色带入；空输入不制造示例；编辑保留原定义，取消不写 Revision | `command-selection-seed.scenario.mjs`、`geometric-feature-live.spec.ts`、`part-objects-live.spec.ts` |
+| 删除与修复 | 任意前置节点可删除；曲面失败、实体阻塞；重选输入恢复；两次 Undo/Redo 和冷重建保留身份；旧计划不能跨 Revision 使用 | `part_object_lifecycle_test.go`、`part_objects_integration_test.go`、浏览器 Part lifecycle |
+| 容器与图形 | Body/非空集合删除、工作集合、移动/解散及补偿；共享输入受保护；颜色/线型/点符号和独立面属性不改变 GeometryKey | Workspace 对象测试、Router 集成、`surface-appearance.scenario.mjs`、`engineering_geometry_test.go`、浏览器 Part properties |
+| 新曲面与诊断 | 旋转面积/曲率、曲线切面/互裁、冷热 Naming；自由边排除周期缝；精确小间隙候选和法向；分析不写历史并释放临时图形 | 原生 Geometry/SurfaceFeature/Measurement 场景、Router 集成、浏览器质量显示 |
+| 紧凑表单 | 截面/边界列表与当前项详情；对应组跨截面一致；1024×720、DPR 2 下无横向溢出且确认区可用 | 浏览器 Compact engineering forms |
+
+这些场景分别提供几何、业务和真实 WebGL 交互证据；执行通过数和来源版本以本次 `build/agent-check/`、`build/acceptance/` 报告为准。它们不证明一般自由曲面成功率、原生 GPU 效率或工业模型容量。
+
 ## 测量环境
 
 下列样本来自2026-11-07的 SQLite、本地 ArtifactStore、Release Router/Geometry Worker（OCCT 7.9.1）及 Chromium/SwiftShader。模型经正式 Command/Revision 创建，无数据库/制品重置或新浏览器下载。不是 PostgreSQL、原生 GPU、远程部署或工业容量验收。

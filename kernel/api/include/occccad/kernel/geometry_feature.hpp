@@ -56,15 +56,17 @@ struct GeometryBoundaryControl {
     double tension{1};
 };
 struct GeometrySurfaceDefinition {
-    bool ruled{}, has_keep_point{};
+    bool ruled{}, has_keep_point{}, has_second_keep_point{};
     std::string frame_mode;
     double tolerance{};
     Vec3 keep_point;
+    Vec3 second_keep_point;
     std::optional<GeometryFeatureInput> spine, guide;
     std::vector<GeometrySectionControl> sections;
     std::vector<GeometryBoundaryControl> boundaries;
 };
 struct GeometryFeatureSpec {
+    double construction_tolerance{1e-7};
     std::string feature_id, result_id{"result"}, operation;
     std::vector<GeometryFeatureInput> inputs;
     GeometryCurveDefinition curve;

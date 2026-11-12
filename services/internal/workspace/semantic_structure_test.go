@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -30,7 +31,7 @@ func TestPartStructureKeepsSharedSketchAsOneDefinition(t *testing.T) {
 			switch node.Kind {
 			case "SKETCH":
 				definitions++
-				if node.BodyID != "body-a" || node.PresentationRole != "DEFINITION" || len(node.Capabilities) != 0 {
+				if node.BodyID != "body-a" || node.PresentationRole != "DEFINITION" || !slices.Contains(node.Capabilities, "DELETE") {
 					t.Fatalf("shared sketch definition has wrong owner or delete ability: %+v", node)
 				}
 			case "SKETCH_INPUT_REFERENCE":

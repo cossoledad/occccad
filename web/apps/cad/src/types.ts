@@ -22,15 +22,18 @@ export type MeshData = {
 export type NamingAvailability = { status: "READY" | "UNAVAILABLE" | "FAILED" | "CORRUPT" | "INCOMPATIBLE"; canBind: boolean; diagnosticCode?: string; diagnostic?: string };
 
 export type BodyDisplayFallback = { geometryKey: string; sourceVersionId: string };
-export type GraphicProperties={opacity?:number;roughness?:number;metalness?:number;edgeColor?:string;edgeWidth?:number;edges?:boolean;pickable?:boolean;edgeOpacityMode?:"FOLLOW"|"CLEAR"};
+export type GraphicProperties={lineStyle?:"SOLID"|"DASHED";pointSize?:number;pointSymbol?:"CROSS"|"DOT"|"PLUS";opacity?:number;roughness?:number;metalness?:number;edgeColor?:string;edgeWidth?:number;edges?:boolean;pickable?:boolean;edgeOpacityMode?:"FOLLOW"|"CLEAR"};
+export type DeleteOptions={deleteDependents?:boolean;deleteExclusiveParents?:boolean};
+export type DeleteImpactItem={kind:string;id:string;name:string;state:string;reason?:string};
+export type PartDeletePlan={versionId:string;digest:string;options:DeleteOptions;deleted:DeleteImpactItem[];affected:DeleteImpactItem[];publications:DeleteImpactItem[]};
 export type SurfaceStyle=GraphicProperties&{color?:string};
 export type SurfaceAppearance = SurfaceStyle&{ faces?: Array<SurfaceStyle&{anchor:SemanticTopologyRef;inheritedFields?:string[]}> };
 export type AppearanceSource={kind:string;bodyId?:string;occurrencePath?:string};
 export type ResolvedAppearance = SurfaceStyle&{sources?:Record<string,AppearanceSource>;faceSources?:Record<number,Record<string,AppearanceSource>>; geometryKey?: string; faces?: Record<number, string>; faceProperties?:Record<number,GraphicProperties>;faceInherit?:Record<number,string[]>; unresolvedFaces?: number;issues?:Array<{code:string;occurrencePath?:string;bodyId?:string}> };
-export type PropertyTarget={kind:string;id:string;bodyId?:string;instancePath?:InstancePath;geometryKey?:string;localId?:number};
+export type PropertyTarget={kind:string;id:string;sourceResult?:{featureId:string;resultId:string};bodyId?:string;instancePath?:InstancePath;geometryKey?:string;localId?:number};
 export type PropertyUpdateRequest={targets:PropertyTarget[];name?:string;description?:string;appearance?:Partial<Record<keyof SurfaceStyle,string|number|boolean|null>>;clearFaceOverrides?:boolean};
 export type OccurrenceAppearance={instancePath:InstancePath;bodyId?:string;name?:string;appearance?:SurfaceAppearance};
-export type PropertyAppearanceProjection={documentId:string;occurrencePath:string;bodyId:string;appearance:ResolvedAppearance};
+export type PropertyAppearanceProjection={sourceResult?:{featureId:string;resultId:string};objectId?:string;documentId:string;occurrencePath:string;bodyId:string;appearance:ResolvedAppearance};
 export type PropertyPreview={documentId:string;versionId:string;occurrencePath?:string;appearances:PropertyAppearanceProjection[]};
 export type PartBody = { appearance?: SurfaceAppearance; displayFallback?: BodyDisplayFallback; consumed?: boolean; id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
 
@@ -116,15 +119,15 @@ export type CommandPreview = {
     second?: { status: "CONNECTED" | "NOT_CONNECTED"; diagnosticCode?: string; diagnostic?: string } };
 };
 
-export type GeometricalSet={id:string;name:string;parentId?:string;visible?:boolean};
+export type GeometricalSet={appearance?:SurfaceAppearance;id:string;name:string;parentId?:string;visible?:boolean};
 export type ReferenceConstruction={mode:string;inputs?:DatumReference[];coordinates:Vec3;direction:Vec3;ratio:number;offset:number;angle:number;coefficients:[number,number,number,number]};
-export type DatumPoint={id:string;name:string;geometricalSetId:string;visible?:boolean;construction:ReferenceConstruction;position:Vec3};
+export type DatumPoint={evaluationStatus?:string;diagnostic?:string;appearance?:SurfaceAppearance;id:string;name:string;geometricalSetId:string;visible?:boolean;construction:ReferenceConstruction;position:Vec3};
 export type DatumReference = {kind:"PLANE"|"AXIS"|"AXIS_SYSTEM"|"POINT"|"SKETCH_LINE"|"TOPOLOGY";entityId?:string;axis?:"X"|"Y"|"Z";featureId?:string;selection?:PersistentSelection;sourceVersionId?:string};
 export type DatumTransform = {source:DatumReference;rotationAxis?:DatumReference;translationDirection?:DatumReference;angle:number;distance:number};
-export type DatumPlane = { geometricalSetId?:string;construction?:ReferenceConstruction;visible?:boolean; id: string; name: string; definition?:DatumTransform; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
-export type DatumAxis = { geometricalSetId?:string;construction?:ReferenceConstruction;visible?:boolean; id: string; name: string; definition?:DatumTransform; origin: Vec3; direction: Vec3 };
+export type DatumPlane = {evaluationStatus?:string;diagnostic?:string; appearance?:SurfaceAppearance;geometricalSetId?:string;construction?:ReferenceConstruction;visible?:boolean; id: string; name: string; definition?:DatumTransform; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
+export type DatumAxis = {evaluationStatus?:string;diagnostic?:string; appearance?:SurfaceAppearance;geometricalSetId?:string;construction?:ReferenceConstruction;visible?:boolean; id: string; name: string; definition?:DatumTransform; origin: Vec3; direction: Vec3 };
 export type AxisSystem = {visible?:boolean;pointVisible?:boolean;axisVisibility?:Partial<Record<"X"|"Y"|"Z",boolean>>; id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
-export type ReferenceGeometry = {datumPoints?:DatumPoint[]; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[] };
+export type ReferenceGeometry = {appearances?:Record<string,ResolvedAppearance>;datumPoints?:DatumPoint[]; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[] };
 export type VisualPrimitive = {
  patternId?:string;patternMemberSlot?:number;sketchMemberId?:string;pointReference?:SketchGeometryRef;
   id: string; displayEntityId?: string; featureId: string; kind: "POINTS" | "POLYLINE" | "LINE_SEGMENTS" | "TRIANGLES";
@@ -160,12 +163,13 @@ export type LoftBoundaryDefinition={condition:"NORMAL"|"DIRECTION"|"G1"|"G2";mag
 export type GeometryResultReference={featureId:string;resultId:string};
 export type GeometricInput={kind:"RESULT"|"TOPOLOGY"|"SKETCH"|"PLANE"|"DATUM"|"POINT";datum?:DatumReference;point?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef};featureId?:string;resultId?:string;entityIds?:string[];selection?:NonNullable<Feature["selections"]>[number];planeId?:string;reversed?:boolean};
 export type GeometryControlPoint={id:string;position:Vec3;pointId?:string;reference?:GeometricInput};
-export type GeometryKind="IMPORTED"|"LINE"|"CIRCLE"|"ARC"|"SPLINE"|"POINT_ON_CURVE"|"EXTRACT"|"BOUNDARY"|"COMPOSITE"|"SURFACE_EXTRUDE"|"THICKEN"|"TRANSLATE"|"ROTATE"|"MIRROR"|"SPLIT"|"TRIM"|"EXTEND"|"G1_CONNECT"|"OFFSET"|"PROJECT"|"INTERSECTION"|"SURFACE_SWEEP"|"SURFACE_LOFT"|"SURFACE_FILL"|"SURFACE_TRIM"|"SURFACE_EXTEND"|"SURFACE_JOIN"|"SURFACE_SEW"|"SURFACE_OFFSET"|"CLOSE_SURFACE"|"SURFACE_BOUNDARY"|"SURFACE_BLEND";
+export type GeometryKind="IMPORTED"|"LINE"|"CIRCLE"|"ARC"|"SPLINE"|"POINT_ON_CURVE"|"EXTRACT"|"BOUNDARY"|"COMPOSITE"|"SURFACE_EXTRUDE"|"SURFACE_REVOLVE"|"SURFACE_MUTUAL_TRIM"|"THICKEN"|"TRANSLATE"|"ROTATE"|"MIRROR"|"SPLIT"|"TRIM"|"EXTEND"|"G1_CONNECT"|"OFFSET"|"PROJECT"|"INTERSECTION"|"SURFACE_SWEEP"|"SURFACE_LOFT"|"SURFACE_FILL"|"SURFACE_TRIM"|"SURFACE_EXTEND"|"SURFACE_JOIN"|"SURFACE_SEW"|"SURFACE_OFFSET"|"CLOSE_SURFACE"|"SURFACE_BOUNDARY"|"SURFACE_BLEND";
 export type GeometrySectionControl={id:string;section:GeometricInput;closingPoint?:GeometricInput;stationPoint?:GeometricInput;couplings?:{id:string;point?:GeometricInput}[]};
 export type GeometryBoundaryControl={id:string;boundary:GeometricInput;support?:GeometricInput;continuity:"G0"|"G1"|"G2";tension:number};
 export type GeometrySurfaceDefinition={ruled:boolean;frameMode?:"FRENET"|"CORRECTED_FRENET"|"GUIDE_FRAME"|"GUIDE_BORDER";tolerance:number;spine?:GeometricInput;guide?:GeometricInput;sections?:GeometrySectionControl[];boundaries?:GeometryBoundaryControl[]};
-export type GeometricFeatureDefinition={surface?:GeometrySurfaceDefinition;keepPoint?:GeometricInput;kind:GeometryKind;direction?:GeometricInput;axis?:GeometricInput;mirrorPlane?:GeometricInput;inputs?:GeometricInput[];curve?:{support?:GeometricInput;framePlaneId?:string;points:GeometryControlPoint[];normal:Vec3;xDirection:Vec3;radius?:number;startAngle?:number;endAngle?:number;degree?:number;knots?:number[];multiplicities?:number[];weights?:number[];closed?:boolean};parameters:{direction:Vec3;origin:Vec3;distance:number;angle:number;start:number;end:number;side?:"START"|"END"|"BOTH";tension:number}};
+export type GeometricFeatureDefinition={constructionTolerance?:number;secondKeepPoint?:GeometricInput;surface?:GeometrySurfaceDefinition;keepPoint?:GeometricInput;kind:GeometryKind;direction?:GeometricInput;axis?:GeometricInput;mirrorPlane?:GeometricInput;inputs?:GeometricInput[];curve?:{support?:GeometricInput;framePlaneId?:string;points:GeometryControlPoint[];normal:Vec3;xDirection:Vec3;radius?:number;startAngle?:number;endAngle?:number;degree?:number;knots?:number[];multiplicities?:number[];weights?:number[];closed?:boolean};parameters:{direction:Vec3;origin:Vec3;distance:number;angle:number;start:number;end:number;side?:"START"|"END"|"BOTH";tension:number}};
 export type Feature = {
+ importedAppearance?:SurfaceAppearance;appearance?:SurfaceAppearance;
  geometricalSetId?:string;geometry?:GeometricFeatureDefinition;result?:{id:string;domain:"POINT_SET"|"WIRE_SET"|"SHEET_SET"|"SOLID_SET"|"MIXED_SET";geometryKey:string};
  loftStart?:LoftBoundaryDefinition;loftEnd?:LoftBoundaryDefinition;
  sweep?:{path:{geometry?:GeometricInput;sketchId:string;entityIds:string[];direction?:{entityId:string;reversed:boolean};reversed?:boolean};frameMode:"CORRECTED_FRENET"|"FRENET";cornerMode:"MITER"|"G1_ONLY"};
@@ -472,6 +476,7 @@ export type SketchProfileAnalysis = {
 export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;contextOccurrencePath?:string;contextProduct?:DocumentView;
   bodyAppearances?: Record<string, ResolvedAppearance>;
   resultAppearances?: Record<string, ResolvedAppearance>;
+  objectAppearances?:Record<string,ResolvedAppearance>;
  replicationSources?:Record<string,{sourceKind?:"SKETCH_FRAME"|"GENERATOR_TOOL"|"FEATURE_DELTA"|"FEATURE_REEXECUTION";startFeatureId?:string;operation?:Feature["operation"];tool:boolean;reexecution?:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
   sketchDerivedEntities?:Record<string,SketchEntity[]>;
   document: DocumentSummary;
@@ -479,7 +484,7 @@ export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;co
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
-  part?: { geometricalSets?:GeometricalSet[];datumPoints?:DatumPoint[]; measurements?:import('./cad/measurement/measurement').Measurement[]; metadata?:{name:string;description:string}; defaultAppearance?:SurfaceAppearance; originVisible?:boolean; bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
+  part?: {geometryDefaultAppearance?:SurfaceAppearance; retiredReferences?:Array<{kind:string;id:string;name:string}>;geometricalSets?:GeometricalSet[];datumPoints?:DatumPoint[]; measurements?:import('./cad/measurement/measurement').Measurement[]; metadata?:{name:string;description:string}; defaultAppearance?:SurfaceAppearance; originVisible?:boolean; bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
   product?: { parameters?: ParameterDefinition[]; measurements?:import('./cad/measurement/measurement').Measurement[]; spatialAnalyses?:import("./cad/assembly/spatial-analysis").SpatialAnalysis[]; metadata?:{name:string;description:string}; defaultAppearance?:SurfaceAppearance;appearanceOverrides?:OccurrenceAppearance[]; kinematics?:import("./cad/assembly/motion-study").KinematicsDefinitions; instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[];
     visibilityOverrides?: Array<{instancePath:InstancePath;entityKind:string;entityId:string;mode:"SHOW"|"HIDE"}> };
   artifact?: Artifact;

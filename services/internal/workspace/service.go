@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v76-exact-volume-spans"
+const evaluatorVersion = "part-solid-generators-v77-part-lifecycle-engineering-surfaces"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1299,7 +1299,7 @@ func normalizePartModel(model *PartModel) {
 
 func referenceGeometry(model PartModel) ReferenceGeometry {
 	normalizePartModel(&model)
-	return ReferenceGeometry{DatumPlanes: model.DatumPlanes, AxisSystems: model.AxisSystems, DatumAxes: model.DatumAxes, DatumPoints: model.DatumPoints}
+	return ReferenceGeometry{DatumPlanes: model.DatumPlanes, AxisSystems: model.AxisSystems, DatumAxes: model.DatumAxes, DatumPoints: model.DatumPoints, Appearances: partObjectAppearances(model)}
 }
 
 func visualizationManifest(model PartModel) VisualizationManifest {
@@ -2531,12 +2531,18 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
 		visible := definition.Visible
 		body.LocalVisible = &visible
+		if editable {
+			body.Capabilities = []string{"DELETE"}
+		}
 		for _, feature := range model.Features {
 			if feature.BodyID != definition.ID || consumed[feature.ID] {
 				continue
 			}
 			digest, _ := featureDefinitionDigest(model, feature.ID)
-			node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable && !dependents[feature.ID], editable)
+			node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable, editable)
+			if editable && feature.Sketch != nil {
+				node.Capabilities = append(node.Capabilities, "MOVE")
+			}
 			if editable && (isBodyFeature(feature.Type) || feature.Sketch != nil) && !feature.Suppressed && feature.EvaluationStatus == "" {
 				node.Capabilities = append(node.Capabilities, "INSERT_AFTER")
 			}

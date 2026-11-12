@@ -2,7 +2,7 @@ import {cloneElement,isValidElement,createContext,useContext,useId,type PropsWit
 import {Button,Spin,Form,type FormItemProps} from 'antd';
 import type {SelectionItem} from '../../types';
 
-export const CommandFormContext=createContext<{cancelPick?:()=>boolean;locate?:(items:SelectionItem[])=>void}>({});
+export const CommandFormContext=createContext<{cancelPick?:()=>boolean;select?:(items:SelectionItem[])=>void;locate?:(items:SelectionItem[])=>void}>({});
 export const useCommandForm=()=>useContext(CommandFormContext);
 export type CommandFieldWidth='number'|'enum'|'expression'|'name'|'option'|'selection'|'content'|'coordinate';
 export function CommandField({label,width='expression',error,actions,children}:PropsWithChildren<{label:ReactNode;width?:CommandFieldWidth;error?:ReactNode;actions?:ReactNode}>){

@@ -19,7 +19,10 @@ type commandContract struct{ command, document, name, fields, required, handoff 
 var commandContracts = []commandContract{
 	{"CREATE_GEOMETRICAL_SET", "PART", "创建几何图形集", "targetId name geometricalSetId", "", ""},
 	{"EDIT_GEOMETRICAL_SET", "PART", "编辑几何图形集", "targetId name geometricalSetId", "targetId", ""},
-	{"DELETE_GEOMETRICAL_SET", "PART", "删除空几何图形集", "targetId name geometricalSetId", "targetId", ""},
+	{"DELETE_GEOMETRICAL_SET", "PART", "删除几何图形集及其内容", "targetId deleteOptions versionId", "targetId", ""},
+	{"MOVE_TO_GEOMETRICAL_SET", "PART", "移入几何图形集", "targets targetId geometricalSetId versionId", "targets geometricalSetId", ""},
+	{"DISSOLVE_GEOMETRICAL_SET", "PART", "解散几何图形集并保留内容", "targets targetId geometricalSetId versionId", "targetId", ""},
+
 	{"CREATE_REFERENCE_POINT", "PART", "创建参考点", "targetId name origin geometricalSetId referenceConstruction parameterExpressions", "", ""},
 	{"EDIT_REFERENCE_POINT", "PART", "编辑参考点", "targetId name origin geometricalSetId referenceConstruction parameterExpressions", "targetId", ""},
 	{"SAVE_MEASUREMENT", "ANY", "保留测量", "measurement versionId", "measurement versionId", ""},
@@ -39,7 +42,7 @@ var commandContracts = []commandContract{
 	{"SET_BODY_VISIBILITY", "PART", "显示或隐藏实体", "bodyId visible", "bodyId visible", ""},
 	{"SET_OCCURRENCE_VISIBILITY", "PRODUCT", "显示或隐藏实例", "instancePath ownerEntityId targetId targetKind visibilityMode", "instancePath targetKind targetId visibilityMode", ""},
 	{"CREATE_BODY", "PART", "创建实体", "name visible", "", ""},
-	{"DELETE_BODY", "PART", "删除实体", "bodyId name visible", "bodyId", ""},
+	{"DELETE_BODY", "PART", "删除实体及其特征", "bodyId deleteOptions versionId", "bodyId", ""},
 	{"RENAME_BODY", "PART", "重命名实体", "bodyId name visible", "bodyId name", ""},
 	{"SET_ACTIVE_BODY", "PART", "激活实体", "bodyId name visible", "bodyId", ""},
 	{"RENAME_FEATURE", "PART", "重命名特征", "name targetId", "targetId name", ""},
@@ -100,8 +103,8 @@ var commandContracts = []commandContract{
 	{"EDIT_ASSEMBLY_CONSTRAINT", "PRODUCT", "编辑装配约束", "angleAxis angleReferenceDirection angleRelation constraintFamily constraintMode constraintSubtype contactBranch contactKind contactSide directionRelation distanceRelation firstAssemblyRef fixMode fixedPose groupMembers name offsetExpression offsetKey quantityExpression quantityKey reverseAngleAxis secondAssemblyRef targetId value", "targetId", ""},
 	{"SET_REFERENCE_MODE", "PRODUCT", "修改引用模式", "instanceId referenceMode", "instanceId referenceMode", ""},
 	{"UPDATE_REFERENCES", "PRODUCT", "更新引用", "updatePlanDigest", "", "Use ui.tree.refresh to obtain and accept the authoritative update plan digest; do not fabricate it."},
-	{"DELETE_NODE", "ANY", "删除对象", "ownerEntityId targetId targetKind", "targetId targetKind", ""},
-	{"DELETE_NODES", "ANY", "删除多个对象", "targets", "targets", ""},
+	{"DELETE_NODE", "ANY", "删除对象", "ownerEntityId targetId targetKind deleteOptions versionId", "targetId targetKind", ""},
+	{"DELETE_NODES", "ANY", "删除多个对象", "targets deleteOptions deletePlanDigest versionId", "targets", ""},
 }
 
 func commandOperations() []Operation {

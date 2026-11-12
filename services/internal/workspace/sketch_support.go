@@ -246,6 +246,7 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 	if err := validateDatumFeatureOrder(*model, graph); err != nil {
 		return err
 	}
+	retiredBlocked := markRetiredReferenceFailures(model, graph)
 	featureIndex := map[string]int{}
 	for index, feature := range model.Features {
 		featureIndex[feature.ID] = index
@@ -274,6 +275,9 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 	// The existing graph orders real datum/projection/sketch preparation.
 	// Solid execution stays a coarse Body RPC, invoked only by stage readers.
 	for _, node := range graph.TopologicalOrder() {
+		if retiredBlocked[node] {
+			continue
+		}
 		if strings.HasPrefix(string(node), "datum:") {
 			if err := service.resolveDatumDefinitions(ctx, documentID, requestID, model, len(model.Features), strings.TrimPrefix(string(node), "datum:")); err != nil {
 				return err

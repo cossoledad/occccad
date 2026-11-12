@@ -820,6 +820,30 @@ public:
             for(const auto& [key,p]:r.anchors){auto& v=(*response->mutable_anchors())[key];v.set_x(p.x);v.set_y(p.y);v.set_z(p.z);}
             for(const auto& p:r.curvature){auto* v=response->add_curvature();v->mutable_position()->set_x(p.position.x);v->mutable_position()->set_y(p.position.y);v->mutable_position()->set_z(p.position.z);v->mutable_normal()->set_x(p.normal.x);v->mutable_normal()->set_y(p.normal.y);v->mutable_normal()->set_z(p.normal.z);v->set_minimum(p.minimum);v->set_maximum(p.maximum);v->set_mean(p.mean);v->set_gaussian(p.gaussian);v->set_surface(p.surface);}
             response->set_undefined_samples(r.undefined_samples);
+            response->set_boundary_complete(r.boundary_complete);
+            for (const auto& edge : r.boundary_edges) {
+                auto* target = response->add_boundary_edges();
+                target->set_edge_id(edge.edge_id);
+                for (const auto& point : edge.points) {
+                    auto* v = target->add_points();
+                    v->set_x(point.x);
+                    v->set_y(point.y);
+                    v->set_z(point.z);
+                }
+            }
+            for (const auto& gap : r.gap_candidates) {
+                auto* target = response->add_gap_candidates();
+                target->set_first_edge(gap.first_edge);
+                target->set_second_edge(gap.second_edge);
+                target->mutable_first()->set_x(gap.first.x);
+                target->mutable_first()->set_y(gap.first.y);
+                target->mutable_first()->set_z(gap.first.z);
+                target->mutable_second()->set_x(gap.second.x);
+                target->mutable_second()->set_y(gap.second.y);
+                target->mutable_second()->set_z(gap.second.z);
+                target->set_distance_mm(gap.distance_mm);
+            }
+
             response->set_kernel_build(request->kind()=="CURVATURE"?"occt-" OCC_VERSION_COMPLETE "/curvature-v1":"occt-" OCC_VERSION_COMPLETE "/measurement-v2");return grpc::Status::OK;
         }catch(const Standard_Failure&){return {grpc::StatusCode::INTERNAL,"measurement input unavailable"};}
         catch(const std::exception& e){return {grpc::StatusCode::INVALID_ARGUMENT,e.what()};}
@@ -1636,14 +1660,27 @@ public:
     occccad::kernel::GeometryFeatureSpec read_geometry_feature(const worker_api::GeometryFeatureSpec& input,Reader&& read) {
         if(input.inputs_size()>128 || input.curve().points_size()>4096 || input.curve().knots_size()>4096 || input.sketch_wire().curves_size()>4096)throw std::invalid_argument("GEOMETRY_INPUT_BUDGET");
         const auto vec=[](const worker_api::Vec3& v){return occccad::kernel::Vec3{v.x(),v.y(),v.z()};};
-        occccad::kernel::GeometryFeatureSpec result;result.feature_id=input.feature_id();result.result_id=input.result_id();result.operation=input.operation();
+        occccad::kernel::GeometryFeatureSpec result;
+        result.feature_id = input.feature_id();
+        result.result_id = input.result_id();
+        result.operation = input.operation();
+        result.construction_tolerance =
+            input.construction_tolerance() > 0 ? input.construction_tolerance() : 1e-7;
         for(const auto& v:input.inputs())result.inputs.push_back(read_geometry_input(v,read));
         const auto& c=input.curve();for(const auto& v:c.points()){occccad::kernel::GeometryControlPoint point{v.id(),vec(v.position()),{}};for(const auto& r:v.sources())point.sources.push_back({r.feature_id(),r.output_slot(),{r.source_ids().begin(),r.source_ids().end()}});result.curve.points.push_back(std::move(point));}
         result.curve.normal=vec(c.normal());result.curve.x_direction=vec(c.x_direction());result.curve.radius=c.radius();result.curve.start_angle=c.start_angle();result.curve.end_angle=c.end_angle();result.curve.degree=c.degree();
         result.curve.knots={c.knots().begin(),c.knots().end()};result.curve.multiplicities={c.multiplicities().begin(),c.multiplicities().end()};result.curve.weights={c.weights().begin(),c.weights().end()};result.curve.closed=c.closed();
         const auto& p=input.parameters();result.parameters.direction=vec(p.direction());result.parameters.origin=vec(p.origin());result.parameters.distance=p.distance();result.parameters.angle=p.angle();result.parameters.start=p.start();result.parameters.end=p.end();result.parameters.side=p.side();result.parameters.tension=p.tension();
         const auto& w=input.sketch_wire();result.sketch_wire.sketch_id=w.sketch_id();result.sketch_wire.origin=vec(w.origin());result.sketch_wire.normal=vec(w.normal());result.sketch_wire.u_direction=vec(w.u_direction());for(const auto& c2:w.curves())result.sketch_wire.curves.push_back(exact_sketch_curve(c2));
-        const auto& surface=input.surface();result.surface.ruled=surface.ruled();result.surface.frame_mode=surface.frame_mode();result.surface.tolerance=surface.tolerance();result.surface.has_keep_point=surface.has_keep_point();result.surface.keep_point=vec(surface.keep_point());
+        const auto& surface = input.surface();
+        result.surface.ruled = surface.ruled();
+        result.surface.frame_mode = surface.frame_mode();
+        result.surface.tolerance = surface.tolerance();
+        result.surface.has_keep_point = surface.has_keep_point();
+        result.surface.has_second_keep_point = surface.has_second_keep_point();
+        if (surface.has_second_keep_point())
+            result.surface.second_keep_point = vec(surface.second_keep_point());
+        result.surface.keep_point = vec(surface.keep_point());
         if(surface.sections_size()>32||surface.boundaries_size()>128)throw std::invalid_argument("SURFACE_CONTROL_BUDGET");
         if(surface.has_spine())result.surface.spine=read_geometry_input(surface.spine(),read);
         if(surface.has_guide())result.surface.guide=read_geometry_input(surface.guide(),read);

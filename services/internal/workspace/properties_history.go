@@ -21,10 +21,17 @@ func propertyHistoryValue(target any, value json.RawMessage, write bool) (json.R
 }
 
 func partPropertyHistory(model *PartModel, a modelcore.PropertyAddress, value json.RawMessage, write bool) (json.RawMessage, bool, error) {
+	if result, handled, err := partContainerHistory(model, a, value, write); handled {
+		return result, true, err
+	}
 	var field any
 	switch a.SlotID {
+	case "part.retired-references":
+		field = &model.RetiredReferences
 	case "document.metadata":
 		field = &model.Metadata
+	case "document.geometry-appearance":
+		field = &model.GeometryDefaultAppearance
 	case "document.appearance":
 		field = &model.DefaultAppearance
 	case "body.name":
@@ -52,7 +59,23 @@ func partPropertyHistory(model *PartModel, a modelcore.PropertyAddress, value js
 			}
 		}
 	default:
-		return nil, false, nil
+		for _, kind := range []string{"FEATURE", "GEOMETRICAL_SET", "REFERENCE_POINT", "PLANE", "DATUM_AXIS"} {
+			object, ok := partPropertyObjectFor(model, kind, a.EntityID)
+			if !ok {
+				continue
+			}
+			if a.SlotID == object.prefix+".appearance" && object.appearance != nil {
+				field = object.appearance
+				break
+			}
+			if a.SlotID == object.prefix+".name" {
+				field = object.name
+				break
+			}
+		}
+		if field == nil {
+			return nil, false, nil
+		}
 	}
 	if field == nil {
 		return nil, true, fmt.Errorf("%w: property target deleted", ErrValidation)

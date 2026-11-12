@@ -1,6 +1,6 @@
 import {matches,validateCatalog,type WorkbenchCatalog,type ContextFacts,type CommandDeclaration} from './workbench-catalog';
 export type CadCommandState = { enabled: boolean; visible: boolean; active: boolean };
-export type CadCommandInvocation = { continuous?: boolean; operation?: CommandOperation; payload?:unknown; continuing?:boolean };
+export type CadCommandInvocation = { continuous?: boolean; operation?: CommandOperation; payload?:unknown; continuing?:boolean; capturedInput?:unknown };
 
 export class CommandCleanupError extends AggregateError {
  constructor(errors:unknown[]){super(errors,"Command cleanup failed");}
@@ -29,6 +29,7 @@ export class CommandOperation {
 }
 export interface CadCommand {
  readonly id: string;
+ captureInput?():unknown;
  readonly continues?:readonly string[];
  execute(invocation?: CadCommandInvocation): void | Promise<void>;
  isEnabled?(invocation?:CadCommandInvocation): boolean;
@@ -97,12 +98,13 @@ export class CommandRegistry {
   const command=this.commands.get(id);
   if(!command||!this.state(id,invocation).enabled)return false;
   const interactive=this.declarations.get(id)?.implementation!=='handler'&&this.declarations.has(id);
+  const capturedInput=command.captureInput?.();
   const continuing=Boolean(interactive&&this.operation?.current&&command.continues?.includes(this.operationID!));
   if(interactive&&!continuing)this.cancel();
   const operation=continuing?this.operation!:new CommandOperation();this.invocations.set(operation,id);
   if(interactive){this.operation=operation;this.operationID=id;}
   try {
-   await command.execute({...invocation,operation,continuing});
+   await command.execute({...invocation,operation,continuing,capturedInput});
    const current=operation.current;
    if(!interactive)operation.cancel();
    if(current)this.notifyStateChanged();

@@ -99,6 +99,8 @@ TEST(Curvature, CircleCylinderAndPlaneUseExactDerivatives) {
     operand.local_id = cylinder;
     r = k.measure_geometry("CURVATURE", {{operand}}, {}, 256);
     ASSERT_TRUE(r.complete) << r.diagnostic;
+    EXPECT_TRUE(r.boundary_complete);
+    EXPECT_EQ(r.boundary_edges.size(), 2U);
     for (const auto& p : r.curvature) {
         EXPECT_TRUE(p.surface);
         EXPECT_NEAR(std::max(std::abs(p.minimum), std::abs(p.maximum)), .2, 1e-10);
@@ -118,6 +120,25 @@ TEST(Curvature, CircleCylinderAndPlaneUseExactDerivatives) {
     r = k.measure_geometry("CURVATURE", {{operand}}, {}, 8193);
     EXPECT_FALSE(r.complete);
     EXPECT_EQ(r.diagnostic, "CURVATURE_SAMPLE_COUNT_INVALID");
+}
+TEST(Measurement, QualityFreeBoundariesAndExactGapCandidatesAreReadOnly) {
+    OcctKernel k;
+    std::ostringstream stream;
+    BRepTools::Write(
+        BRepBuilderAPI_MakeFace(gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 0, 10, 0, 10).Shape(),
+        stream);
+    const auto raw = stream.str();
+    const auto id = k.loadBrepr(std::vector<uint8_t>(raw.begin(), raw.end()));
+    const auto result = k.measure_geometry("CURVATURE", {{body(id), body(id, 10.005)}}, {}, 64);
+    ASSERT_TRUE(result.complete) << result.diagnostic;
+    EXPECT_TRUE(result.boundary_complete);
+    EXPECT_EQ(result.boundary_edges.size(), 8U);
+    ASSERT_FALSE(result.gap_candidates.empty());
+    for (const auto& gap : result.gap_candidates)
+        EXPECT_NEAR(gap.distance_mm, .005, 1e-7);
+    const auto after = k.measure_geometry("ITEM", {{body(id)}});
+    ASSERT_TRUE(after.complete);
+    EXPECT_NEAR(after.values.at("areaMm2"), 100, 1e-8);
 }
 TEST(Curvature, TrimmedHoleIsExcludedFromSurfaceSamples) {
     BRepBuilderAPI_MakePolygon outer, inner;

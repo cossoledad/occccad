@@ -60,8 +60,8 @@ func TestFeatureInputProjectionIncludesOrderedLoftSharedAndSeedReferences(t *tes
 		t.Fatal(loft)
 	}
 	seed := body.Children[1]
-	if !slices.Contains(seed.Capabilities, "EDIT") || slices.Contains(seed.Capabilities, "DELETE") {
-		t.Fatal("referenced seed is editable but deletion is protected", seed)
+	if !slices.Contains(seed.Capabilities, "EDIT") || !slices.Contains(seed.Capabilities, "DELETE") {
+		t.Fatal("referenced seed must offer an impact-planned deletion", seed)
 	}
 	if body.Children[3].Children[0].PresentationRole != "INPUT_REFERENCE" || body.Children[3].Children[0].EntityID != "pad" {
 		t.Fatal("pattern reparented seed")

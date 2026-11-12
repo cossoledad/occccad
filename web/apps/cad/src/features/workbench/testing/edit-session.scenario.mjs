@@ -67,6 +67,11 @@ assert.equal(gate.commit(oldGeneration, instanceTarget.session, () => { committe
 assert.equal(gate.commit(newGeneration, definitionTarget.session, () => { committed = "new"; }), true);
 assert.equal(committed, "new", "a stale activation callback cannot replace the newer session");
 
+const sets=[{id:'unrelated',name:'Other'},{id:'parent',name:'Parent'},{id:'child',name:'Child',parentId:'parent'}];
+const working=sessions.withWorkingGeometricalSet(instanceTarget.session,'child',sets);
+assert.equal(sessions.workingGeometricalSet(working,{geometricalSets:sets}),'child');
+assert.equal(sessions.workingGeometricalSet(working,{geometricalSets:sets.filter(s=>s.id!=='child')}),'parent','removed working container falls back to surviving parent before arbitrary root');
+assert.equal(sessions.workingGeometricalSet(working,{geometricalSets:[]} ),undefined);
 const workbenchSource = await readFile(new URL("../workbench.tsx", import.meta.url), "utf8");
 assert(!workbenchSource.includes("definitionContextPath"));
 assert(!workbenchSource.includes("打开定义"));

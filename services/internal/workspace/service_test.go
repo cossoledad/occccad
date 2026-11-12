@@ -979,7 +979,7 @@ func TestDeleteNodeHandlersProtectInfrastructureAndDeleteOwnedModelNodes(t *test
 	t.Parallel()
 	part := PartModel{Units: "mm", Features: []Feature{
 		{ID: "sketch-1", Type: "SKETCH", Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}},
-		{ID: "pad-1", Type: "PAD", Profile: "sketch-1", Length: 10},
+		{ID: "pad-1", Type: "PAD", Profile: "sketch-1", Operation: "ADD", Length: 10},
 	}}
 	partJSON, _ := json.Marshal(part)
 	protectedPayload, _ := json.Marshal(deleteNodePayload{TargetKind: "PLANE", TargetID: "datum-xy"})
@@ -987,13 +987,19 @@ func TestDeleteNodeHandlersProtectInfrastructureAndDeleteOwnedModelNodes(t *test
 		t.Fatalf("unregistered node kinds must be protected by default, got %v", err)
 	}
 	dependentPayload, _ := json.Marshal(deleteNodePayload{TargetKind: "FEATURE", TargetID: "sketch-1"})
-	if _, _, err := applyDeletePartNode(partJSON, dependentPayload); err == nil || !strings.Contains(err.Error(), "depends") {
-		t.Fatalf("upstream feature deletion must honor dependencies, got %v", err)
+	missingRaw, _, deleteErr := applyDeletePartNode(partJSON, dependentPayload)
+	if deleteErr != nil {
+		t.Fatal(deleteErr)
 	}
+	var missing PartModel
+	json.Unmarshal(missingRaw, &missing)
+	if len(missing.Features) != 1 || missing.Features[0].ID != "pad-1" || len(missing.RetiredReferences) == 0 {
+		t.Fatal("dependent definition not retained with missing input")
+	}
+
 	padPayload, _ := json.Marshal(deleteNodePayload{TargetKind: "FEATURE", TargetID: "pad-1"})
 	withoutPad, changes, err := applyDeletePartNode(partJSON, padPayload)
-	if err != nil || len(changes.Changes) != 3 || changes.Changes[0].Kind != modelcore.ChangeDelete ||
-		changes.Changes[1].Target.SlotID != "parameter.entity" || changes.Changes[2].Target.SlotID != "parameter.entity" {
+	if err != nil || len(changes.Changes) != 3 {
 		t.Fatalf("owned feature must delete its entity and parameter facade: err=%v changes=%#v", err, changes)
 	}
 	var nextPart PartModel

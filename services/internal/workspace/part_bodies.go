@@ -148,6 +148,34 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 		m.Features[i].Diagnostic = ""
 	}
 	var failure error
+	if len(m.RetiredReferences) > 0 {
+		graph, _, err := buildPartEvaluation(*m, "", "", nil, nil)
+		if err != nil {
+			return err
+		}
+		blocked := markRetiredReferenceFailures(m, graph)
+		for _, datum := range m.DatumPoints {
+			if blocked[modelcore.DependencyKey("datum:"+datum.ID)] {
+				failure = fmt.Errorf("INPUT_REFERENCE_MISSING: %s", retiredReferenceNames(*m))
+			}
+		}
+		for _, datum := range m.DatumPlanes {
+			if blocked[modelcore.DependencyKey("datum:"+datum.ID)] {
+				failure = fmt.Errorf("INPUT_REFERENCE_MISSING: %s", retiredReferenceNames(*m))
+			}
+		}
+		for _, datum := range m.DatumAxes {
+			if blocked[modelcore.DependencyKey("datum:"+datum.ID)] {
+				failure = fmt.Errorf("INPUT_REFERENCE_MISSING: %s", retiredReferenceNames(*m))
+			}
+		}
+		for _, f := range m.Features {
+			if blocked[modelcore.DependencyKey("feature:"+f.ID)] && !f.Suppressed {
+				failure = fmt.Errorf("INPUT_REFERENCE_MISSING: %s", retiredReferenceNames(*m))
+				break
+			}
+		}
+	}
 	for _, f := range m.Features {
 		if f.Sketch == nil || f.Suppressed {
 			continue
@@ -325,6 +353,9 @@ func applyBodyCommand(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, 
 	if err := json.Unmarshal(payloadJSON, &p); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
+	if p.Action == "DELETE" {
+		return applyPartObjectDeletion(modelJSON, deleteNodesPayload{Targets: []deleteNodePayload{{TargetKind: "BODY", TargetID: p.BodyID}}})
+	}
 	normalizePartModel(&m)
 	beforeActive := m.ActiveBodyID
 	beforeParams := append([]modelcore.ParameterDefinition(nil), m.Parameters...)
@@ -363,49 +394,6 @@ func applyBodyCommand(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, 
 			m.ActiveBodyID = p.BodyID
 		case "VISIBILITY":
 			m.Bodies[index].Visible = p.Visible
-		case "DELETE":
-			removed := map[string]bool{}
-			for _, f := range m.Features {
-				if f.BodyID == p.BodyID {
-					removed[f.ID] = true
-				}
-			}
-			if err := rejectPublicationTargetRemoval(m, p.BodyID, removed); err != nil {
-				return nil, modelcore.ChangeSet{}, err
-			}
-			for _, f := range m.Features {
-				if f.BodyID != p.BodyID && (slices.ContainsFunc(featureInputIDs(f), func(id string) bool { return removed[id] })) {
-					return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Body is used by feature %s", ErrValidation, f.ID)
-				}
-			}
-			kept := []Feature{}
-			for _, f := range m.Features {
-				if !removed[f.ID] {
-					kept = append(kept, f)
-				} else {
-					c, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: f.ID, SlotID: "entity"}, f, nil)
-					changes = append(changes, c)
-				}
-			}
-			m.Features = kept
-			params := []modelcore.ParameterDefinition{}
-			for _, p := range m.Parameters {
-				drop := false
-				for id := range removed {
-					drop = drop || strings.HasPrefix(p.ParameterID, "parameter:"+id+":")
-				}
-				if !drop {
-					params = append(params, p)
-				}
-			}
-			m.Parameters = params
-			m.Bodies = append(m.Bodies[:index], m.Bodies[index+1:]...)
-			if m.ActiveBodyID == p.BodyID {
-				m.ActiveBodyID = ""
-				if len(m.Bodies) > 0 {
-					m.ActiveBodyID = m.Bodies[0].ID
-				}
-			}
 		default:
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: invalid Body action", ErrValidation)
 		}

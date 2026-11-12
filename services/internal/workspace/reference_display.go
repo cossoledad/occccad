@@ -41,7 +41,7 @@ func (s *Service) captureReferenceDisplayScope(ctx context.Context, documentID, 
 				}
 				artifacts[key] = artifact
 			}
-			appearance, err := s.resultAppearance(ctx, feature, model.DefaultAppearance)
+			appearance, err := s.partResultAppearance(ctx, model, feature)
 			if err != nil {
 				return err
 			}

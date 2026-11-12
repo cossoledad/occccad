@@ -99,7 +99,7 @@ import { CAD_GEOMETRY_LAYER, markNavigationPickable, NavigationPicker } from "..
 import type { NavigationAction, NavigationProfileID } from "../cad/navigation/navigation-profile";
 import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
-import { surfaceAppearanceMaterials, scopedSurfaceAppearance, materialAllowsPick, applyEdgeAppearance } from "../cad/rendering/surface-appearance";
+import { surfaceAppearanceMaterials, scopedSurfaceAppearance, materialAllowsPick, applyEdgeAppearance, applyReferenceAppearance } from "../cad/rendering/surface-appearance";
 import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
 import { SKETCH_FEEDBACK_ORDER, SKETCH_ELEMENT_STYLE, sketchGeometryPickPriority } from "../cad/rendering/sketch-feedback-style";
@@ -366,6 +366,11 @@ export class CadViewportEngine {
   private interferenceVisibility=new Map<THREE.Object3D,boolean>();
   private readonly curvatureOverlay=new CurvatureOverlay();
   private curvatureScope?:{documentId:string;revisionId:string};
+  focusAnalysisPoints(points:import('../types').Vec3[]):void {
+    if(!this.curvatureScope||this.curvatureScope.documentId!==this.view?.document.id||this.curvatureScope.revisionId!==this.view.document.versionId||!points.length||points.length>128||points.some(p=>p.some(n=>!Number.isFinite(n))))return;
+    const bounds=new THREE.Box3().setFromPoints(points.map(p=>new THREE.Vector3(...p)));bounds.expandByScalar(Math.max(bounds.getSize(new THREE.Vector3()).length()*.5,.1));
+    const camera=this.camera.clone(),target=this.navigation.target.clone();if(camera instanceof THREE.PerspectiveCamera)fitPerspectiveView(camera,target,bounds);else fitOrthographicView(camera,target,bounds);this.animateView(saveView(camera,target));
+  }
   showShapeQuality(report?:ShapeQualityReport,mode:CurvatureMode='mean',gain=1):boolean {
     this.curvatureOverlay.clear();this.curvatureScope=undefined;
     const valid=!!report&&report.documentId===this.view?.document.id&&report.revisionId===this.view.document.versionId&&!this.editContext?.occurrencePath;
@@ -1151,10 +1156,22 @@ export class CadViewportEngine {
   private propertyPreview?:import("../types").PropertyPreview;
   setPropertyPreview(preview?:import("../types").PropertyPreview):void {
     this.propertyPreview=preview;
+    const referenceScopes=new Map<string,Record<string,import('../types').ResolvedAppearance>|undefined>();
+    if(this.view)referenceScopes.set(this.view.document.id+'|',this.view.objectAppearances);
+    for(const scope of this.view?.referenceDisplayScopes??[])referenceScopes.set(scope.documentId+'|'+scope.instancePath.canonical,scope.referenceGeometry.appearances);
+    if(this.editContext)referenceScopes.set(this.editContext.view.document.id+'|'+(this.editContext.occurrencePath??''),this.editContext.view.objectAppearances);
+    const valid=preview&&(preview.documentId===this.view?.document.id?preview.versionId===this.view.document.versionId:preview.documentId===this.editContext?.view.document.id&&preview.versionId===this.editContext.view.document.versionId);
+    for(const root of [this.content,this.helpers])root.traverse(object=>{
+      const id=object.userData.referenceObjectID;if(!id)return;
+      const scope=object.userData.documentId+'|'+(object.userData.occurrencePath??'');
+      if(referenceScopes.has(scope))object.userData.referenceAppearance=referenceScopes.get(scope)?.[id];
+      const candidate=valid?preview.appearances.find(p=>p.objectId===id&&p.documentId===object.userData.documentId&&(p.occurrencePath||preview.occurrencePath||'')===(object.userData.occurrencePath??'')):undefined;
+      applyReferenceAppearance(object,candidate?.appearance??object.userData.referenceAppearance);
+    });
     for(const binding of this.solidBindings.values()){
       const {context,mesh,artifact}=binding;
       const valid=preview&&(preview.documentId===this.view?.document.id?preview.versionId===this.view.document.versionId:preview.documentId===this.editContext?.view.document.id&&preview.versionId===this.editContext.view.document.versionId);
-      const candidate=valid?preview.appearances.find(p=>p.documentId===context.documentId&&p.bodyId===context.bodyId&&
+      const candidate=valid?preview.appearances.find(p=>p.documentId===context.documentId&&(context.result?p.sourceResult?.featureId===context.result.featureId&&p.sourceResult?.resultId===context.result.resultId:!p.sourceResult&&!p.objectId&&p.bodyId===context.bodyId)&&
         (p.occurrencePath||preview.occurrencePath||"")===context.occurrencePath):undefined;
       const appearance=scopedSurfaceAppearance(candidate?.appearance??binding.appearance,artifact.geometryKey);
       const digest=JSON.stringify([appearance,Boolean(candidate)]);
@@ -1233,7 +1250,7 @@ export class CadViewportEngine {
 
   updateDisplayProjection(view: DocumentDescriptor): void {
     if (!this.view || this.view.document.id !== view.document.id) return;
-    this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,bodyAppearances:view.bodyAppearances,resultAppearances:view.resultAppearances,
+    this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,objectAppearances:view.objectAppearances,bodyAppearances:view.bodyAppearances,resultAppearances:view.resultAppearances,
       contextVariants:view.contextVariants,constraintDisplayScopes:view.constraintDisplayScopes,referenceDisplayScopes:view.referenceDisplayScopes,resolvedInstances:view.resolvedInstances};
     this.selectionIndex.setSemanticProjection(selection=>this.view?refreshOccurrenceSelection(this.view,selection):selection);
     // Geometry reuse must not reuse the old semantic snapshot. Pick closures
@@ -2314,7 +2331,7 @@ export class CadViewportEngine {
 
   private renderPart(view: DocumentView): void {
     const rootPath = `document:${view.document.id}`;
-    this.addReferenceGeometry({datumPoints:view.part?.datumPoints,datumPlanes:view.datumPlanes??view.part?.datumPlanes??[],axisSystems:view.axisSystems??view.part?.axisSystems??[],datumAxes:view.datumAxes??view.part?.datumAxes??[]},this.helpers,{documentId:view.document.id,versionId:view.document.versionId,geometryKey:view.artifact?.geometryKey??'',occurrencePath:'',treeNodeId:rootPath});
+    this.addReferenceGeometry({appearances:view.objectAppearances,datumPoints:view.part?.datumPoints,datumPlanes:view.datumPlanes??view.part?.datumPlanes??[],axisSystems:view.axisSystems??view.part?.axisSystems??[],datumAxes:view.datumAxes??view.part?.datumAxes??[]},this.helpers,{documentId:view.document.id,versionId:view.document.versionId,geometryKey:view.artifact?.geometryKey??'',occurrencePath:'',treeNodeId:rootPath});
     for (const body of view.part?.bodies ?? []) {
       if (body.consumed) continue;
       const displayKey = body.geometryKey || body.displayFallback?.geometryKey;
@@ -2871,22 +2888,29 @@ export class CadViewportEngine {
   }
   private addReferenceGeometry(reference: ReferenceGeometry | undefined, parent: THREE.Group, context: SolidContext): void {
     if (!reference) return;
+    const firstGraphic=parent.children.length;
     for(const point of reference.datumPoints??[]){
+      if(point.evaluationStatus)continue;
       const mesh=new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]),this.materials.engineeringPoint(false));
       mesh.position.fromArray(point.position);
       const selection={...context,kind:'reference-point' as const,id:`${context.occurrencePath||'root'}:${point.id}`,entityId:point.id,treeNodeId:this.referenceTreeNode(context,point.id)};
       mesh.userData=selection;mesh.renderOrder=110;mesh.raycast=(raycaster,hits)=>{const previous=raycaster.params.Points!.threshold;raycaster.params.Points!.threshold=this.datumAxisPickToleranceWorld*2;try{raycastDatumPoint.call(mesh,raycaster,hits)}finally{raycaster.params.Points!.threshold=previous}};
       parent.add(mesh);this.selectionIndex.register(selection,mesh);this.selectionIndex.registerPick(mesh,()=>selection,230,11);
     }
-    for (const datum of reference.datumPlanes ?? []) this.addDatumPlane(datum, parent, false, {
+    for (const datum of (reference.datumPlanes ?? []).filter(v=>!v.evaluationStatus)) this.addDatumPlane(datum, parent, false, {
       ...context, treeNodeId: this.referenceTreeNode(context,datum.id),
     });
     for (const axis of reference.axisSystems ?? []) this.addAxisSystem(axis, parent, {
       ...context, treeNodeId: this.referenceTreeNode(context,axis.id),
     });
-    for (const axis of reference.datumAxes ?? []) this.addDatumAxis(axis, parent, {
+    for (const axis of (reference.datumAxes ?? []).filter(v=>!v.evaluationStatus)) this.addDatumAxis(axis, parent, {
       ...context, treeNodeId: this.referenceTreeNode(context,axis.id),
     });
+    for(const object of parent.children.slice(firstGraphic)){
+      const kind=object.userData.kind==='plane'?'DATUM_PLANE':object.userData.kind==='axis'?'DATUM_AXIS':object.userData.kind==='reference-point'?'REFERENCE_POINT':undefined;
+      const id=object.userData.entityId??object.userData.id;if(!kind||!id)continue;
+      const objectID=kind+':'+id,appearance=reference.appearances?.[objectID];object.userData.referenceObjectID=objectID;object.userData.referenceAppearance=appearance;applyReferenceAppearance(object,appearance);
+    }
   }
 
   private featureTreeNode(context: SolidContext, featureID: string): string | undefined {
