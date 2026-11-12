@@ -18,6 +18,46 @@ async function selectTree(page:Page,id:string,name:string,kind='feature'){
  await treeNavigator(page)(name,`/${kind}:${id}`);
  await page.locator(`[role=treeitem][data-tree-key$="/${kind}:${id}"]`).getByText(name,{exact:true}).click();
 }
+async function captureFeatureNotices(page:Page){
+ await page.evaluate(()=>{const w=window as any;w.__featureNotices=[];w.__featureNoticeObserver=new MutationObserver(()=>{for(const n of document.querySelectorAll('.ant-notification-notice'))if(n.textContent&&!w.__featureNotices.includes(n.textContent))w.__featureNotices.push(n.textContent)});w.__featureNoticeObserver.observe(document.body,{subtree:true,childList:true,characterData:true})});
+ return ()=>page.evaluate(()=>{const w=window as any;w.__featureNoticeObserver.disconnect();return w.__featureNotices as string[]});
+}
+
+test('Curve preview remains visible inside a solid and surface confirmation has no transient failure',async({page},info)=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Curve preview and commit lifecycle');const id=v.document.id;
+  v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=v.part!.features.at(-1)!.id;
+  await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_RECTANGLE',first:{x:-15,y:-15},second:{x:15,y:15}}]});
+  v=await api.command(id,{type:'CREATE_SOLID_FEATURE',generator:'LINEAR_EXTRUDE',sketchId,operation:'ADD',length:20});
+  const points=[];for(const [i,coordinates] of [[0,[3,0,10]],[1,[12,0,10]]] as const){v=await api.command(id,{type:'CREATE_REFERENCE_POINT',name:`Preview point ${i}`,referenceConstruction:{mode:'POINT_COORDINATES',coordinates}});points.push(v.part!.datumPoints!.at(-1)!)}
+  return {id,points};
+ });
+ await page.goto(`/documents/${seed.id}`);await observeViewport(page);await geometryTab(page);
+ await command(page,'直线');let d=page.getByRole('dialog',{name:'直线',exact:true});
+ for(const p of seed.points)await selectTree(page,p.id,p.name,'point');
+ await ready(page,d);await observeViewport(page);
+ const preview=await page.evaluate(()=>{const e=(window as any).__cameraEngine,items:any[]=[];e.commandPreview.traverse((o:any)=>{if(o.material)items.push({name:o.name,depthTest:o.material.depthTest,width:o.material.linewidth,depthWrite:o.material.depthWrite})});return items});
+ expect(preview.some(p=>p.name==='feature-preview-curve'&&p.width>=2&&!p.depthTest&&!p.depthWrite)).toBe(true);
+ const shown=await page.locator('canvas').screenshot();await page.screenshot({path:info.outputPath('curve-preview-through-solid.png')});
+ await page.evaluate(()=>{const e=(window as any).__cameraEngine;e.commandPreview.visible=false;e.invalidate()});
+ const hidden=await page.locator('canvas').screenshot();
+ const pixels=await page.evaluate(async({a,b})=>{
+  const read=async(s:string)=>{const img=new Image();img.src='data:image/png;base64,'+s;await img.decode();const c=document.createElement('canvas');c.width=img.width;c.height=img.height;const ctx=c.getContext('2d')!;ctx.drawImage(img,0,0);return ctx.getImageData(0,0,c.width,c.height).data};
+  const x=await read(a),y=await read(b);let changed=0;for(let i=0;i<x.length;i+=4)if(Math.abs(x[i]-y[i])+Math.abs(x[i+1]-y[i+1])+Math.abs(x[i+2]-y[i+2])>40)changed++;return changed;
+ },{a:shown.toString('base64'),b:hidden.toString('base64')});expect(pixels).toBeGreaterThan(30);
+ await page.evaluate(()=>{const e=(window as any).__cameraEngine;e.commandPreview.visible=true;e.invalidate()});
+ const notices=await captureFeatureNotices(page);
+ await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
+ const v=await document(page,seed.id),line=v.part.features.at(-1);await selectTree(page,line.id,line.name);
+ await command(page,'旋转曲面');d=page.getByRole('dialog',{name:'旋转曲面',exact:true});
+ await treeNavigator(page)('Y Axis','/origin/axis:axis-system-default/y');
+ await page.locator('[role=treeitem][data-tree-key$="/origin/axis:axis-system-default/y"]').click();
+ await ready(page,d);await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
+ expect((await document(page,seed.id)).part.features.at(-1).result.domain).toBe('SHEET_SET');
+ expect(await notices()).toEqual([]);expect(errors).toEqual([]);
+});
 async function geometryTab(page:Page){await page.getByRole('tab',{name:'线框与曲面',exact:true}).click()}
 async function seedPoints(page:Page){return page.evaluate(async()=>{
  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Geometry references acceptance');const id=v.document.id,points:Record<string,string>={};
@@ -114,7 +154,7 @@ test('Engineering surfaces: empty dialogs, viewport picks, ordered loft, sewing 
   return {id,profile,rail,bottom,top,cutter,keep,point};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await geometryTab(page);
- const pick=async(f:any)=>selectTree(page,f.id,f.name);
+ const notices=await captureFeatureNotices(page),pick=async(f:any)=>selectTree(page,f.id,f.name);
  const open=async(name:string)=>{const before=(await document(page,seed.id)).document.versionId;await command(page,name);const d=page.getByRole('dialog',{name,exact:true});await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();await expect(d).not.toContainText('更多');expect((await document(page,seed.id)).document.versionId).toBe(before);return d};
  const confirm=async(d:ReturnType<Page['getByRole']>)=>{await ready(page,d);await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);const v=await document(page,seed.id),f=v.part.features.at(-1);expect(f.evaluationStatus).toBeFalsy();return f};
  let d=await open('曲面扫掠');await clickWorld(page,[10,0,0]);await pick(seed.rail);const sweep=await confirm(d);
@@ -138,6 +178,7 @@ test('Engineering surfaces: empty dialogs, viewport picks, ordered loft, sewing 
  expect(display.reference.every(v=>v===3)).toBe(true);expect(display.data.filter(v=>v.domain==='POINT_SET').every(v=>v.pointShapes.includes(3))).toBe(true);
  expect(display.data.filter(v=>v.domain==='SHEET_SET').every(v=>v.cast&&v.receive&&v.side===2)).toBe(true);expect(display.data.filter(v=>v.domain==='WIRE_SET').every(v=>v.wire>=2)).toBe(true);
  await page.screenshot({path:info.outputPath('engineering-surfaces-display.png')});
+ expect(await notices()).toEqual([]);
  const before=(await document(page,seed.id)).document.versionId;d=await open('封闭曲面');await pick(sweep);await expect(page.locator('.ant-notification')).toBeVisible();await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();await d.getByRole('button',{name:/取\s*消/}).click();expect((await document(page,seed.id)).document.versionId).toBe(before);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();current=await document(page,seed.id);expect(current.part.features.find((f:any)=>f.id===trim.id).result).toBeTruthy();expect(errors).toEqual([]);
 });

@@ -126,14 +126,22 @@ func (s *Service) resolveFeaturePick(ctx context.Context, pick FeatureSelection,
 		}
 		pick.SourceFeatureID = r.FeatureID
 	}
-	// Rebuild either the explicit stage or the historical revision's final
-	// Body stage under the current evaluator. Derived artifacts from an older
-	// evaluator are not the business truth and cannot prevent an exact rebuild.
-	key, err := s.featureStageAtVersion(ctx, pick.Selection.SourceDocumentID, pick.SourceVersionID, pick.SourceFeatureID, pick.Selection.SourceBodyID)
-	if err != nil {
-		return modelcore.SelectionResolution{}, err
+	// Creation evidence belongs to the immutable representation on which the
+	// selection was bound. Reconstructing a curve from serialized upstream BREP
+	// can change the last floating-point bits of its evidence, even when its
+	// semantic identity and exact construction are unchanged. Validate against
+	// the Revision-qualified original result, then follow lineage in the target.
+	var source *topologyManifest
+	var err error
+	if result := pick.Selection.SourceResult; result != nil {
+		source, _, _, err = s.resultManifestForVersion(ctx, pick.Selection.SourceDocumentID, pick.SourceVersionID, result)
+	} else {
+		var key string
+		key, err = s.featureStageAtVersion(ctx, pick.Selection.SourceDocumentID, pick.SourceVersionID, pick.SourceFeatureID, pick.Selection.SourceBodyID)
+		if err == nil {
+			source, _, err = s.topologyManifestForGeometryKey(ctx, key)
+		}
 	}
-	source, _, err := s.topologyManifestForGeometryKey(ctx, key)
 	if err != nil {
 		return modelcore.SelectionResolution{}, err
 	}

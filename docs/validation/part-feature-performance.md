@@ -65,3 +65,21 @@
 本轮另在 1.2 s 和 0.75 s 中止新操作，客户端均被取消且源 Head 未变；观察包含空闲确认，不作为所有构造器的中断上界，详细 CPU 样本见 JSON。
 
 新增验证入口：`MeshReusePreservesColdResultAndIsolatesSource`、`BorrowedBrepSurvivesEvictionAndKernelLifetime`，`TestVisualDeltaPreservesBytesAuthorizationAndVariantETag`，Web 的 `interaction-geometry` / `visual-decoder` / `mesh-glb` 场景；真实视图沿用 `surface-contours-live`、`Engineering surface display` 和 `Hole preview keeps one shaded result`。测试存在不代表执行，实际结果由本次 `build/agent-check/` 和浏览器报告确认。
+
+
+## 局部高亮的邻接与投影
+
+2026-11-12 UTC，同机 Chromium / SwiftShader，对已授权且完成解码的 741210 三角形、827 面导入件做一次串行对照。基线恢复 `5f8ee542` 的子集轮廓、覆盖及投影路径；新旧均从同一紧凑网格开始，计入引擎 `preselect` 和 CPU 轮廓投影，不计下载、解码、首次邻接准备及 GPU 完成。详细输入摘要、源码摘要、原始调用读数见同页 JSON 的 `highlightOptimization20261112`。
+
+| CPU 交互 | 基线 | 当前 |
+|---|---:|---:|
+| 首次选择导入步骤的贡献 | 426.9 ms | 32.9 ms |
+| 重复同一贡献 | 1.2 ms | 0.7 ms |
+| 首次选择一个面 | 40.9 ms | 0.5 ms |
+| 重复同一个面 | 0.4 ms | 0.1 ms |
+
+首次贡献查询输出均为 15934 条面轮廓及 23857 条 CAD 边线，单面均为 130 条线。该次查询前后 `usedJSHeapSize` 差约 302 MB → 2 MB，派生几何缓存约 53.15 MB → 1.34 MB；这是调用前后读数，不是采样峰值、分配总量或 RSS。两组均已持有同一约 44.18 MB 的不可变显示邻接；它随解码结果共享，不能从上述差值推导加载阶段或所有模型的内存上界。
+
+根因是子集选择重复焊接整份网格、建立大型 JS Map、预留过量双精度边法向，并先输出全部曲面候选后再投影。现在邻接在解码阶段用紧凑数组一次准备；面到候选边索引支持局部查询，选择与投影合并，只缓存当前投影几何。整件与覆盖全部面的贡献共享投影，引用计数保护重复 occurrence 和 selection/hover 的寿命；缓存按字节约束全部相机投影。首次邻接仍为线性工作，大制品在可取消的 Worker 中准备，并未改变显示精度或 CAD 持久身份。
+
+此对照隔离交互算法，不是整个旧版本加载基准；原基线的整件预计算不在本夹具恢复范围，因此不比较其 Body 整件路径。单个串行样本不代表 P95、所有模型、GPU 帧率或用户观察到的另一模型的 500→1500 MB 堆峰值。

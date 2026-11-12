@@ -1,5 +1,6 @@
 import {decodeMeshGLB, type DecodedVisual} from './mesh-glb';
 import {packedMesh} from './packed-mesh';
+import {buildContourIncidence} from '../rendering/mesh-contour-incidence';
 type Result = {decoded: DecodedVisual; buffer: ArrayBuffer};
 type Job = {id: number; buffer: ArrayBuffer; contours: boolean; signal: AbortSignal; resolve: (r: Result) => void; reject: (e: unknown) => void; off: () => void};
 const canceled = () => new DOMException('Display canceled', 'AbortError');
@@ -13,7 +14,11 @@ export class VisualDecoder {
   private worker?: Worker;
   decode(buffer: ArrayBuffer, contours: boolean, signal: AbortSignal): Promise<Result> {
     if (signal.aborted) return Promise.reject(canceled());
-    if (typeof Worker === 'undefined' || buffer.byteLength < 512 * 1024) return Promise.resolve({decoded: decodeMeshGLB(buffer), buffer});
+    if (typeof Worker === 'undefined' || buffer.byteLength < 512 * 1024) {
+      const decoded=decodeMeshGLB(buffer);
+      if(contours&&decoded.mesh.buffers!.indices.length)Object.defineProperty(decoded.mesh,'contourIncidence',{value:buildContourIncidence(decoded.mesh.buffers!)});
+      return Promise.resolve({decoded,buffer});
+    }
     return new Promise((resolve, reject) => {
       const job: Job = {id: ++this.nextID, buffer, contours, signal, resolve, reject, off: () => signal.removeEventListener('abort', abort)};
       const abort = () => {
@@ -41,7 +46,7 @@ export class VisualDecoder {
         if (data.error) job.reject(new Error(data.error));
         else {
           const mesh = packedMesh(data.buffers, data.edges, data.topologyVertices);
-          if (data.contours) Object.defineProperty(mesh, 'contours', {value: data.contours});
+          if (data.contourIncidence) Object.defineProperty(mesh,'contourIncidence',{value:data.contourIncidence});
           job.resolve({buffer: data.buffer, decoded: {mesh, association: data.association, visualization: data.visualization}});
         }
         this.start();

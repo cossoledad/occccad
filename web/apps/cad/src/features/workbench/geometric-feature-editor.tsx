@@ -122,7 +122,7 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
   }
  }catch(error){problem=error}
  const preview=useFeaturePreview(view.document.id,base,input,draft.operation,onPreview);
- const feedback=useFeatureDialogFeedback(failure??preview.failure??(!validRevision?new CommandInputError('模型已改变，请重新打开命令'):undefined),geometryNames[kind],problem,preview.repairRequired,preview.retry);
+ const feedback=useFeatureDialogFeedback(failure??preview.failure??(!validRevision&&!saving?new CommandInputError('模型已改变，请重新打开命令'):undefined),geometryNames[kind],problem,preview.repairRequired,preview.retry);
  const fields=geometryFields(draft.geometry!),mainFields=fields.filter(f=>!f.slot.startsWith("geometry:tension:"));
  const fieldInput=(field:typeof fields[number])=><CommandField key={field.slot} label={field.label+(field.unit?`（${field.unit==='mm'?unit:field.unit}）`:'')} width="expression"><ParameterReferenceInput value={values[field.slot]??String(field.unit==='mm'?millimetersToDisplayLength(field.value,unit):field.value)} parameters={view.part?.parameters??[]} unit={field.unit==='mm'?unit:undefined} onChange={v=>setValues(old=>({...old,[field.slot]:v}))} onBlur={()=>{setCommitted({...values});setFailure(undefined);feedback.reportValidation()}}/></CommandField>;
  const reverse=(field:string)=>change(f=>{const d=f.geometry!,value=field.startsWith('input:')?d.inputs![Number(field.split(':')[1])]:refs.find(r=>r.key===field)?.input?structuredClone(refs.find(r=>r.key===field)!.input):undefined;if(value){value.reversed=!value.reversed;if(field.startsWith('input:'))d.inputs![Number(field.split(':')[1])]=value;else setGeometryReference(f,field,value)}});

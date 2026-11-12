@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import type {LineSegments2} from 'three/addons/lines/LineSegments2.js';
 import {LineSegmentsGeometry} from 'three/addons/lines/LineSegmentsGeometry.js';
+import type {GeometryLease} from './interaction-geometry-cache';
+import type {ContourEye} from './mesh-contour-incidence';
 
 type Projected={positions:Float32Array;first:Float32Array;second:Float32Array};
-const projections=new WeakMap<THREE.BufferGeometry,Map<string,Projected>>();
 
 /** Cull silhouette candidates before GPU submission. The conservative CPU
  * band retains grazing candidates; the existing shader makes the final test. */
@@ -24,19 +25,14 @@ export function projectContours(source:THREE.BufferGeometry,eye:THREE.Vector3,pe
   return out;
 }
 
-export function contourProjectionUpdater(line:LineSegments2,source:THREE.BufferGeometry):(camera:THREE.Camera)=>void {
-  const inverse=new THREE.Matrix4(),localCamera=new THREE.Matrix4(),eye=new THREE.Vector3();let previous='';
-  return camera=>{
+export function contourProjectionUpdater(line:LineSegments2,acquire:(eye:ContourEye)=>GeometryLease) {
+  const inverse=new THREE.Matrix4(),localCamera=new THREE.Matrix4(),eye=new THREE.Vector3();let previous='',lease:GeometryLease|undefined;
+  return {update:(camera:THREE.Camera)=>{
     localCamera.multiplyMatrices(inverse.copy(line.matrixWorld).invert(),camera.matrixWorld);
     const perspective=camera.projectionMatrix.elements[11]===-1;
     if(perspective)eye.setFromMatrixPosition(localCamera);else eye.setFromMatrixColumn(localCamera,2);
     const key=Number(perspective)+':'+eye.x+','+eye.y+','+eye.z;if(previous===key)return;previous=key;
-    let cache=projections.get(source);if(!cache){cache=new Map();projections.set(source,cache);}
-    let data=cache.get(key);if(!data){data=projectContours(source,eye,perspective);if(cache.size>=4)cache.delete(cache.keys().next().value!);cache.set(key,data);}
-    const geometry=new LineSegmentsGeometry();geometry.setPositions(data.positions);
-    geometry.setAttribute('instanceEdgeNormalA',new THREE.InstancedBufferAttribute(data.first,3));
-    geometry.setAttribute('instanceEdgeNormalB',new THREE.InstancedBufferAttribute(data.second,3));
-    geometry.boundingBox=source.boundingBox?.clone()??null;geometry.boundingSphere=source.boundingSphere?.clone()??null;
-    line.geometry.dispose();line.geometry=geometry;
-  };
+    const next=acquire({x:eye.x,y:eye.y,z:eye.z,perspective});
+    if(lease)lease.release();else line.geometry.dispose();lease=next;line.geometry=next.geometry as LineSegmentsGeometry;
+  },release:()=>{if(lease){lease.release();lease=undefined}else line.geometry.dispose()}};
 }

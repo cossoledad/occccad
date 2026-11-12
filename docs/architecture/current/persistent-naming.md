@@ -23,6 +23,8 @@ Feature / Body / profile entity stable IDs
 - Complete history covers every live final topology element exactly once and rejects conflicting live/tombstone or duplicate semantic/local identities.
 - Ambiguity is a result, not permission to select the first candidate. Deleted topology remains a tombstone; repair is explicit Reconnect.
 
+独立 FeatureResult 拓扑输入的创建证据在其来源 Document/Revision/Result 的冻结 Naming 中严格验证，再通过目标结果的语义历史解析。不能用重新构造历史样条后产生的浮点摘要替代原始创建证据；重建的最后几位差异不是重新绑定或放宽证据校验的理由。Body 历史阶段继续按显式来源阶段重建并验证，缺失、来源错配和伪造证据仍拒绝。入口为 `workspace/feature_input.go::resolveFeaturePick`。
+
 ## 用户可见元素名称
 
 `ElementPresentation` 是现有稳定模型与拓扑 Naming 的显示投影，包含可读名称、所属 Body/Feature 身份及相对元素路径。Part 的精确拓扑属性和 Publication 解析由 `partElementPresentation` 根据语义锚点取名称；前端 `elementPresentation` 按完整 occurrence 限定，并用当前快照的 FeatureAssociation 显示几何来源。Publication.name 是用户可编辑的接口别名，独立于源几何名称。

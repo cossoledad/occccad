@@ -420,3 +420,91 @@ func TestGeometryAssociativeExactSupportReferencesThroughRouter(t *testing.T) {
 		}
 	}
 }
+
+func TestGeometryCreationEvidenceUsesFrozenResult(t *testing.T) {
+	f := newSketchWorkflowFixture(t)
+	f.command(CommandRequest{Type: "EDIT_SKETCH", SketchID: f.sketchID, Operations: []SketchOperation{{Type: "ADD_RECTANGLE", First: &SketchPoint2{X: -60, Y: -38.71975240683075}, Second: &SketchPoint2{X: 35.851622598917324, Y: 80}}}})
+	bodyView := f.command(CommandRequest{Type: "CREATE_SOLID_FEATURE", Generator: "LINEAR_EXTRUDE", SketchID: f.sketchID, Operation: "ADD", Length: 40})
+	body := bodyView.Part.Bodies[bodyIndex(*bodyView.Part, bodyView.Part.ActiveBodyID)]
+	stage := bodyView.Part.Features[len(bodyView.Part.Features)-1].ID
+	manifest, _, err := f.service.topologyManifestForGeometryKey(f.ctx, body.GeometryKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	curve := &GeometricFeatureDefinition{Kind: "SPLINE", ConstructionTolerance: .01, Curve: &GeometryCurveDefinition{Points: []GeometryControlPoint{
+		{ID: "a", Position: [3]float64{-60, -38.71975240683075, 40}},
+		{ID: "b", Position: [3]float64{-60, 80, 40}},
+		{ID: "c", Position: [3]float64{35.851622598917324, 80, 40}},
+	}}}
+	for i := range curve.Curve.Points {
+		point := &curve.Curve.Points[i]
+		for _, output := range manifest.Tips[body.ID].SemanticOutputs {
+			p := output.GetEvidence().GetCentroid()
+			if topologyType(output.TopologyType) != modelcore.PersistentTopologyVertex || math.Abs(p.GetX()-point.Position[0])+math.Abs(p.GetY()-point.Position[1])+math.Abs(p.GetZ()-point.Position[2]) > 1e-8 {
+				continue
+			}
+			bound, e := f.service.BindPersistentSelection(f.ctx, f.documentID, BindPersistentSelectionRequest{SourceVersionID: bodyView.Document.VersionID, GeometryKey: body.GeometryKey, Kind: "VERTEX", LocalID: output.LocalId})
+			if e != nil {
+				t.Fatal(e)
+			}
+			point.Reference = &GeometricInput{Kind: "TOPOLOGY", Selection: &FeatureSelection{Selection: bound, SourceVersionID: bodyView.Document.VersionID, SourceFeatureID: stage}}
+			point.Position = [3]float64{}
+			break
+		}
+		if point.Reference == nil {
+			t.Fatal("missing fixture vertex", i)
+		}
+	}
+	v, source := surfaceCreate(t, f, curve)
+	selection, err := f.service.BindPersistentSelection(f.ctx, f.documentID, BindPersistentSelectionRequest{SourceVersionID: v.Document.VersionID, GeometryKey: source.Result.GeometryKey, Kind: "EDGE", LocalID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pick := FeatureSelection{Selection: selection, SourceVersionID: v.Document.VersionID, SourceFeatureID: source.ID}
+	target, err := f.service.featureStageAtVersion(f.ctx, f.documentID, pick.SourceVersionID, source.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolution, err := f.service.resolveFeaturePick(f.ctx, pick, target)
+	if err != nil || resolution.Status != modelcore.SelectionResolved {
+		t.Fatal("historical result cannot resolve after reconstruction", resolution, err)
+	}
+	// Floating-point drift must not permit forged creation evidence or a different
+	// result owner: source verification remains exact and Revision-qualified.
+	forged := pick
+	forged.Selection.CreationEvidence.EvidenceDigest = "sha256:forged"
+	resolution, err = f.service.resolveFeaturePick(f.ctx, forged, target)
+	if err != nil || resolution.Status != modelcore.SelectionSourceUnavailable {
+		t.Fatal("forged creation evidence accepted", resolution, err)
+	}
+	wrongStage := pick
+	wrongStage.SourceFeatureID = "unrelated"
+	resolution, err = f.service.resolveFeaturePick(f.ctx, wrongStage, target)
+	if err != nil || resolution.Status != modelcore.SelectionSourceUnavailable {
+		t.Fatal("mismatched source stage accepted", resolution, err)
+	}
+	input := GeometricInput{Kind: "TOPOLOGY", Selection: &pick}
+	surface := Feature{Type: "GEOMETRY", Geometry: &GeometricFeatureDefinition{Kind: "SURFACE_REVOLVE", ConstructionTolerance: .01, Surface: &GeometrySurfaceDefinition{Tolerance: .01}, Inputs: []GeometricInput{input}, Axis: &GeometricInput{Kind: "DATUM", Datum: &DatumReference{Kind: "AXIS_SYSTEM", EntityID: "axis-system-default", Axis: "Y"}}, Parameters: GeometryOperationParameters{Angle: 360}}}
+	request := CommandRequest{ActorID: f.actor, RequestID: uuid.NewString(), Type: "CREATE_GEOMETRY_FEATURE", VersionID: v.Document.VersionID, Feature: &surface}
+	preview, err := f.service.PreviewCommand(f.ctx, f.documentID, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.PreviewID = preview.PreviewID
+	v, err = f.service.ApplyCommand(f.ctx, f.documentID, request)
+	if err != nil {
+		t.Fatal("valid preview cannot commit", err)
+	}
+	if v.Part.Features[len(v.Part.Features)-1].Result.Domain != "SHEET_SET" {
+		t.Fatal("missing revolved surface")
+	}
+	cold := NewWithArtifacts(f.service.database, f.service.worker, f.service.artifacts)
+	resolution, err = cold.resolveFeaturePick(f.ctx, pick, target)
+	if err != nil || resolution.Status != modelcore.SelectionResolved {
+		t.Fatal("cold source verification changed", resolution, err)
+	}
+	after, err := cold.GetDocument(f.ctx, f.documentID)
+	if err != nil || after.Document.VersionID != v.Document.VersionID {
+		t.Fatal("cold read lost committed surface", err)
+	}
+}

@@ -12,7 +12,8 @@ const moduleURL=async(file,replacements=[])=>{
 const packed=await moduleURL("../packed-mesh.ts");
 const codec=await moduleURL("../mesh-glb.ts", [['"./packed-mesh"', JSON.stringify(packed)]]),{encodeMeshGLB,decodeMeshGLB}=await import(codec);
 const delta=await moduleURL("../visual-delta.ts");
-const decoder=await moduleURL("../visual-decoder.ts", [["'./mesh-glb'", JSON.stringify(codec)], ["'./packed-mesh'", JSON.stringify(packed)]]);
+const incidence=await moduleURL("../../rendering/mesh-contour-incidence.ts");
+const decoder=await moduleURL("../visual-decoder.ts", [["'./mesh-glb'", JSON.stringify(codec)], ["'./packed-mesh'", JSON.stringify(packed)], ["'../rendering/mesh-contour-incidence'", JSON.stringify(incidence)]]);
 const {VisualRepository}=await import(await moduleURL("../visual-repository.ts", [['"./visual-decoder"',JSON.stringify(decoder)],['"./visual-delta"',JSON.stringify(delta)]]));
 const mesh={vertices:[[0,0,0],[2,0,0],[0,3,0]],triangles:[[0,1,2]],faceIds:[1],edges:[{localId:7,points:[[0,0,0],[2,0,0]]}],topologyVertices:[{localId:9,point:[0,0,0]}]};
 const visualization={schemaVersion:2,referenceGeometry:{datumPlanes:[],axisSystems:[]},primitives:[]};

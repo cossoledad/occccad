@@ -9,7 +9,7 @@ export type ToolbarCatalogEntry = { id:string;name:string;workbench:string;secti
 export type ToolbarCatalog = import("./cad/command/workbench-catalog").WorkbenchCatalog & { toolbars:ToolbarCatalogEntry[] };
 
 export type MeshData = {
-  contours?: {positions:Float32Array;first:Float32Array;second:Float32Array};
+  readonly contourIncidence?: import('./cad/rendering/mesh-contour-incidence').ContourIncidence;
   buffers?: {positions:Float32Array;indices:Uint32Array;normals?:Float32Array;faceIds:Uint32Array};
   normals?: Vec3[];
   vertices: Vec3[];

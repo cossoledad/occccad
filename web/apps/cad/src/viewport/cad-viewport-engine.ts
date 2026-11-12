@@ -3889,14 +3889,15 @@ export class CadViewportEngine {
     if(kind==='face'||kind==='edge'){
       if(kind==='face'&&!triangleCount(binding.artifact.mesh))return;
       if(kind==='edge'&&!binding.artifact.mesh.edges?.length)return;
-      const lease=this.interactionGeometry.acquire(binding.artifact.mesh,kind,ids);
-      if((lease.geometry as import('three/addons/lines/LineSegmentsGeometry.js').LineSegmentsGeometry).instanceCount===0){lease.release();return;}
       if(kind==='face'){
         const line=new LineSegments2(new LineSegmentsGeometry(),this.topologyOverlayMaterial(layer,true));
-        line.geometry.boundingBox=lease.geometry.boundingBox?.clone()??null;line.geometry.boundingSphere=lease.geometry.boundingSphere?.clone()??null;
-        line.userData.cadUpdateContour=contourProjectionUpdater(line,lease.geometry);line.userData.cadOwnProjectedGeometry=true;overlay=line;
-      }else overlay=new LineSegments2(lease.geometry as LineSegmentsGeometry,this.topologyOverlayMaterial(layer,false));
-      overlay.userData.cadGeometryRelease=lease.release;
+        const projection=contourProjectionUpdater(line,eye=>this.interactionGeometry.acquire(binding.artifact.mesh,'face',ids,eye));
+        line.userData.cadUpdateContour=projection.update;line.userData.cadGeometryRelease=projection.release;overlay=line;
+      }else{
+        const lease=this.interactionGeometry.acquire(binding.artifact.mesh,kind,ids);
+        if((lease.geometry as LineSegmentsGeometry).instanceCount===0){lease.release();return;}
+        overlay=new LineSegments2(lease.geometry as LineSegmentsGeometry,this.topologyOverlayMaterial(layer,false));overlay.userData.cadGeometryRelease=lease.release;
+      }
     } else {
       const vertices = (binding.artifact.mesh.topologyVertices ?? []).filter(item=>!ids||ids.has(item.localId));
       if (vertices.length) {
@@ -4527,7 +4528,7 @@ export class CadViewportEngine {
   private disposeRenderable(root: THREE.Object3D): void {
     root.traverse((object) => {
       const renderable = object as THREE.Mesh;
-      if(typeof object.userData.cadGeometryRelease==='function'){object.userData.cadGeometryRelease();delete object.userData.cadGeometryRelease;if(object.userData.cadOwnProjectedGeometry)renderable.geometry?.dispose();delete object.userData.cadUpdateContour;}
+      if(typeof object.userData.cadGeometryRelease==='function'){object.userData.cadGeometryRelease();delete object.userData.cadGeometryRelease;delete object.userData.cadUpdateContour;}
       else renderable.geometry?.dispose();
       const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
       materials.forEach((material) => {

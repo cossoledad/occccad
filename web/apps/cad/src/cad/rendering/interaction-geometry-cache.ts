@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {LineSegmentsGeometry} from 'three/addons/lines/LineSegmentsGeometry.js';
 import type {MeshData} from '../../types';
 import {meshTopologyIndex} from './mesh-topology-index';
+import type {ContourEye} from './mesh-contour-incidence';
 
 type Entry={owner:WeakRef<MeshData>;key:string;geometry:THREE.BufferGeometry;bytes:number;references:number;used:number};
 export type GeometryLease={geometry:THREE.BufferGeometry;release:()=>void};
@@ -12,15 +13,15 @@ export class InteractionGeometryCache {
   private byMesh=new WeakMap<MeshData,Map<string,Entry>>();
   private readonly entries=new Set<Entry>();private clock=0;private bytes=0;
   constructor(private readonly budget=64*1024*1024){}
-  acquire(mesh:MeshData,kind:'face'|'edge',ids?:ReadonlySet<number>):GeometryLease {
-    const key=kind+':'+(ids?[...ids].sort((a,b)=>a-b).join(','):'whole');
+  acquire(mesh:MeshData,kind:'face'|'edge',ids?:ReadonlySet<number>,eye?:ContourEye):GeometryLease {
+    const index=meshTopologyIndex(mesh);if(kind==='face')ids=index.faceSelection(ids);
+    const key=kind+':'+(ids?[...ids].sort((a,b)=>a-b).join(','):'whole')+(eye?`/${Number(eye.perspective)}/${eye.x},${eye.y},${eye.z}`:'');
     let map=this.byMesh.get(mesh);if(!map){map=new Map();this.byMesh.set(mesh,map);}
     let entry=map.get(key);
     if(!entry){
-      const index=meshTopologyIndex(mesh);
       const geometry=new LineSegmentsGeometry();
       if(kind==='face'){
-        const data=index.contours(ids);geometry.setPositions(data.positions);
+        const data=index.contours(ids,eye);geometry.setPositions(data.positions);
         geometry.setAttribute('instanceEdgeNormalA',new THREE.InstancedBufferAttribute(data.first,3));
         geometry.setAttribute('instanceEdgeNormalB',new THREE.InstancedBufferAttribute(data.second,3));
       }else geometry.setPositions(index.edgeSegments(ids));

@@ -838,5 +838,108 @@
       ],
       "scope": "normal API cancellation, serial otherwise idle managed Worker, /proc CPU ticks assume 100Hz; observation includes idle confirmation and is not a universal interruption bound"
     }
+  },
+  "highlightOptimization20261112": {
+    "measuredAtUTC": "2026-11-12T13:49:07.775102+00:00",
+    "baseCommit": "5f8ee542e7097d4a87eb3f5e97fd1a0c3177f65e",
+    "runtimeInputsSHA256": "438999e782b9337a232f7b6312ff834b8f632f893097a9d5eb7164b1b159ad79",
+    "environment": "Local Chromium / SwiftShader; configured running application; serial single pair; already authorized and decoded identical mesh",
+    "input": {
+      "geometryKey": "sha256:965c12556a9ed6d950635590e2200a23e56c84951d56a1f6c8d2a9d2b6c481b4",
+      "triangles": 741210,
+      "faces": 827
+    },
+    "boundary": "Engine preselect plus synchronous contour projection, after loading; excludes GPU completion, download/decode, and initial immutable incidence construction. Baseline overlay, contour construction and projection restored from baseCommit on the same current decoded input. Body whole-model baseline is excluded because that fixture does not prepare legacy whole-model contours.",
+    "heapBoundary": "performance.memory.usedJSHeapSize immediately before/after the call, after an earlier explicit collection; not sampled peak, cumulative allocation, RSS or a bound. Both variants start with the same prepared current mesh and immutable incidence.",
+    "before": [
+      {
+        "name": "import-feature-first",
+        "heapBefore": 188962623,
+        "ms": 426.8999999994412,
+        "heap": 490969367,
+        "cacheBytes": 53149736,
+        "segments": [
+          15934,
+          23857
+        ]
+      },
+      {
+        "name": "import-feature-repeat",
+        "heapBefore": 490973387,
+        "ms": 1.199999999254942,
+        "heap": 491481403,
+        "cacheBytes": 53149736,
+        "segments": [
+          15934,
+          23857
+        ]
+      },
+      {
+        "name": "single-face-first",
+        "heapBefore": 517253303,
+        "ms": 40.90000000037253,
+        "heap": 545503899,
+        "cacheBytes": 53754880,
+        "segments": [
+          130
+        ]
+      },
+      {
+        "name": "single-face-repeat",
+        "heapBefore": 545506563,
+        "ms": 0.40000000037252903,
+        "heap": 545635311,
+        "cacheBytes": 53754880,
+        "segments": [
+          130
+        ]
+      }
+    ],
+    "after": [
+      {
+        "name": "import-feature-first",
+        "heapBefore": 188593972,
+        "ms": 32.90000000037253,
+        "heap": 190643800,
+        "cacheBytes": 1337720,
+        "segments": [
+          15934,
+          23857
+        ]
+      },
+      {
+        "name": "import-feature-repeat",
+        "heapBefore": 190652996,
+        "ms": 0.7000000001862645,
+        "heap": 191138320,
+        "cacheBytes": 1337720,
+        "segments": [
+          15934,
+          23857
+        ]
+      },
+      {
+        "name": "single-face-first",
+        "heapBefore": 191235652,
+        "ms": 0.5,
+        "heap": 191764320,
+        "cacheBytes": 1916848,
+        "segments": [
+          130
+        ]
+      },
+      {
+        "name": "single-face-repeat",
+        "heapBefore": 191766888,
+        "ms": 0.10000000055879354,
+        "heap": 191895980,
+        "cacheBytes": 1916848,
+        "segments": [
+          130
+        ]
+      }
+    ],
+    "immutableIncidenceBytes": 44179248,
+    "interpretation": "First-use subset construction is eliminated from interaction. Repeat hits already worked; the new cache retains projected rather than full unprojected subsets. Full-face feature and whole-result projection share a canonical cache key. Geometry-local incidence remains reconstructible display data; identity and source qualification are unchanged."
   }
 }
