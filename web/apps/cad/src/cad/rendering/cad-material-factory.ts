@@ -139,6 +139,7 @@ export class CadMaterialFactory {
           material.emissive.setHex(0x000000);material.emissiveIntensity=0;
         } else if (material instanceof LineMaterial) {
           if(material.userData.cadContour)continue;
+          if(material.uniforms.uCadEdgeInteraction)material.uniforms.uCadEdgeInteraction.value=state==='default'?0:1;
           const baseColor = Number(material.userData.baseColor ?? material.color.getHex());
           material.userData.baseColor = baseColor;
           material.color.setHex(material.userData.propertyPreview?baseColor:state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : state === "context" ? 0x6b929b : baseColor);

@@ -13,6 +13,8 @@
 - 删除 `stableIds`。SemanticTopologyRef 的序列化哈希既不是 stable ID，也不是 Visual 的职责。
 - 每个 Body 或几何 FeatureResult 使用自己的 GLB；Wire/Point 允许仅有 EDGE/VERTEX primitive，不含零 count 面 accessor。拾取归属来自 Revision 的 `bodyId` / `result` binding，持久拓扑身份来自同一 owner 的 Naming。多个 mesh/primitive 为 Material、LOD 等组预留扩展；需要新解码语义的功能必须声明 required extension 或升级 schema，不能默默把 LOD 候选全部绘制。
 
+可选 `OCCCCAD_cad.edgeProfile` 是[自然边线](natural-edges.md)的显示证据，独立 `schemaVersion=1, source=OCCT_EDGE_USE_V1`。`positions / normalA / normalB` 指向 FLOAT/VEC3 accessor，每渲染段两个点及双侧法线；`metadata` 指向 UNSIGNED_INT/VEC4 accessor，每段 `[edgeLocalId, faceA, faceB, flags]`。缺失 face 为 0；`flags & 255` 为 unknown/wire/boundary/manifold/seam/coplanar/non-manifold（0…6），`flags >> 8` 的 bit 0 表示法线缺失、bit 1 表示采样上限。零法线明确表示未知。原标准 EDGE 折线、拓扑 locator 和 Naming 保持不变，profile 只能细分原弦；它不是新的拓扑或持久选择格式。未知来源/版本忽略该可选证据并保守显示标准边；认识的 profile 必须通过数目、有限值和边/面关联检查。服务端添加 Visualization 二进制后缀时保留这些 accessor 与数据。
+
 ## Naming: PartTopologyManifest schema_version 2
 
 文件 schema 与 Naming policy / evaluator 版本分离。改变存储布局不改变 SemanticTopologyRef 的业务身份、匹配容差和 history digest 算法。

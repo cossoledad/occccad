@@ -1,12 +1,12 @@
 import { ViewportSnapshots } from "./viewport-snapshot";
 import { meshTopologyIndex } from "../cad/rendering/mesh-topology-index";
 import { triangleCount } from "../cad/visual/packed-mesh";
+import type {EdgePresentation} from '../cad/rendering/natural-edges';
 import {CurvatureOverlay} from '../cad/rendering/curvature-overlay';
 import type {ShapeQualityReport,CurvatureMode} from '../cad/analysis/shape-quality';
 import {geometryBindingKey,makeCurvePreview} from '../cad/rendering/geometry-feature-visual';
 import {viewContextKey} from "../api/context-edit-scope";
 import {SectionCaps} from '../cad/rendering/section-caps';
-import {edgeFacingAttributes} from "../cad/rendering/edge-facing";
 import {assemblyReferenceInContext} from "../cad/assembly/assembly-reference";
 import {assemblyPublicationSelection,assemblyPublicationCandidates,type AssemblyPublicationChoice} from "../features/workbench/assembly-publication-selection";
 import {SectionManipulator,type SectionEditSession} from "../cad/interaction/section-manipulator";
@@ -584,6 +584,7 @@ export class CadViewportEngine {
   private assemblyConstraintMarkers = new Map<string,{signature:string;group:THREE.Group;selection:SelectionItem}>();
   private referenceVisibility: ReferenceVisibility = { ...DEFAULT_REFERENCE_VISIBILITY };
   private solidDisplay: SolidDisplaySettings = { ...DEFAULT_SOLID_DISPLAY };
+  private edgePresentation:EdgePresentation='natural';
   private readonly screenStableReferences = new Map<THREE.Object3D, number>();
   private datumAxisPickToleranceWorld = 0;
   private selected: SelectionItem[] = [];
@@ -1243,6 +1244,17 @@ export class CadViewportEngine {
     this.applyTreeVisibility();
     for (const { group } of this.solidBindings.values()) applySolidDisplaySettings(group, this.solidDisplay,this.featureSelection?.topologyPick);
     this.preselect(null, true);
+    this.invalidate();
+  }
+
+  /** Controlled engineering comparisons; does not change model or preferences. */
+  setEdgePresentation(mode:EdgePresentation):void {
+    this.edgePresentation=mode;
+    for(const binding of this.solidBindings.values()){
+      binding.group.userData.edgePresentation=mode;
+      applyEdgeAppearance(binding.group,binding.appearance,binding.group.userData.cadEngineeringCurve?this.visualTheme.engineeringCurve:CATIA_VISUAL_THEME.edge,m=>this.materials.sectionLine(m));
+      applySolidDisplaySettings(binding.group,this.solidDisplay,this.featureSelection?.topologyPick);
+    }
     this.invalidate();
   }
 
@@ -3325,7 +3337,7 @@ export class CadViewportEngine {
     mesh.castShadow = (Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
     mesh.receiveShadow = true;
     const bodySelection:SelectionItem=context.result?{kind:'feature',id:context.result.featureId,entityId:context.result.featureId,...context}:{kind:'body',id:context.occurrencePath?`${context.occurrencePath}:body:${context.bodyId}`:context.bodyId??'body',...context};
-    group.userData = {...bodySelection,geometryDomain:artifact.geometryDomain};
+    group.userData = {...bodySelection,geometryDomain:artifact.geometryDomain,edgePresentation:this.edgePresentation};
     const engineeringCurve=artifact.geometryDomain==='WIRE_SET';
     const edgeColor=engineeringCurve?this.visualTheme.engineeringCurve:CATIA_VISUAL_THEME.edge;
     if(engineeringCurve)group.userData.cadEngineeringCurve=true;
@@ -3358,9 +3370,7 @@ export class CadViewportEngine {
       const edgeGeometry = new THREE.BufferGeometry();
       edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
       edgeGeometry.userData.navigationEdgeIds = edgeIDs;
-      const facing=edgeFacingAttributes(artifact.mesh);
-      edgeGeometry.setAttribute('edgeNormalA',new THREE.Float32BufferAttribute(facing.first,3));
-      edgeGeometry.setAttribute('edgeNormalB',new THREE.Float32BufferAttribute(facing.second,3));
+      edgeGeometry.userData.cadMesh=artifact.mesh;
       const edges = new THREE.LineSegments(edgeGeometry, this.materials.edge());
       edges.renderOrder=1;
       markNavigationPickable(edges);

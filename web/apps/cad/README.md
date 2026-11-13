@@ -12,6 +12,7 @@
 | 选择、工具与手势 | `src/cad/interaction/`、`src/cad/tool/`、`src/cad/input/` 及邻近 `testing/` |
 | 编辑宿主、树、Inspector | `product-edit-context.ts`、`workbench-tree-model.tsx`、`workbench-inspector.tsx` |
 | 显示与资源 | `src/viewport/`、`src/cad/visual/`、`src/cad/rendering/` |
+| 自然边线与同条件对比 | [数据与渲染设计](../../../docs/architecture/current/natural-edges.md)、[原生夹具与浏览器验收](../../../docs/validation/natural-edges.md) |
 | 服务端/短期状态 | TanStack Query / `src/state/` Zustand；`src/api/` 适配 |
 | 视觉系统 | `src/design/visual-tokens.ts`、`design-system.css` |
 | 登录展示与视口截图 | [建模配方和操作](../../../docs/guides/model-showcase.md)；`scripts/generate-showcase.mjs`、`src/viewport/viewport-snapshot.ts` |

@@ -5,6 +5,7 @@ add_library(occccad_occt_kernel STATIC
     src/mass_properties.cpp
     src/fillet_boundary.cpp
     src/mesh_boundary.cpp
+    src/edge_profile.cpp
     src/shell_junction.cpp
     src/shell_corner.cpp
     src/exchange_graph.cpp

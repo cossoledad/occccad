@@ -4,7 +4,7 @@ const server = await createServer({ server: { middlewareMode: true }, appType: "
 try {
   const THREE = await server.ssrLoadModule("three");
   const { applySolidDisplaySettings } = await server.ssrLoadModule("/src/cad/rendering/solid-render-mode.ts");
-  const { normalizeReferenceVisibility, normalizeSolidDisplaySettings, referenceCategory } =
+  const { normalizeReferenceVisibility, normalizeSolidDisplaySettings, referenceCategory, DEFAULT_SOLID_DISPLAY } =
     await server.ssrLoadModule("/src/cad/rendering/display-settings.ts");
   const { raycastDatumAxis,raycastDatumPoint } = await server.ssrLoadModule("/src/cad/interaction/datum-axis-picking.ts");
   const { SelectionIndex } = await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
@@ -15,10 +15,10 @@ try {
 
   assert.deepEqual(normalizeReferenceVisibility(undefined), { points:true,planes:true, axes:true, coordinateSystems:true });
   assert.deepEqual(normalizeReferenceVisibility({axes:false}), { points:true,planes:true, axes:false, coordinateSystems:true });
-  assert.deepEqual(normalizeSolidDisplaySettings("obsolete"), {mode:"shaded",edges:true,vertices:false});
-  assert.deepEqual(normalizeSolidDisplaySettings("smooth"), {mode:"shaded",edges:false,vertices:false});
-  assert.deepEqual(normalizeSolidDisplaySettings("wireframe"), {mode:"wireframe",edges:true,vertices:false});
-  assert.deepEqual(normalizeSolidDisplaySettings({mode:"shaded",edges:false,vertices:true}), {mode:"shaded",edges:false,vertices:true});
+  assert.deepEqual(normalizeSolidDisplaySettings("obsolete"), {...DEFAULT_SOLID_DISPLAY,mode:"shaded",edges:true,vertices:false});
+  assert.deepEqual(normalizeSolidDisplaySettings("smooth"), {...DEFAULT_SOLID_DISPLAY,mode:"shaded",edges:false,vertices:false});
+  assert.deepEqual(normalizeSolidDisplaySettings("wireframe"), {...DEFAULT_SOLID_DISPLAY,mode:"wireframe",edges:true,vertices:false});
+  assert.deepEqual(normalizeSolidDisplaySettings({mode:"shaded",edges:false,vertices:true}), {...DEFAULT_SOLID_DISPLAY,mode:"shaded",edges:false,vertices:true});
   assert.equal(referenceCategory("axis", "DATUM"), "axes");
   assert.equal(referenceCategory("axis", "X"), "coordinateSystems");
   assert.equal(referenceCategory("plane"), "planes");

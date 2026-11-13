@@ -2614,7 +2614,7 @@ private:
         // kept outside this cache and bound to these IDs by the response manifest.
         std::ostringstream policy;
         policy.precision(std::numeric_limits<double>::max_digits10);
-        policy << geometry_id << ":visual-boundary-v2:" << linear_deflection << ':' << angular_deflection;
+        policy << geometry_id << ":visual-edge-profile-v3:" << linear_deflection << ':' << angular_deflection;
         const auto key = policy.str();
         auto found = visual_cache_.find(key);
         const bool visual_hit = !force_cold && found != visual_cache_.end();
@@ -2643,6 +2643,8 @@ private:
             response->mutable_runtime_stats()->set_mesh_computed_faces(m.timings.computed_faces);
             response->mutable_runtime_stats()->set_encoding_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count());
             size_t edge_points = 0; for (const auto& edge : m.edges) edge_points += edge.points.size();
+            spdlog::info("edge_profile geometry={} sampling_ms={} normal_evaluations={} segments={} limited={}",
+                geometry_id,m.timings.edge_profile_ms,m.timings.edge_normal_evaluations,m.edge_profile.size(),m.timings.edge_sampling_limits);
             spdlog::info("visual_snapshot geometry={} mesh_ms={} faces_ms={} edges_ms={} normals_ms={} encoding_ms={} vertices={} triangles={} edges={} edge_points={} glb_bytes={}",
                 geometry_id, m.timings.meshing_ms, m.timings.faces_ms, m.timings.edges_ms, m.timings.normals_ms,
                 std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count(),
@@ -2650,7 +2652,8 @@ private:
             size_t edge_capacity = 0; for (const auto& edge : m.edges) edge_capacity += edge.points.capacity();
             const auto bytes = computed->glb->capacity() + (m.vertices.capacity()+m.normals.capacity()+edge_capacity)*sizeof(occccad::kernel::Vec3)
                 + m.triangles.capacity()*sizeof(occccad::kernel::Triangle) + m.face_ids.capacity()*sizeof(uint32_t)
-                + m.topology_vertices.capacity()*sizeof(occccad::kernel::TopologyPoint) + m.edges.capacity()*sizeof(occccad::kernel::EdgePolyline);
+                + m.topology_vertices.capacity()*sizeof(occccad::kernel::TopologyPoint) + m.edges.capacity()*sizeof(occccad::kernel::EdgePolyline)
+                + m.edge_profile.capacity()*sizeof(occccad::kernel::EdgeDisplaySegment);
             snapshot = computed;
             if (!force_cold && bytes <= cache_budget_) {
                 while(!visual_cache_.empty() && visual_bytes_+bytes>cache_budget_) {

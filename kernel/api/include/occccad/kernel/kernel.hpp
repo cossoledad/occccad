@@ -276,6 +276,20 @@ struct EdgePolyline {
     std::vector<Vec3> points;
 };
 
+// Display evidence scoped to this immutable tessellation, never a persistent
+// identity. Normals are oriented in PART_LOCAL; zero means unavailable.
+enum class EdgeDisplayKind : uint32_t {
+    unknown = 0, wire = 1, boundary = 2, manifold = 3,
+    seam = 4, coplanar = 5, non_manifold = 6,
+};
+struct EdgeDisplayPoint { Vec3 point, normal_a, normal_b; };
+struct EdgeDisplaySegment {
+    uint32_t local_id = 0, face_a = 0, face_b = 0;
+    EdgeDisplayKind kind = EdgeDisplayKind::unknown;
+    uint32_t quality = 0; // bit 0: missing normal evidence; bit 1: sampling limit
+    EdgeDisplayPoint first, second;
+};
+
 struct TopologyPoint {
     uint64_t local_id;
     Vec3 point;
@@ -283,7 +297,8 @@ struct TopologyPoint {
 
 struct VisualStageTimings {
     uint32_t reused_faces = 0, computed_faces = 0;
-    double meshing_ms = 0, faces_ms = 0, edges_ms = 0, normals_ms = 0;
+    double meshing_ms = 0, faces_ms = 0, edges_ms = 0, normals_ms = 0, edge_profile_ms = 0;
+    uint64_t edge_normal_evaluations = 0, edge_sampling_limits = 0;
 };
 
 struct TessellationResult {
@@ -293,6 +308,7 @@ struct TessellationResult {
     std::vector<Triangle> triangles;
     std::vector<uint32_t> face_ids;  // triangle -> 1-based frozen face local ID
     std::vector<EdgePolyline> edges;
+    std::vector<EdgeDisplaySegment> edge_profile;
     std::vector<TopologyPoint> topology_vertices;
     BoundingBox bbox;
 };

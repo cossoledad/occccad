@@ -5,6 +5,7 @@ import {registerScreenLineUpdate,updateScreenDashDistances} from "./screen-space
 import * as THREE from "three";
 import type { GraphicProperties, ResolvedAppearance, SurfaceStyle } from "../../types";
 import {CATIA_VISUAL_THEME} from './cad-visual-theme';
+import {acquireEdgeGeometry} from './natural-edges';
 
 export function scopedSurfaceAppearance(appearance:ResolvedAppearance|undefined,geometryKey:string):ResolvedAppearance|undefined {
   return appearance&&appearance.geometryKey!==geometryKey?{...appearance,faces:undefined,faceProperties:undefined,faceInherit:undefined}:appearance;
@@ -50,26 +51,32 @@ export function applyEdgeAppearance(group:THREE.Group,appearance:SurfaceStyle|un
   const opacity=group.userData.cadEngineeringCurve||group.userData.cadEngineeringPoint?appearance?.opacity??1:appearance?.edgeOpacityMode==="CLEAR"?1:appearance?.opacity??1;
   const width=appearance?.edgeWidth??(group.userData.cadEngineeringCurve?2.1:1.35);
   let wide=group.children.find(c=>c.userData.cadWideEdges) as LineSegments2|undefined;
+  const source=group.children.find(c=>c instanceof THREE.LineSegments) as THREE.LineSegments|undefined;
+  const data=source?.geometry.userData.cadMesh as import('../../types').MeshData|undefined;
+  const shared=group.userData.edgePresentation==='natural'&&appearance?.lineStyle!=='DASHED';
   // CAD edges keep CSS-pixel width at DPR 1/2. The original lines remain the
   // stable picking primitives; their transparent shader does not draw twice.
   if(!wide){
-    const source=group.children.find(c=>c instanceof THREE.LineSegments) as THREE.LineSegments|undefined;
     const positions=source?.geometry.getAttribute("position");
     if(positions){
       const material=new LineMaterial({color:defaultColor,linewidth:width,transparent:true,depthTest:true,depthWrite:false});
       material.userData.cadEdgeAppearance=true;configureLine?.(material);
-      const geometry=new LineSegmentsGeometry().setPositions(Array.from(positions.array));
-      for(const [attribute,name] of [['edgeNormalA','instanceEdgeNormalA'],['edgeNormalB','instanceEdgeNormalB']]){
-        const values=source!.geometry.getAttribute(attribute);
-        geometry.setAttribute(name,new THREE.InstancedBufferAttribute(values?new Float32Array(values.array):new Float32Array(positions.count/2*3),3));
-      }
+      const lease=data?acquireEdgeGeometry(data,shared):undefined;
+      const geometry=lease?.geometry??new LineSegmentsGeometry().setPositions(Array.from(positions.array));
       wide=new LineSegments2(geometry,material);
       wide.renderOrder=1;
       wide.userData.cadWideEdges=true;wide.raycast=()=>{};group.add(wide);
+      wide.userData.cadGeometryRelease=lease?.release;wide.userData.cadEdgeShared=shared;
       registerScreenLineUpdate(wide,(camera,w,h)=>{material.resolution.set(w,h);if(material.dashed)updateScreenDashDistances(wide!,camera,w,h)});
     }
   }
   if(wide){
+    if(data&&wide.userData.cadEdgeShared!==shared){
+      if(wide.userData.cadGeometryRelease)wide.userData.cadGeometryRelease();else wide.geometry.dispose();
+      const lease=acquireEdgeGeometry(data,shared);wide.geometry=lease.geometry;wide.userData.cadGeometryRelease=lease.release;wide.userData.cadEdgeShared=shared;
+    }
+    if(wide.material.uniforms.uCadEdgeExplicitColor)wide.material.uniforms.uCadEdgeExplicitColor.value=appearance?.edgeColor!==undefined?1:0;
+    if(wide.material.uniforms.uCadEdgeNatural)wide.material.uniforms.uCadEdgeNatural.value=engineering?0:1;
     wide.material.color.set(edgeColor);wide.material.linewidth=width;wide.material.opacity=opacity;
     wide.material.userData.baseColor=wide.material.color.getHex();wide.material.userData.baseLinewidth=width;wide.material.userData.baseOpacity=opacity;
     const dashed=appearance?.lineStyle==='DASHED';if(wide.material.dashed!==dashed){wide.material.dashed=dashed;wide.material.needsUpdate=true;wide.computeLineDistances()}
@@ -79,6 +86,7 @@ export function applyEdgeAppearance(group:THREE.Group,appearance:SurfaceStyle|un
     if(!(child instanceof THREE.LineSegments||child instanceof THREE.Points))continue;
     for(const material of Array.isArray(child.material)?child.material:[child.material]){
       if(material instanceof THREE.ShaderMaterial){
+        if(child instanceof THREE.LineSegments)material.visible=!(wide&&group.userData.edgePresentation==='natural');
         if(material.uniforms.uOpacity)material.uniforms.uOpacity.value=wide&&child instanceof THREE.LineSegments?0:opacity;
         if(material.uniforms.uColor&&(child instanceof THREE.LineSegments||group.userData.cadEngineeringPoint))material.uniforms.uColor.value.set(edgeColor);
         if(child instanceof THREE.Points&&group.userData.cadEngineeringPoint)applyPointAppearance(material,appearance);

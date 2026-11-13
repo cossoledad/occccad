@@ -117,6 +117,7 @@
 #include <internal/geometry_feature_support.hpp>
 #include <internal/fillet_boundary.hpp>
 #include <internal/mesh_boundary.hpp>
+#include <internal/edge_profile.hpp>
 #include <internal/shell_corner.hpp>
 #include <internal/shell_junction.hpp>
 #include <occccad/kernel/geometry_id.hpp>
@@ -5678,7 +5679,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             TopExp::MapShapes(source, TopAbs_FACE, face_map);
             TopExp::MapShapes(source, TopAbs_EDGE, edge_map);
             TopExp::MapShapes(source, TopAbs_VERTEX, vertex_map);
-            std::vector<std::vector<std::vector<Vec3>>> boundaries(edge_map.Extent());
+            std::vector<std::vector<detail::VisualEdgeUse>> boundaries(edge_map.Extent());
             const auto extraction = std::chrono::steady_clock::now();
             for (int face_id = 1; face_id <= face_map.Extent(); ++face_id) {
                 check_cancel();
@@ -5707,13 +5708,11 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                     const auto edge_id = edge_map.FindIndex(original);
                     if (polygon.IsNull() || polygon->NbNodes() < 2)
                         throw std::runtime_error("VISUAL_MISSING_BOUNDARY:face="+std::to_string(face_id)+":edge="+std::to_string(edge_id));
-                    std::vector<Vec3> points;
                     for (int i = 1; i <= polygon->NbNodes(); ++i) {
                         const auto node = polygon->Node(i);
                         if (node < 1 || node > triangulation->NbNodes()) throw std::runtime_error("VISUAL_BOUNDARY_INDEX");
-                        points.push_back(result.vertices[base+node-1]);
                     }
-                    boundaries[edge_id-1].push_back(std::move(points));
+                    boundaries[edge_id-1].push_back(detail::visual_edge_use(face_id,face,edge,triangulation,polygon,result.vertices,base));
                 }
                 result.timings.edges_ms += elapsed(edge_start);
             }
@@ -5722,7 +5721,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             auto distance = [](const Vec3& a, const Vec3& b) { return std::hypot(a.x-b.x, a.y-b.y, a.z-b.z); };
             for (int id = 1; id <= edge_map.Extent(); ++id) {
                 const auto edge = TopoDS::Edge(edge_map(id));
-                const auto& uses = boundaries[id-1];
+                auto& uses = boundaries[id-1];
                 if (uses.empty()) {
                     // Free curves use the very same mesher and deflection policy as
                     // face boundaries. A second sampler produces visibly different
@@ -5739,22 +5738,24 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                     EdgePolyline line{static_cast<uint64_t>(id), {}};
                     for (int i = 1; i <= polygon->NbNodes(); ++i)
                         line.points.push_back(to_vec3(polygon->Nodes()(i).Transformed(location.Transformation())));
+                    detail::append_edge_profile(result,id,edge,line.points,uses,check_cancel);
                     result.edges.push_back(std::move(line));
                     continue;
                 }
-                const auto& canonical = uses.front();
+                const auto& canonical = uses.front().points;
                 // Compare every neighbor using the exact model's own uncertainty, not
                 // display deflection. No coordinate welding or independent resampling.
                 double tolerance = std::max(Precision::Confusion(), BRep_Tool::Tolerance(edge));
                 for (TopExp_Explorer v(edge, TopAbs_VERTEX); v.More(); v.Next())
                     tolerance = std::max(tolerance, BRep_Tool::Tolerance(TopoDS::Vertex(v.Current())));
-                for (const auto& use : uses) {
-                    bool forward = use.size() == canonical.size(), reverse = forward;
-                    for (size_t i = 0; i < use.size() && (forward || reverse); ++i) {
-                        forward = forward && distance(use[i],canonical[i]) <= tolerance;
-                        reverse = reverse && distance(use[i],canonical[canonical.size()-1-i]) <= tolerance;
+                for (auto& use : uses) {
+                    bool forward = use.points.size() == canonical.size(), reverse = forward;
+                    for (size_t i = 0; i < use.points.size() && (forward || reverse); ++i) {
+                        forward = forward && distance(use.points[i],canonical[i]) <= tolerance;
+                        reverse = reverse && distance(use.points[i],canonical[canonical.size()-1-i]) <= tolerance;
                     }
                     if (!forward && !reverse) throw std::runtime_error("VISUAL_ADJACENT_BOUNDARY_MISMATCH:edge="+std::to_string(id));
+                    use.reversed=!forward;
                 }
                 if (BRep_Tool::Degenerated(edge)) {
                     for (const auto& p : canonical) if (distance(p,canonical.front()) > tolerance)
@@ -5762,6 +5763,9 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                     continue; // poles have topology vertices, no drawable line
                 }
                 result.edges.push_back({static_cast<uint64_t>(id), canonical});
+                const auto profile_start=std::chrono::steady_clock::now();
+                check_cancel();detail::append_edge_profile(result,id,edge,canonical,uses,check_cancel);
+                result.timings.edge_profile_ms+=elapsed(profile_start);
             }
             for (int id = 1; id <= vertex_map.Extent(); ++id)
                 result.topology_vertices.push_back({static_cast<uint64_t>(id), to_vec3(BRep_Tool::Pnt(TopoDS::Vertex(vertex_map(id))))});

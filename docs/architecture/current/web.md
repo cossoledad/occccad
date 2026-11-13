@@ -108,6 +108,8 @@ Document Center 支持跨页保留文档多选、全选当前页或当前筛选�
 
 实体显示唯一数据源为 `mesh.glb`；DocumentView 只有轻量引用和摘要，VisualRepository 独立下载、校验和解码，不向服务器状态回填 Mesh。GLB CAD 拾取映射、下载权限及 transient preview 边界见[几何制品](geometry-representations.md)。
 
+正常着色默认使用[自然边线](natural-edges.md)：消费 OCCT 的局部法线与邻接证据，弱化相切连接并隐藏已验证的共面分割/参数接缝；锐边、开口与未知证据保持结构表达。实线 occurrence 共享不可变边线缓冲，原 CAD 折线保留拾取身份；线框、显式 EDGE 拾取与交互高亮保持明确。全局显示选项保存自然/统一样式、光顺强度与法线角阈值，不写入模型 Revision。
+
 CAD Command 与 Preview 统一通过[realtime 控制面](realtime.md)提交；Preview 仅携带 GLB 引用。视口独立取消预览文件加载，sequence/generation 拒绝迟到结果；realtime client 在重连和 gap 后主动恢复权威快照。
 
 草图普通选择和工具角色共用屏幕距离及几何角色优先级；构造几何低于普通几何，尺寸引线、文字、hover、选中与修剪反馈分层。尺寸文本附着支持平面、按缩放维持显示尺度；圆角/倒角候选复用尺寸定义和渲染器。Select 框选及 Delete 经原有选择与正式命令路径执行。尺寸编辑保留相机和导航，草稿通过只读 Preview 显示，取消/版本变化/迟到结果不写回模型。

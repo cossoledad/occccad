@@ -8,7 +8,14 @@ export type ToolbarCatalogEntry = { id:string;name:string;workbench:string;secti
   orientation:"horizontal"|"vertical";styleKey:"standard"|"part"|"sketch"|"assembly"|"debug";sortOrder:number;items:ToolbarCatalogItem[] };
 export type ToolbarCatalog = import("./cad/command/workbench-catalog").WorkbenchCatalog & { toolbars:ToolbarCatalogEntry[] };
 
+export type EdgeProfile = {
+  source: "OCCT_EDGE_USE_V1";
+  positions: Float32Array; normalA: Float32Array; normalB: Float32Array;
+  /** Per segment: edge local ID, face A, face B, kind | quality << 8. */
+  metadata: Uint32Array;
+};
 export type MeshData = {
+  edgeProfile?: EdgeProfile;
   readonly contourIncidence?: import('./cad/rendering/mesh-contour-incidence').ContourIncidence;
   buffers?: {positions:Float32Array;indices:Uint32Array;normals?:Float32Array;faceIds:Uint32Array};
   normals?: Vec3[];

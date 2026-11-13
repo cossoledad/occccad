@@ -46,6 +46,7 @@ export class VisualDecoder {
         if (data.error) job.reject(new Error(data.error));
         else {
           const mesh = packedMesh(data.buffers, data.edges, data.topologyVertices);
+          mesh.edgeProfile=data.edgeProfile;
           if (data.contourIncidence) Object.defineProperty(mesh,'contourIncidence',{value:data.contourIncidence});
           job.resolve({buffer: data.buffer, decoded: {mesh, association: data.association, visualization: data.visualization}});
         }

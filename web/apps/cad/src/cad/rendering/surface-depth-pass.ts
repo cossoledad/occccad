@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type {LineMaterial} from "three/addons/lines/LineMaterial.js";
+import {NATURAL_EDGE_VERTEX,NATURAL_EDGE_FRAGMENT,NATURAL_EDGE_DEFAULTS} from './natural-edges';
 
 type OpaqueDraw={groupOrder:number;renderOrder:number;object:THREE.Object3D;material:{id:number};z:number;id:number};
 /** Preserve explicit layers; CAD opaque ties use stable occurrence/Body keys.
@@ -85,6 +86,16 @@ export class SurfaceDepthPass {
   }
   configureLine(material:LineMaterial):void {
     if(material.userData.cadContour||material.userData.cadEdgeAppearance){material.alphaToCoverage=true;material.toneMapped=false;}
+    if(material.userData.cadEdgeAppearance){
+      // Keep analytic cap coverage, but avoid quantizing weak opacity into MSAA
+      // sample masks. Strength is applied once through ordinary alpha blending.
+      material.alphaToCoverage=false;
+      Object.assign(material.uniforms,{
+        uCadEdgeNatural:{value:1},uCadEdgeInteraction:{value:0},uCadEdgeExplicitColor:{value:0},
+        uCadEdgeAngles:{value:new THREE.Vector2(Math.cos(NATURAL_EDGE_DEFAULTS.smoothAngle*Math.PI/180),Math.cos(NATURAL_EDGE_DEFAULTS.sharpAngle*Math.PI/180))},
+        uCadEdgeOpacity:{value:new THREE.Vector2(NATURAL_EDGE_DEFAULTS.smoothOpacity,NATURAL_EDGE_DEFAULTS.sharpOpacity)},
+      });
+    }
     material.onBeforeCompile=shader=>{
       Object.assign(shader.uniforms,this.uniforms);
       if(material.userData.cadContour||material.userData.cadEdgeAppearance){
@@ -96,15 +107,21 @@ export class SurfaceDepthPass {
           float lineDepth=0.5*vCadLineClipZW.x/vCadLineClipZW.y+0.5;
           gl_FragDepth=max(0.0,lineDepth-max(uCadLineDepthBias,0.5*fwidth(lineDepth)));`);
       }
-      if(material.userData.cadEdgeAppearance||material.userData.cadSilhouette)shader.vertexShader='attribute vec3 instanceEdgeNormalA,instanceEdgeNormalB; varying float vCadContour;\n'+shader.vertexShader.replace('void main() {',`void main() {
+      if(material.userData.cadSilhouette)shader.vertexShader='attribute vec3 instanceEdgeNormalA,instanceEdgeNormalB; varying float vCadContour;\n'+shader.vertexShader.replace('void main() {',`void main() {
         vec3 a=normalMatrix*instanceEdgeNormalA,b=normalMatrix*instanceEdgeNormalB;
         vec3 eye=projectionMatrix[2][3]==-1.0?normalize(-(modelViewMatrix*vec4(instanceStart,1.0)).xyz):vec3(0.0,0.0,1.0);
         float fa=dot(a,eye),fb=dot(b,eye);
         vCadContour=${material.userData.cadSilhouette?'length(b)<0.1?1.0:step(fa*fb,0.0)':'length(a)<0.1?0.65:(fa*fb<0.0?1.0:1.0-smoothstep(0.0,0.45,min(abs(fa),abs(fb))))'};`);
-      shader.fragmentShader=(material.userData.cadEdgeAppearance||material.userData.cadSilhouette?'varying float vCadContour;\n':'')+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replace("gl_FragColor = vec4( diffuseColor.rgb, alpha );",`gl_FragColor = vec4( diffuseColor.rgb, alpha * ${material.userData.cadContour?'1.0':'cadEdgeVisibility()'} ${material.userData.cadSilhouette?'* vCadContour':material.userData.cadEdgeAppearance?'* mix(0.78,1.0,vCadContour)':''} );`);
+      if(material.userData.cadEdgeAppearance){
+        Object.assign(shader.uniforms,material.uniforms);
+        shader.vertexShader=NATURAL_EDGE_VERTEX+shader.vertexShader.replace('void main() {','void main() { cadNaturalEdge();');
+        shader.fragmentShader='#define CAD_ANALYTIC_COVERAGE\n'+NATURAL_EDGE_FRAGMENT+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replaceAll('USE_ALPHA_TO_COVERAGE','CAD_ANALYTIC_COVERAGE')
+          .replace('float alpha = opacity;','float alpha = 1.0;')
+          .replace('gl_FragColor = vec4( diffuseColor.rgb, alpha );','gl_FragColor = cadNaturalEdgeColor(diffuseColor.rgb, alpha * opacity * cadEdgeVisibility());');
+      }else shader.fragmentShader=(material.userData.cadSilhouette?'varying float vCadContour;\n':'')+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replace("gl_FragColor = vec4( diffuseColor.rgb, alpha );",`gl_FragColor = vec4( diffuseColor.rgb, alpha * ${material.userData.cadContour?'1.0':'cadEdgeVisibility()'} ${material.userData.cadSilhouette?'* vCadContour':''} );`);
       if(material.userData.cadSilhouette)shader.fragmentShader=shader.fragmentShader.replace('void main() {','void main() { if(vCadContour<0.5)discard;');
     };
-    material.customProgramCacheKey=()=>"cad-edge-depth-facing-v6-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour);
+    material.customProgramCacheKey=()=>"cad-edge-natural-v1-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour);
   }
   configureSurface(material:THREE.MeshStandardMaterial):void{
     material.onBeforeCompile=shader=>{

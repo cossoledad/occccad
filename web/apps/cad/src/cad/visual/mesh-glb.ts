@@ -34,7 +34,7 @@ export function decodeMeshGLB(buffer: ArrayBuffer): DecodedVisual {
     const read = (index: number, components: number, type: number): Float32Array | Uint32Array => {
         if (!binary) throw new Error("Missing GLB binary");
         const a = document.accessors?.[index], v = document.bufferViews?.[a?.bufferView];
-        if (!a || !v || a.componentType !== type || a.type !== (components === 3 ? "VEC3" : "SCALAR") || v.buffer !== 0 || v.byteStride)
+        if (!a || !v || a.componentType !== type || a.type !== (components === 4 ? "VEC4" : components === 3 ? "VEC3" : "SCALAR") || v.buffer !== 0 || v.byteStride)
             throw new Error("Unsupported GLB accessor");
         const start = (v.byteOffset ?? 0) + (a.byteOffset ?? 0), length = a.count * components * 4;
         if (!Number.isSafeInteger(start) || !Number.isSafeInteger(v.byteLength) || v.byteLength < 0 || !Number.isSafeInteger(a.byteOffset ?? 0) || (a.byteOffset ?? 0) < 0 || !Number.isSafeInteger(a.count) || a.count < 0 || !Number.isSafeInteger(length) || start < 0 || length > (v.byteLength - (a.byteOffset ?? 0)) || (v.byteOffset ?? 0) < 0 || (v.byteOffset ?? 0) + v.byteLength > binary!.byteLength || start + length > binary!.byteLength)
@@ -100,7 +100,22 @@ export function decodeMeshGLB(buffer: ArrayBuffer): DecodedVisual {
             if (p.indices !== undefined) p.indices = Array.from(read(p.indices, 1, 5125));
         }
     }
-    return { mesh: packedMesh(buffers, mesh.edges, mesh.topologyVertices), visualization, association: cad.association };
+    const result=packedMesh(buffers, mesh.edges, mesh.topologyVertices);
+    const profile=cad.edgeProfile;
+    if(profile?.schemaVersion===1 && profile.source==="OCCT_EDGE_USE_V1"){
+        const positions=read(profile.positions,3,5126) as Float32Array, normalA=read(profile.normalA,3,5126) as Float32Array,
+          normalB=read(profile.normalB,3,5126) as Float32Array, metadata=read(profile.metadata,4,5125) as Uint32Array;
+        if(positions.length%6||normalA.length!==positions.length||normalB.length!==positions.length||metadata.length!==positions.length/6*4)
+          throw new Error("Invalid CAD edge profile count");
+        const edgeIds=new Set(mesh.edges?.map(edge=>edge.localId)),faceIds=new Set(buffers.faceIds);
+        for(let i=0;i<metadata.length;i+=4){
+          const flags=metadata[i+3];
+          if(!edgeIds.has(metadata[i])||(metadata[i+1]&&!faceIds.has(metadata[i+1]))||(metadata[i+2]&&!faceIds.has(metadata[i+2]))||(flags&255)>6||(flags>>>8)>3)
+            throw new Error("Invalid CAD edge profile association");
+        }
+        result.edgeProfile={source:"OCCT_EDGE_USE_V1",positions,normalA,normalB,metadata};
+    }
+    return { mesh: result, visualization, association: cad.association };
 }
 // Mock/corpus authoring only. Production GLBs are emitted by the Geometry Worker.
 export function encodeMeshGLB(mesh: MeshData, visualization?: VisualizationManifest): ArrayBuffer {
@@ -115,7 +130,7 @@ export function encodeMeshGLB(mesh: MeshData, visualization?: VisualizationManif
         chunks.push(new Uint8Array(buffer));
         const bounds: { min?: number[]; max?: number[] } = {};
         if (float && components === 3 && values.length) { bounds.min = values.slice(0, 3); bounds.max = values.slice(0, 3); values.forEach((v, i) => { bounds.min![i % 3] = Math.min(bounds.min![i % 3], v); bounds.max![i % 3] = Math.max(bounds.max![i % 3], v) }); }
-        accessors.push({ bufferView: index, componentType: float ? 5126 : 5125, count: values.length / components, type: components === 3 ? "VEC3" : "SCALAR", ...bounds });
+        accessors.push({ bufferView: index, componentType: float ? 5126 : 5125, count: values.length / components, type: components === 4 ? "VEC4" : components === 3 ? "VEC3" : "SCALAR", ...bounds });
         return index;
     };
     const primitives: any[] = [];
@@ -129,7 +144,11 @@ export function encodeMeshGLB(mesh: MeshData, visualization?: VisualizationManif
     for (const e of mesh.edges ?? []) if (e.points.length > 1) primitive(e.points, 3, "EDGE", e.points.slice(1).map(() => e.localId));
     if (mesh.topologyVertices?.length) primitive(mesh.topologyVertices.map(v => v.point), 0, "VERTEX", mesh.topologyVertices.map(v => v.localId));
     const display = visualization ? { ...visualization, schemaVersion: 2, primitives: (visualization.primitives ?? []).map(p => ({ ...p, positions: add(p.positions.flat(), 3, true), indices: p.indices ? add(p.indices, 1, false) : undefined })) } : undefined;
-    const cad = { schemaVersion: 2, units: "mm", coordinateSpace: "PART_LOCAL" };
+    const profile=mesh.edgeProfile;
+    const cad = { schemaVersion: 2, units: "mm", coordinateSpace: "PART_LOCAL",edgeProfile:profile?{
+      schemaVersion:1,source:profile.source,positions:add(Array.from(profile.positions),3,true),normalA:add(Array.from(profile.normalA),3,true),
+      normalB:add(Array.from(profile.normalB),3,true),metadata:add(Array.from(profile.metadata),4,false),
+    }:undefined };
     const document: any = { asset: { version: "2.0" }, buffers: [{ byteLength: offset }], bufferViews: views, accessors, meshes: primitives.length ? [{ primitives }] : [], nodes: primitives.length ? [{ mesh: 0 }] : [], scenes: [{ nodes: primitives.length ? [0] : [] }], scene: 0, extensionsUsed: ["OCCCCAD_cad", "OCCCCAD_visualization"], extensions: { OCCCCAD_cad: cad, OCCCCAD_visualization: display } };
     if (!offset) delete document.buffers;
     for (const key of ["meshes", "nodes", "accessors", "bufferViews"]) if (!document[key].length) delete document[key];

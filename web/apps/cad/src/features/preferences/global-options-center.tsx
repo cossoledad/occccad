@@ -46,6 +46,11 @@ export function GlobalOptionsProvider({children,activeDocumentID}:PropsWithChild
    <Typography.Title level={5}>实体显示</Typography.Title><Radio.Group aria-label="实体显示" value={draft.solidDisplay.mode} onChange={e=>patch({solidDisplay:{...draft.solidDisplay,mode:e.target.value}})} options={[{value:"shaded",label:"正常显示"},{value:"wireframe",label:"线框显示"}]}/>
    <Checkbox disabled={draft.solidDisplay.mode==="wireframe"} checked={draft.solidDisplay.mode==="wireframe"||draft.solidDisplay.edges} onChange={e=>patch({solidDisplay:{...draft.solidDisplay,edges:e.target.checked}})}>显示边线</Checkbox>
    <Checkbox checked={draft.solidDisplay.vertices} onChange={e=>patch({solidDisplay:{...draft.solidDisplay,vertices:e.target.checked}})}>显示交点</Checkbox>
+   <CommandField label="边线样式" width="content"><Select aria-label="边线样式" disabled={draft.solidDisplay.mode==='wireframe'} value={draft.solidDisplay.edgeStyle??'natural'} options={[{value:'natural',label:'自然'},{value:'uniform',label:'统一'}]} onChange={edgeStyle=>patch({solidDisplay:{...draft.solidDisplay,edgeStyle}})}/></CommandField>
+   {draft.solidDisplay.edgeStyle!=='uniform'&&<>
+    <CommandField label="光顺边强度" width="number"><InputNumber aria-label="光顺边强度" min={0} max={.4} step={.02} value={draft.solidDisplay.smoothEdgeOpacity??.12} onChange={value=>{if(value!==null)patch({solidDisplay:{...draft.solidDisplay,smoothEdgeOpacity:value}})}}/></CommandField>
+    <CommandField label="法线角阈值" width="number"><InputNumber aria-label="法线角阈值（度）" min={10} max={75} step={5} value={draft.solidDisplay.sharpEdgeAngle??35} onChange={value=>{if(value!==null)patch({solidDisplay:{...draft.solidDisplay,sharpEdgeAngle:value}})}}/></CommandField>
+   </>}
    <Typography.Title level={5}>基准与草图</Typography.Title>
    {([["points","参考点"],["axes","参考线"],["planes","参考面"],["coordinateSystems","坐标系"]] as const).map(([key,label])=><Checkbox key={key} checked={draft.referenceVisibility[key]} onChange={e=>patch({referenceVisibility:{...draft.referenceVisibility,[key]:e.target.checked}})}>{label}</Checkbox>)}
    <Checkbox checked={draft.gridVisibility.sketch} onChange={e=>patch({gridVisibility:{...draft.gridVisibility,sketch:e.target.checked}})}>显示草图网格</Checkbox>

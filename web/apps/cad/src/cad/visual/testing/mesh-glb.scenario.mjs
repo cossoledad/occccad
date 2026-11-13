@@ -19,6 +19,13 @@ const mesh={vertices:[[0,0,0],[2,0,0],[0,3,0]],triangles:[[0,1,2]],faceIds:[1],e
 const visualization={schemaVersion:2,referenceGeometry:{datumPlanes:[],axisSystems:[]},primitives:[]};
 const glb=encodeMeshGLB(mesh,visualization);
 assert.deepEqual(decodeMeshGLB(glb),{mesh,visualization,association:undefined});
+const profile={source:'OCCT_EDGE_USE_V1',positions:new Float32Array([0,0,0,2,0,0]),normalA:new Float32Array([0,0,1,0,0,1]),normalB:new Float32Array([0,1,0,0,1,0]),metadata:new Uint32Array([7,1,1,3])};
+assert.deepEqual(decodeMeshGLB(encodeMeshGLB({...mesh,edgeProfile:profile})).mesh.edgeProfile,profile,'optional exact-edge evidence survives the binary codec');
+assert.equal(decodeMeshGLB(encodeMeshGLB({...mesh,edgeProfile:{...profile,source:'FUTURE_PROFILE'}})).mesh.edgeProfile,undefined,'unknown provenance uses conservative legacy edges');
+assert.throws(()=>decodeMeshGLB(encodeMeshGLB({...mesh,edgeProfile:{...profile,normalA:new Float32Array(3)}})),/profile count/);
+assert.throws(()=>decodeMeshGLB(encodeMeshGLB({...mesh,edgeProfile:{...profile,metadata:new Uint32Array([99,1,1,3])}})),/profile association/);
+assert.throws(()=>decodeMeshGLB(encodeMeshGLB({...mesh,edgeProfile:{...profile,metadata:new Uint32Array([7,99,1,3])}})),/profile association/);
+assert.throws(()=>decodeMeshGLB(encodeMeshGLB({...mesh,edgeProfile:{...profile,normalB:new Float32Array([NaN,0,0,0,0,0])}})),/Nonfinite/);
 const invalid=glb.slice(0);new DataView(invalid).setUint32(12,0xffffffff,true);assert.throws(()=>decodeMeshGLB(invalid),/length/);
 const broken=encodeMeshGLB({...mesh,triangles:[[0,1,10]]},visualization);assert.throws(()=>decodeMeshGLB(broken),/index/);
 assert.throws(()=>decodeMeshGLB(encodeMeshGLB({...mesh,faceIds:[]},visualization)),/mapping count/);

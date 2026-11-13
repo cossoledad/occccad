@@ -192,10 +192,28 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
             << "},\"mode\":0,\"extensions\":{\"OCCCCAD_cad\":{\"kind\":\"VERTEX\",\"localIds\":"
             << ids << "}}}";
     }
+    std::string edge_profile;
+    if(!mesh.edge_profile.empty()) {
+        std::vector<Vec3> positions, normal_a, normal_b;
+        for(const auto& segment:mesh.edge_profile)for(const auto* p:{&segment.first,&segment.second}) {
+            positions.push_back(p->point);normal_a.push_back(p->normal_a);normal_b.push_back(p->normal_b);
+        }
+        const auto position=points(positions), a=points(normal_a), b=points(normal_b);
+        offset=binary.size();
+        for(const auto& segment:mesh.edge_profile) {
+            if(!segment.local_id||static_cast<uint32_t>(segment.kind)>6||segment.quality>3)
+                throw std::invalid_argument("GLB edge profile metadata");
+            append_u32(binary,segment.local_id);append_u32(binary,segment.face_a);append_u32(binary,segment.face_b);
+            append_u32(binary,static_cast<uint32_t>(segment.kind)|(segment.quality<<8));
+        }
+        const auto metadata=accessor(offset,mesh.edge_profile.size(),"VEC4",5125);
+        edge_profile=",\"edgeProfile\":{\"schemaVersion\":1,\"source\":\"OCCT_EDGE_USE_V1\",\"positions\":"+std::to_string(position)
+            +",\"normalA\":"+std::to_string(a)+",\"normalB\":"+std::to_string(b)+",\"metadata\":"+std::to_string(metadata)+"}";
+    }
     const auto cad = std::string(
                          "{\"schemaVersion\":2,\"units\":\"mm\",\"coordinateSpace\":\"PART_LOCAL\","
                          "\"association\":") +
-                     association_json + "}";
+                     association_json + edge_profile + "}";
     std::ostringstream json_stream;
     json_stream << "{\"asset\":{\"version\":\"2.0\",\"generator\":\"occccad\"},\"extensionsUsed\":["
                    "\"OCCCCAD_cad\"],\"extensions\":{\"OCCCCAD_cad\":"
