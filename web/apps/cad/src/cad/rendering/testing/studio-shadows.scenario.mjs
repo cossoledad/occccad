@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'vite';
+const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+try {
+ const T=await server.ssrLoadModule('three');
+ const {ScenePresentation}=await server.ssrLoadModule('/src/cad/rendering/scene-presentation.ts');
+ const {DEFAULT_SCENE_SETTINGS}=await server.ssrLoadModule('/src/cad/rendering/scene-settings.ts');
+ const scene=new T.Scene(),lights=new T.Group(),environment=new T.Group(),renderer={domElement:new EventTarget(),shadowMap:{enabled:false,needsUpdate:false}};
+ lights.add(new T.HemisphereLight(),new T.DirectionalLight(),new T.DirectionalLight(),new T.DirectionalLight());scene.add(lights,environment);
+ const presentation=new ScenePresentation(scene,lights,environment,renderer),camera=new T.PerspectiveCamera();
+ const mesh=new T.Mesh(new T.BoxGeometry(10,20,30),new T.MeshStandardMaterial());mesh.material.userData.cadMaterial='surface';mesh.castShadow=true;scene.add(mesh);
+ const settings={...DEFAULT_SCENE_SETTINGS};
+ const bounds=new T.Box3().setFromObject(mesh);presentation.update(settings,bounds,-15);
+ const consume=()=>{renderer.shadowMap.needsUpdate=false;lights.children[1].shadow.needsUpdate=false};
+ const prepare=()=>{scene.updateMatrixWorld(true);return presentation.prepareShadows(camera)};
+ assert.equal(renderer.shadowMap.autoUpdate,false);assert.equal(lights.children[1].shadow.autoUpdate,false);
+ assert.equal(prepare(),true);consume();assert.equal(prepare(),false);
+ camera.position.set(200,100,100);camera.zoom=2;camera.updateProjectionMatrix();assert.equal(prepare(),false,'camera movement does not change directional depth');
+ mesh.material.color.set('#cf664d');assert.equal(prepare(),false,'surface colour and selection ink do not invalidate depth');
+ presentation.update({...settings,brightness:1.2,backgroundTop:'#112233',shadowOpacity:.4},bounds,-15);assert.equal(prepare(),false);
+ mesh.position.x=40;assert.equal(prepare(),true);assert.equal(lights.children[1].target.position.x,40,'animated bounds track the transformed model');consume();assert.equal(prepare(),false);
+ mesh.visible=false;assert.equal(prepare(),false,'no visible caster disables the map');mesh.visible=true;assert.equal(prepare(),true);consume();
+ mesh.material.opacity=0;assert.equal(prepare(),false);mesh.material.opacity=.5;assert.equal(prepare(),true);consume();
+ const positions=mesh.geometry.getAttribute('position');positions.setX(0,100);positions.needsUpdate=true;assert.equal(prepare(),true);assert.equal(mesh.geometry.boundingBox.max.x,100,'in-place vertex edits refresh the shadow framing');consume();
+ const old=mesh.geometry;mesh.geometry=new T.SphereGeometry(8);assert.equal(prepare(),true);consume();old.dispose();
+ mesh.material.clippingPlanes=[new T.Plane(new T.Vector3(0,0,1),0)];mesh.material.clipShadows=true;assert.equal(prepare(),true);consume();mesh.material.clippingPlanes[0].constant=2;assert.equal(prepare(),true);consume();
+ presentation.update({...settings,azimuth:-60},new T.Box3().setFromObject(mesh),-15);assert.equal(prepare(),true);consume();
+ presentation.update(settings,bounds,-15,true);assert.equal(renderer.shadowMap.enabled,false);assert.equal(prepare(),false);
+ presentation.update(settings,bounds,-15,false);assert.equal(prepare(),true);consume();
+ presentation.setShadowCaching(false);assert.equal(prepare(),true);consume();assert.equal(prepare(),true);consume();presentation.setShadowCaching(true);prepare();consume();assert.equal(prepare(),false);
+ renderer.domElement.dispatchEvent(new Event('webglcontextrestored'));assert.equal(prepare(),true);consume();assert.equal(prepare(),false);
+ presentation.dispose();renderer.domElement.dispatchEvent(new Event('webglcontextrestored'));assert.equal(renderer.shadowMap.needsUpdate,false,'disposed view releases the restore listener');mesh.geometry.dispose();mesh.material.dispose();
+} finally {await server.close()}

@@ -7,7 +7,7 @@
 | 进程与计算 | [运行](runtime.md)、[Worker 合同](worker-contracts.md)、[Router/Jobs](jobs-artifacts.md)、[导入与导出](exchange.md) | 本机 Router；跨主机调度与完整 AP242 未交付 |
 | 模型与历史 | [命令/参数/历史](model-history.md) | CAS、幂等、补偿历史；semantic rebase、Configuration/Rule、完整协作仍缺 |
 | Part 与 Sketch | [整体设计流程](part-design-workflow.md) → [Part/Sketch](part-sketch.md)、[对象生命周期](part-object-lifecycle.md)、[能力表](solid-features.md)、[生成器](solid-generators.md)、[特征复制](feature-replication.md)、[求值链](part-feature-evaluation.md) | 参数驱动草图/实体、输入往返、依赖与修复；具体算法和边界逐主题维护 |
-| 命名与显示制品 | [Naming/Resolver](persistent-naming.md)、[几何表示](geometry-representations.md)、[Visual/Naming 格式](visual-naming-artifacts.md)、[颜色材质](surface-appearance.md)、[自然边线](natural-edges.md) | 绑定按 Revision 与 Body/FeatureResult；导入冻结身份不等于参数化来源历史，歧义须显式重连 |
+| 命名与显示制品 | [Naming/Resolver](persistent-naming.md)、[几何表示](geometry-representations.md)、[Visual/Naming 格式](visual-naming-artifacts.md)、[颜色材质](surface-appearance.md)、[自然边线](natural-edges.md)、[曲面与光照](visual-studio.md) | 绑定按 Revision 与 Body/FeatureResult；导入冻结身份不等于参数化来源历史，歧义须显式重连 |
 | 产品与装配 | [Product](product-assembly.md)、[六类约束](assembly-constraints.md)、[数值算法](../../../kernel/assembly/SOLVER_ALGORITHMS.md)、[模块边界](../../../kernel/assembly/SOLVER_ARCHITECTURE.md) | 局部分支、瞬时 DOF、非线性 UNKNOWN；不保证全局最近点或任意最小冲突集 |
 | 机构与 DMU | [机构、试动、录制、回放](kinematics-dmu.md) | Ground/旋转/棱形/圆柱/平面/刚性/球面接合、独立坐标命令；动力学与连续碰撞未交付 |
 | 参考元素 | [点线面与几何图形集](reference-elements.md) | 参数化参考构造与真实容器；无限支撑和有限几何分别定义 |

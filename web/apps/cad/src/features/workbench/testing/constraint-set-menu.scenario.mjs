@@ -7,9 +7,12 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url), ts = require("typescript"), React = require("react");
 const modules = new Map();
+let stateSlots=[],hookCursor=0;
 const hooks = { ...React, useMemo: fn => fn(), useEffect() {}, useRef: value => ({ current: value }),
   useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
-  useState: value => [typeof value === "function" ? value() : value, () => {}] };
+  useState: value => {const index=hookCursor++,slots=stateSlots;
+    if(!(index in slots))slots[index]=typeof value==='function'?value():value;
+    return [slots[index],next=>{slots[index]=typeof next==='function'?next(slots[index]):next}];} };
 function load(file) {
   if (file.endsWith(".json")) return JSON.parse(readFileSync(file, "utf8"));
   if (file.endsWith("/cad/command/command-context.tsx")) return { useOptionalCommandRegistry: () => undefined };
@@ -45,10 +48,16 @@ const node = { key: "product/assembly-constraints", kind: "ASSEMBLY_CONSTRAINT_S
   documentId: "product", title: "约束", localVisible: true, children: [{ key: "constraint", kind: "ASSEMBLY_CONSTRAINT", entityId: "mate" }] };
 const calls = [];
 function menu(target, activeDocumentId = "product", editSession) {
-  return dropdown(SpecificationTree({ nodes: [target], selectedKeys: [], selectionToken: "", activeDocumentId, editSession,
+  stateSlots=[];
+  const render=()=>{hookCursor=0;return SpecificationTree({ nodes: [target], selectedKeys: [], selectionToken: "", activeDocumentId, editSession,
     onSelect() {}, onActivate() {}, onOpenDocumentTab() {}, onViewResult() {}, onEdit() {}, onProperties() {}, onCreatePart() {},
     onReferenceMode() {}, onDetach() {}, onReconnect() {}, onRefresh: node => calls.push(['refresh',node]), onUpdate: node => calls.push(['update',node]), onDelete() {}, onToggleSuppression() {},
-    onToggleVisibility: (...args) => calls.push(args) })).props.menu.items.flatMap(function leaves(item) {
+    onToggleVisibility: (...args) => calls.push(args) })};
+  const closed=dropdown(render());
+  assert.deepEqual(closed.props.menu.items,[], 'closed rows must not eagerly construct menu items');
+  closed.props.children.props.onContextMenu({preventDefault(){},stopPropagation(){},currentTarget:{focus(){}}});
+  const opened=dropdown(render());assert.equal(opened.props.open,true);
+  return opened.props.menu.items.flatMap(function leaves(item) {
       return !item || item.type === "divider" ? [] : item.children ? item.children.flatMap(leaves) : [item];
     });
 }

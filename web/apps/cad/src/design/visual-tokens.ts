@@ -4,7 +4,7 @@ export const palette = {
   chrome: "#172333", chromeRaised: "#24364b", chromeText: "#e4edf8",
   canvas: "#eef1f4", surface: "#ffffff", subtle: "#f5f7f9", border: "#d9e0e6", ribbonDivider: "#d5dde4",
   text: "#2d3b48", textSecondary: "#5c6b78", textDisabled: "#9aa5af", muted: "#5c6b78", success: "#25846a", warning: "#a56a19", danger: "#c44658",
-  viewportTop: "#dce1e5", viewportBottom: "#f0f2f4", solid: "#98a8b8", productSolid: "#94a6b8",
+  viewportTop: "#e1e6ec", viewportBottom: "#f4f6f8", solid: "#8e9faf", productSolid: "#8e9faf",
   analysisFreedom: "#d2a312",
   edge: "#34434e", vertex: "#edf3fa", sketch: "#f0f5fc", construction: "#b4c9e2", external: "#80cfe6", sketchPointHalo:"#152333",
   reference:"#9eadd1",selected: "#f4ba62", hover: "#68d7e6", preview: "#aab9ff", snap: "#ffe099",
@@ -14,6 +14,9 @@ export const palette = {
   solved: "#7edbb1", invalid: "#ff8490", redundant: "#d6a0ef",
   gridMinor: "#708495", gridMajor: "#8fa4b6", axisX: "#f28388", axisY: "#79cda6", axisZ: "#83adff",
 } as const;
+
+/** One default for inherited viewport material and newly created Parts. */
+export const studioMaterial = {roughness:.5,metalness:.02,environmentIntensity:.6,sheetRoughness:.38} as const;
 
 /** Logical CSS pixels. Canvas/renderer adapters handle DPR separately. */
 export const uiTokens = {

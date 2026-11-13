@@ -5,6 +5,7 @@ import { CadShaderLibrary } from "./shader/cad-shader-library";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import {SurfaceDepthPass} from "./surface-depth-pass";
 import {SKETCH_ELEMENT_STYLE} from './sketch-feedback-style';
+import {studioMaterial} from '../../design/visual-tokens';
 
 export class CadMaterialFactory {
   readonly surfaceDepth=new SurfaceDepthPass();
@@ -31,8 +32,7 @@ export class CadMaterialFactory {
   }
 
   engineeringSurface(color:number,properties:GraphicProperties={}):THREE.MeshStandardMaterial {
-    const material=this.surface(color,{...properties,roughness:properties.roughness??.78,metalness:properties.metalness??0});
-    material.envMapIntensity=.18;
+    const material=this.surface(color,{...properties,roughness:properties.roughness??studioMaterial.sheetRoughness,metalness:properties.metalness??0});
     material.shadowSide=THREE.DoubleSide;
     return material;
   }

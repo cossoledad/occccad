@@ -17,8 +17,8 @@
 namespace occccad::kernel {
 
 // Display approximation only; exact geometry and modeling tolerances are unchanged.
-inline constexpr double visual_linear_deflection_mm = 0.02;
-inline constexpr double visual_angular_deflection_radians = 0.12;
+inline constexpr double visual_linear_deflection_mm = 0.05;
+inline constexpr double visual_angular_deflection_radians = 0.18;
 
 struct GeometryFeatureSpec;
 struct GeometryFeatureInput;
@@ -299,6 +299,7 @@ struct VisualStageTimings {
     uint32_t reused_faces = 0, computed_faces = 0;
     double meshing_ms = 0, faces_ms = 0, edges_ms = 0, normals_ms = 0, edge_profile_ms = 0;
     uint64_t edge_normal_evaluations = 0, edge_sampling_limits = 0;
+    uint64_t surface_normal_evaluations = 0, surface_normal_fallbacks = 0;
 };
 
 struct TessellationResult {

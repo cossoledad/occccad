@@ -118,6 +118,7 @@
 #include <internal/fillet_boundary.hpp>
 #include <internal/mesh_boundary.hpp>
 #include <internal/edge_profile.hpp>
+#include <internal/surface_normals.hpp>
 #include <internal/shell_corner.hpp>
 #include <internal/shell_junction.hpp>
 #include <occccad/kernel/geometry_id.hpp>
@@ -5672,6 +5673,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                 throw std::runtime_error("VISUAL_MESH_FAILED:status="+std::to_string(mesher.GetStatusFlags()));
             }
             TessellationResult result;
+            std::vector<Vec3> surface_normals;
             result.timings.meshing_ms = elapsed(start);
             result.bbox = getBoundingBox(geometry_id);
             TopTools_IndexedMapOfShape face_map, edge_map, vertex_map;
@@ -5698,6 +5700,9 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                     result.triangles.push_back({base+uint32_t(a-1),base+uint32_t(b-1),base+uint32_t(c-1)});
                     result.face_ids.push_back(face_id);
                 }
+                const auto surface_normal_start=std::chrono::steady_clock::now();
+                detail::append_surface_normals(face,triangulation,surface_normals,result.timings,check_cancel);
+                result.timings.normals_ms+=elapsed(surface_normal_start);
                 const auto edge_start = std::chrono::steady_clock::now();
                 // Traverse every oriented EdgeUse, including both sides of a periodic
                 // seam. Looking up only one polygon per topological edge loses seams.
@@ -5716,7 +5721,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                 }
                 result.timings.edges_ms += elapsed(edge_start);
             }
-            result.timings.faces_ms = elapsed(extraction) - result.timings.edges_ms;
+            result.timings.faces_ms = elapsed(extraction) - result.timings.edges_ms-result.timings.normals_ms;
             const auto edge_validation = std::chrono::steady_clock::now();
             auto distance = [](const Vec3& a, const Vec3& b) { return std::hypot(a.x-b.x, a.y-b.y, a.z-b.z); };
             for (int id = 1; id <= edge_map.Extent(); ++id) {
@@ -5771,8 +5776,12 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                 result.topology_vertices.push_back({static_cast<uint64_t>(id), to_vec3(BRep_Tool::Pnt(TopoDS::Vertex(vertex_map(id))))});
             result.timings.edges_ms += elapsed(edge_validation);
             const auto normals = std::chrono::steady_clock::now();
-            compute_mesh_normals(result);
-            result.timings.normals_ms = elapsed(normals);
+            if(result.timings.surface_normal_fallbacks){
+                compute_mesh_normals(result);
+                for(size_t i=0;i<surface_normals.size();++i){const auto& n=surface_normals[i];
+                    if(n.x*n.x+n.y*n.y+n.z*n.z>.5)result.normals[i]=n;}
+            }else result.normals=std::move(surface_normals);
+            result.timings.normals_ms += elapsed(normals);
             for (int i=1;i<=face_map.Extent();i++) {
                 TopLoc_Location location;const auto t=BRep_Tool::Triangulation(TopoDS::Face(copy.ModifiedShape(face_map(i))),location);
                 if(std::find(seeded.begin(),seeded.end(),t)!=seeded.end())++result.timings.reused_faces;

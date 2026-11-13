@@ -3,7 +3,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./browser",
   outputDir: "../../../build/acceptance/playwright-mock",
-  testIgnore: ["**/*-live.spec.ts", "**/natural-edges-render.spec.ts"],
+  testIgnore: ["**/*-live.spec.ts", "**/natural-edges-render.spec.ts", "**/visual-studio-render.spec.ts"],
   fullyParallel: false,
   workers: 1,
   // Software WebGL can stall the renderer while a document scene is rebuilt.

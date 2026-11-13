@@ -30,7 +30,7 @@ func newRaster(s *renderScene) *raster {
 	for y := 0; y < h; y++ {
 		t := float64(y) / float64(h-1)
 		// Quiet studio backdrop, using the viewport's cool neutral palette.
-		c := color.RGBA{uint8(116 - 49*t), uint8(132 - 52*t), uint8(145 - 55*t), 255}
+		c := color.RGBA{uint8(225 + 19*t), uint8(230 + 16*t), uint8(236 + 12*t), 255}
 		for x := 0; x < w; x++ {
 			r.pixels.SetRGBA(x, y, c)
 			r.depth[y*w+x] = math.Inf(-1)
@@ -43,7 +43,7 @@ func (r *raster) screen(v vec) screenPoint {
 	return screenPoint{float64(r.width)*.5 + p[0], float64(r.height)*.5 + p[1], p[2]}
 }
 
-var keyLight = unit(vec{-3, -4, 8})
+var keyLight = unit(vec{-.77, -.36, .53})
 var fillLight = unit(vec{5, 2, 3})
 var halfLight = unit(add(keyLight, eye))
 
@@ -51,7 +51,7 @@ func illumination(n vec) float64 {
 	if dot(n, eye) < 0 {
 		n = mul(n, -1)
 	} // double-sided display for open shells
-	return .48 + .43*max(0, dot(n, keyLight)) + .15*max(0, dot(n, fillLight)) + .08*math.Pow(max(0, dot(n, halfLight)), 24)
+	return .38 + .72*max(0, dot(n, keyLight)) + .16*max(0, dot(n, fillLight)) + .08*math.Pow(max(0, dot(n, halfLight)), 10)
 }
 func (r *raster) draw(ctx context.Context, s *renderScene) error {
 	hasTransparency := false
@@ -65,21 +65,40 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 			}
 		}
 	}
+	type drawMesh struct {
+		points []screenPoint
+		shades []float64
+	}
+	draws := make([]drawMesh, len(s.meshes))
+	for k, instance := range s.meshes {
+		m := instance.mesh.mesh
+		draws[k].points = make([]screenPoint, len(m.Vertices))
+		if len(instance.mesh.vertexNormals) == len(m.Vertices) {
+			draws[k].shades = make([]float64, len(m.Vertices))
+		}
+		for i, v := range m.Vertices {
+			if i%1024 == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			draws[k].points[i] = r.screen(instance.pose.point(v))
+			if len(draws[k].shades) > 0 {
+				n := instance.mesh.vertexNormals[i]
+				draws[k].shades[i] = math.NaN()
+				if n != (vec{}) {
+					draws[k].shades[i] = illumination(instance.pose.rotate(n))
+				}
+			}
+		}
+	}
 	for pass := 0; pass < 2; pass++ {
 		if pass == 1 && !hasTransparency {
 			break
 		}
-		for _, instance := range s.meshes {
+		for meshIndex, instance := range s.meshes {
 			m := instance.mesh.mesh
-			points := make([]screenPoint, len(m.Vertices))
-			for i, v := range m.Vertices {
-				if i%1024 == 0 {
-					if err := ctx.Err(); err != nil {
-						return err
-					}
-				}
-				points[i] = r.screen(instance.pose.point(v))
-			}
+			points, vertexShades := draws[meshIndex].points, draws[meshIndex].shades
 			for i, t := range m.Triangles {
 				if i%128 == 0 {
 					if err := ctx.Err(); err != nil {
@@ -104,6 +123,10 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 				n := unit(cross(sub(m.Vertices[t[1]], m.Vertices[t[0]]), sub(m.Vertices[t[2]], m.Vertices[t[0]])))
 				shades := [3]float64{}
 				for corner, index := range t {
+					if len(vertexShades) > 0 && !math.IsNaN(vertexShades[index]) {
+						shades[corner] = vertexShades[index]
+						continue
+					}
 					normal := n
 					if len(m.FaceIDs) == len(m.Triangles) {
 						if smooth := instance.mesh.normals[normalKey{m.Vertices[index], m.FaceIDs[i]}]; smooth != (vec{}) {
@@ -155,7 +178,27 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 		if edgeOpacity <= 0 {
 			continue
 		}
-		if len(m.Edges) > 0 {
+		if m.EdgeProfile != nil && len(instance.mesh.edgeStyles) > 0 && len(instance.mesh.edgeStyles) == len(m.EdgeProfile.Metadata) && instance.domain != "WIRE_SET" {
+			phase := 0.0
+			var previous uint32
+			for i, meta := range m.EdgeProfile.Metadata {
+				if i%128 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
+				if meta[0] != previous {
+					phase = 0
+					previous = meta[0]
+				}
+				style := instance.mesh.edgeStyles[i]
+				style.explicitColor = instance.appearance.EdgeColor != ""
+				if style.suppressed == [2]float64{1, 1} {
+					continue
+				}
+				r.styledLine(r.screen(instance.pose.point(m.EdgeProfile.Positions[i*2])), r.screen(instance.pose.point(m.EdgeProfile.Positions[i*2+1])), edgeColor, edgeWidth*samples, edgeOpacity/.88, instance.appearance.LineStyle == "DASHED", &phase, &style)
+			}
+		} else if len(m.Edges) > 0 {
 			for i, edge := range m.Edges {
 				dashPhase := 0.0
 				if i%128 == 0 {
@@ -244,9 +287,13 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 func edgeFunction(a, b screenPoint, x, y float64) float64 {
 	return (b.x-a.x)*(y-a.y) - (b.y-a.y)*(x-a.x)
 }
-func (r *raster) styledLine(a, b screenPoint, c color.RGBA, width, opacity float64, dashed bool, phase *float64) {
+func (r *raster) styledLine(a, b screenPoint, c color.RGBA, width, opacity float64, dashed bool, phase *float64, profiles ...*lineProfile) {
+	var profile *lineProfile
+	if len(profiles) > 0 {
+		profile = profiles[0]
+	}
 	if !dashed {
-		r.line(a, b, c, width, opacity)
+		r.stroke(a, b, c, width, opacity, profile)
 		return
 	}
 	length := math.Hypot(b.x-a.x, b.y-a.y)
@@ -269,7 +316,16 @@ func (r *raster) styledLine(a, b screenPoint, c color.RGBA, width, opacity float
 			break
 		}
 		if position < dash {
-			r.line(interpolate(offset/length), interpolate(end/length), c, width, opacity)
+			local := profile
+			if profile != nil {
+				value := *profile
+				for k, t := range []float64{offset / length, end / length} {
+					value.sharp[k] = profile.sharp[0]*(1-t) + profile.sharp[1]*t
+					value.suppressed[k] = profile.suppressed[0]*(1-t) + profile.suppressed[1]*t
+				}
+				local = &value
+			}
+			r.stroke(interpolate(offset/length), interpolate(end/length), c, width, opacity, local)
 		}
 		offset = end
 	}
@@ -281,7 +337,7 @@ func surfaceColor(value string) color.RGBA {
 			return color.RGBA{uint8(rgb >> 16), uint8(rgb >> 8), uint8(rgb), 255}
 		}
 	}
-	return color.RGBA{193, 203, 213, 255}
+	return color.RGBA{142, 159, 175, 255}
 }
 func (r *raster) triangle(ctx context.Context, p [3]screenPoint, shade [3]float64, colors ...color.RGBA) error {
 	base := surfaceColor("")
@@ -294,6 +350,7 @@ func (r *raster) triangleAlpha(ctx context.Context, p [3]screenPoint, shade [3]f
 	if opacity <= 0 {
 		return nil
 	}
+	linear := [3]float64{surfaceLinear[base.R], surfaceLinear[base.G], surfaceLinear[base.B]}
 	area := edgeFunction(p[0], p[1], p[2].x, p[2].y)
 	if !finite(area) || math.Abs(area) < 1e-12 {
 		return nil
@@ -347,7 +404,7 @@ func (r *raster) triangleAlpha(ctx context.Context, p [3]screenPoint, shade [3]f
 		for x := start; x <= end; x++ {
 			index := y*r.width + x
 			if z > r.depth[index] {
-				shaded := color.RGBA{uint8(min(255, float64(base.R)*light)), uint8(min(255, float64(base.G)*light)), uint8(min(255, float64(base.B)*light)), 255}
+				shaded := color.RGBA{surfaceDisplay[max(0, min(4096, int(linear[0]*light+.5)))], surfaceDisplay[max(0, min(4096, int(linear[1]*light+.5)))], surfaceDisplay[max(0, min(4096, int(linear[2]*light+.5)))], 255}
 				if opacity >= 1 {
 					r.depth[index] = z
 					r.pixels.SetRGBA(x, y, shaded)
@@ -362,6 +419,9 @@ func (r *raster) triangleAlpha(ctx context.Context, p [3]screenPoint, shade [3]f
 	return nil
 }
 func (r *raster) line(a, b screenPoint, c color.RGBA, width, opacity float64) {
+	r.stroke(a, b, c, width, opacity, nil)
+}
+func (r *raster) stroke(a, b screenPoint, c color.RGBA, width, opacity float64, profile *lineProfile) {
 	if !finite(a.x) || !finite(a.y) || !finite(b.x) || !finite(b.y) {
 		return
 	}
@@ -379,11 +439,20 @@ func (r *raster) line(a, b screenPoint, c color.RGBA, width, opacity float64) {
 		}
 		distance := math.Hypot(float64(x)+.5-a.x-t*dx, float64(y)+.5-a.y-t*dy)
 		alpha := min(1, max(0, radius+.5-distance)) * opacity
+		ink := c
+		if profile != nil {
+			sharp := max(0, min(1, profile.sharp[0]*(1-t)+profile.sharp[1]*t))
+			suppressed := max(0, min(1, profile.suppressed[0]*(1-t)+profile.suppressed[1]*t))
+			alpha *= (.12 + .76*sharp) * (1 - suppressed)
+			if !profile.explicitColor {
+				ink = studioEdgeInk[int(math.Round(sharp*256))]
+			}
+		}
 		if alpha <= 0 || a.z+t*(b.z-a.z) < r.depth[y*r.width+x]-2*samples {
 			return
 		}
 		old := r.pixels.RGBAAt(x, y)
-		r.pixels.SetRGBA(x, y, color.RGBA{uint8(float64(old.R)*(1-alpha) + float64(c.R)*alpha), uint8(float64(old.G)*(1-alpha) + float64(c.G)*alpha), uint8(float64(old.B)*(1-alpha) + float64(c.B)*alpha), 255})
+		r.pixels.SetRGBA(x, y, color.RGBA{uint8(float64(old.R)*(1-alpha) + float64(ink.R)*alpha), uint8(float64(old.G)*(1-alpha) + float64(ink.G)*alpha), uint8(float64(old.B)*(1-alpha) + float64(ink.B)*alpha), 255})
 	}
 	// Traverse a narrow strip along the major axis, not the line's entire bounding box.
 	if math.Abs(dx) >= math.Abs(dy) && dx != 0 {
@@ -479,11 +548,11 @@ func (r *raster) compositeTransparency(ctx context.Context) error {
 	return nil
 }
 func thumbnailEdgeStyle(a workspace.ResolvedAppearance) (color.RGBA, float64, float64) {
-	c := color.RGBA{30, 48, 65, 255}
+	c := studioEdgeColor
 	if a.EdgeColor != "" {
 		c = surfaceColor(a.EdgeColor)
 	}
-	width := 1.15
+	width := 1.35
 	if a.EdgeWidth != nil {
 		width = *a.EdgeWidth
 	}
@@ -497,5 +566,5 @@ func thumbnailEdgeStyle(a workspace.ResolvedAppearance) (color.RGBA, float64, fl
 	if a.Edges != nil && !*a.Edges {
 		opacity = 0
 	}
-	return c, width, .82 * opacity
+	return c, width, .88 * opacity
 }

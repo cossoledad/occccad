@@ -798,6 +798,7 @@ export class CadViewportEngine {
     this.scene.add(this.moveManipulator.root);
 
     const hemisphere = new THREE.HemisphereLight(CATIA_VISUAL_THEME.lightSky, CATIA_VISUAL_THEME.lightGround, CATIA_VISUAL_THEME.hemisphereIntensity);
+    hemisphere.position.set(0,0,1);
     const keyLight = new THREE.DirectionalLight(CATIA_VISUAL_THEME.lightKey, CATIA_VISUAL_THEME.keyIntensity);
     keyLight.position.set(-3, -4, 7);
     const fillLight = new THREE.DirectionalLight(CATIA_VISUAL_THEME.lightFill, CATIA_VISUAL_THEME.fillIntensity);
@@ -4593,6 +4594,7 @@ export class CadViewportEngine {
         this.updateSketchParameterAnchor();
         this.updateCameraClipping();
         this.scene.updateMatrixWorld(true);this.camera.updateMatrixWorld(true);
+        this.scenePresentation.prepareShadows(this.camera);
         for(const root of [...this.selectedOverlays,...this.preselectedOverlays])root.traverse(object=>object.userData.cadUpdateContour?.(this.camera));
         this.materials.surfaceDepth.render(this.renderer,this.scene,this.camera,this.sceneSettings.ambientOcclusion&&!this.sketchPlane&&this.solidDisplay.mode==='shaded',this.sceneSettings.aoIntensity);
         const sketchView=this.sketchView();

@@ -16,7 +16,7 @@ import { selectionSetToken } from "../../cad/interaction/selection-identity";
 import type { DocumentStructureNode, InstancePath, Selection } from "../../types";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
 import { visibleTreeHintKeys } from "./tree-projection-index";
-import {visibleTreeLayout, type VisibleTreeNode} from './tree-layout';
+import {visibleTreeLayout,TREE_ROW_HEIGHT, type VisibleTreeNode} from './tree-layout';
 import { treeVisibilityAction } from "./tree-visibility-action";
 import { isEditTargetNode, type EditSession } from "./edit-session";
 import { ContextMenuIcon } from "../../components/context-menu-icon";
@@ -110,6 +110,12 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
     return {...current,expanded:[...value],automatic:current.automatic?.filter(key=>!changed.has(key))};
   });
   const [contextMenu, setContextMenu] = useState<{ nodeKey: string; selectionSignature: string }>();
+  useEffect(()=>{
+    if(!contextMenu)return;
+    const close=(event:globalThis.KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setContextMenu(undefined);}};
+    document.addEventListener('keydown',close,true);
+    return ()=>document.removeEventListener('keydown',close,true);
+  },[contextMenu]);
   const anchorKey = useRef<string | undefined>(undefined);
   const scrollElement = useRef<HTMLElement>(null);
   const visible = useMemo(() => visibleTreeLayout(nodes, expanded), [nodes, expanded]);
@@ -131,7 +137,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
     setContextMenu((current) => current && current.selectionSignature !== selectionToken ? undefined : current);
   }, [selectionToken]);
   const virtualizer = useVirtualizer({ count: visible.length, getScrollElement: () => scrollElement.current,
-    estimateSize: () => 27, overscan: 14, getItemKey: (index) => visible[index]?.node.key ?? index });
+    estimateSize: () => TREE_ROW_HEIGHT, overscan: 14, getItemKey: (index) => visible[index]?.node.key ?? index });
   const pendingReveal=useRef<string|undefined>(undefined);
   useEffect(()=>{
     if(!reveal.intent||reveal.sequence===savedTree.revealedSequence)return;
@@ -207,7 +213,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   };
   return <div className="specification-tree-browser">
     <nav ref={scrollElement} className="specification-tree specification-tree-virtual" aria-label="Specification tree"
-    role="tree" aria-multiselectable="true" onMouseLeave={() => onHover?.()}>
+    role="tree" aria-multiselectable="true" style={{'--tree-row-height':`${TREE_ROW_HEIGHT}px`} as CSSProperties} onMouseLeave={() => onHover?.()}>
     <div className="specification-tree-virtual-space" style={{ height: virtualizer.getTotalSize() }}>
       {virtualizer.getVirtualItems().map((item) => {
         const entry = visible[item.index];
@@ -256,15 +262,15 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
           <span className="specification-tree-label">{node.title}</span>
         </div>;
         return <div key={node.key} className={`specification-tree-virtual-row ${depth > 0 ? "nested" : "root"}`} style={rowStyle}>
-          <svg className="specification-tree-connectors" width={depth * 22 + 18} height="27" aria-hidden="true">
-            {entry.continuationLevels.map(level => <path key={level} d={`M${level * 22 + 9} 0v27`} />)}
-            {depth > 0 && <path className="specification-tree-elbow" d={`M${(depth - 1) * 22 + 9} 0v9q0 4 4 4h9${entry.lastSibling ? '' : `M${(depth - 1) * 22 + 9} 9v18`}`} />}
-            {isExpanded && <path d={`M${depth * 22 + 9} 21v6`} />}
+          <svg className="specification-tree-connectors" width={depth * 22 + 18} height={TREE_ROW_HEIGHT} aria-hidden="true">
+            {entry.continuationLevels.map(level => <path key={level} d={`M${level * 22 + 9} 0v${TREE_ROW_HEIGHT}`} />)}
+            {depth > 0 && <path className="specification-tree-elbow" d={`M${(depth - 1) * 22 + 9} 0v11q0 4 4 4h9${entry.lastSibling ? '' : `M${(depth - 1) * 22 + 9} 11v${TREE_ROW_HEIGHT-11}`}`} />}
+            {isExpanded && <path d={`M${depth * 22 + 9} 23v${TREE_ROW_HEIGHT-23}`} />}
           </svg>
           <Dropdown trigger={["contextMenu"]} placement="bottomLeft" classNames={{ root: "specification-tree-context-menu" }}
             open={contextMenu?.nodeKey === node.key}
             onOpenChange={(open) => { if (!open) setContextMenu(undefined); }}
-            menu={{ expandIcon:<RightOutlined aria-hidden/>,items: structureMenu([node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {
+            menu={{ expandIcon:<RightOutlined aria-hidden/>,items: contextMenu?.nodeKey===node.key?structureMenu([node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {
               key: "open-document-tab", icon: menuIcon('tree.open-document'), label: menuLabel('tree.open-document'),
               onClick: () => { setContextMenu(undefined); onOpenDocumentTab(node); } } : null,
             node.sourceDocumentId && onOpenDocumentTab ? {
@@ -310,7 +316,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             { key: "delete", icon: menuIcon('edit.delete'), danger: node.kind!=="CONTEXT_BINDING",
             label: node.kind==="CONTEXT_BINDING"&&deletable.length===1?"恢复零件默认":menuLabel('edit.delete',deletable.length>1?'many':'default',deletable.length), disabled: deletable.length === 0,
             onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } },
-            ...(onProperties?[{type:"divider" as const},{key:"properties",icon:menuIcon("tree.properties"),label:menuLabel("tree.properties"),onClick:()=>{setContextMenu(undefined);onProperties(node)}}]:[])],titleText(node.title),selectedNodes.filter(candidate=>candidate.presentationRole!=="INPUT_REFERENCE").length>1) }}>{row}</Dropdown>
+            ...(onProperties?[{type:"divider" as const},{key:"properties",icon:menuIcon("tree.properties"),label:menuLabel("tree.properties"),onClick:()=>{setContextMenu(undefined);onProperties(node)}}]:[])],titleText(node.title),selectedNodes.filter(candidate=>candidate.presentationRole!=="INPUT_REFERENCE").length>1):[] }}>{row}</Dropdown>
         </div>;
       })}
     </div>

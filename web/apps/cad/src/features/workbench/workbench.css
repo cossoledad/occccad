@@ -149,21 +149,22 @@
 
 /* The tree is a transparent overlay on the same viewport, rather than a
    painted panel. Only controls and rows capture pointers; empty space navigates. */
-.workbench-content { position: relative; grid-template-rows: minmax(0,1fr); --tree-foreground:#edf4fa; --tree-muted:#ccdbe8; --tree-guide:#dce9f62e; --tree-shadow:0 1px 3px #0d1b2bee; --tree-control:#1a2b3d45; }
-.workbench-content.light-scene { --tree-foreground:#20384b; --tree-muted:#486174; --tree-guide:#38526730; --tree-shadow:0 1px 2px #ffffffb0; --tree-control:#ffffff55; }
+.workbench-content { position: relative; grid-template-rows: minmax(0,1fr); --tree-foreground:#e4edf5; --tree-muted:#b0c0ce; --tree-guide:#c2d0dd30; --tree-control:#26374b80; --tree-veil:#1f2b389e; --tree-veil-soft:#1f2b3830; --tree-active-text:#b8cfff; --tree-active-bg:#5d83bf20; }
+.workbench-content.light-scene { --tree-foreground:#2d4457; --tree-muted:#728391; --tree-guide:#526b8126; --tree-control:#ffffffe0; --tree-veil:#e7edf3bd; --tree-veil-soft:#e7edf336; --tree-active-text:#365f98; --tree-active-bg:#d8e5f550; }
 .workbench-stage { grid-column:1 / -1; grid-row:1; }
 
 .workbench-structure { grid-column:1; grid-row:1; z-index:2; pointer-events:none; background:transparent; border:0; color:var(--tree-foreground); text-shadow:none; }
+.workbench-structure::before { content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,var(--tree-veil),var(--tree-veil-soft) 78%,transparent); }
 .workbench-tree-collapse.ant-btn { position:absolute;right:8px;top:8px;color:var(--tree-foreground);pointer-events:auto;z-index:3;touch-action:none;user-select:none;cursor:ew-resize; }
 .workbench-layout[data-tree-resizing] * { cursor:ew-resize !important; user-select:none !important; }
 .workbench-structure .specification-tree,.workbench-structure .specification-tree-virtual-row { pointer-events:none; }
-.workbench-structure .specification-tree-row { color:var(--tree-foreground); text-shadow:none; font-family:var(--ui-font-family); font-size:12px; border-radius:3px; }
+.workbench-structure .specification-tree-row { color:var(--tree-foreground); text-shadow:none; font-family:var(--ui-font-family); font-size:12px; border-radius:5px;line-height:1.35;padding-right:7px; }
 .workbench-structure .specification-tree-row:hover { color:var(--tree-foreground); background:#7d9ebc1c; }
-.workbench-structure .specification-tree-row.selected { color:#ffce86; background:#a96c131a; outline:1px solid #d9993b; text-shadow:none; }
-.light-scene .workbench-structure .specification-tree-row.selected { color:#704a17; background:#f4ba6220; }
+.workbench-structure .specification-tree-row.selected { color:#ffe1aa; background:#b47d2529; border-color:#e2b36450;box-shadow:inset 2px 0 #e6b966;outline:none;text-shadow:none; }
+.light-scene .workbench-structure .specification-tree-row.selected { color:#765222; background:#f5c77940;border-color:#dab77970;box-shadow:inset 2px 0 #bd8b3f; }
 .workbench-structure .specification-tree-row.highlighted:not(.selected) { color:var(--tree-foreground); background:#79a5c82b; outline:1px solid #7e9bb84d; }
-.workbench-structure .specification-tree-row.active-document:not(.selected) { box-shadow:none; background:transparent; }
-.workbench-structure .specification-tree-row.active-document:not(.selected) .specification-tree-label { text-decoration:underline; text-underline-offset:3px; }
+.workbench-structure .specification-tree-row.active-document:not(.selected) { box-shadow:none; background:var(--tree-active-bg); }
+.workbench-structure .specification-tree-row.active-document:not(.selected) .specification-tree-label { text-decoration:none;color:var(--tree-active-text);font-weight:600; }
 .workbench-structure .specification-tree-row.selected-descendant:not(.selected):not(.highlighted) { background:#f4ba622e; box-shadow:inset 2px 0 #c38b38; }
 .workbench-structure .specification-tree-row:focus-visible { outline:1.5px solid var(--color-primary); outline-offset:-1px; }
 .workbench-structure .specification-tree-row.suppressed .specification-tree-label { color:var(--tree-muted); }

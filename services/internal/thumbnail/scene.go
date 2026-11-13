@@ -62,8 +62,10 @@ type normalKey struct {
 	face  uint32
 }
 type preparedMesh struct {
-	mesh    workspace.Mesh
-	normals map[normalKey]vec
+	mesh          workspace.Mesh
+	normals       map[normalKey]vec
+	vertexNormals []vec
+	edgeStyles    []lineProfile
 }
 type meshInstance struct {
 	mesh       *preparedMesh
@@ -112,6 +114,9 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 		vertices += len(a.Mesh.Vertices)
 		for _, edge := range a.Mesh.Edges {
 			vertices += len(edge.Points)
+		}
+		if a.Mesh.EdgeProfile != nil {
+			vertices += len(a.Mesh.EdgeProfile.Positions)
 		}
 		for _, primitive := range a.Visualization.Primitives {
 			vertices += len(primitive.Positions)
@@ -315,6 +320,33 @@ func validTriangle(m workspace.Mesh, t [3]uint32) bool {
 }
 func prepareMesh(ctx context.Context, m workspace.Mesh) (*preparedMesh, error) {
 	result := &preparedMesh{mesh: m, normals: map[normalKey]vec{}}
+	if m.EdgeProfile != nil {
+		var err error
+		result.edgeStyles, err = prepareEdgeStyles(ctx, m.EdgeProfile)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// The GLB carries oriented surface normals. Rebuilding them from triangles
+	// loses curvature and repeats a large coordinate/face hash unnecessarily.
+	complete := len(m.Normals) == len(m.Vertices) && len(m.Vertices) > 0
+	if complete {
+		result.vertexNormals = make([]vec, len(m.Normals))
+		for i, n := range m.Normals {
+			if i%512 == 0 {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+			}
+			result.vertexNormals[i] = unit(n)
+			if result.vertexNormals[i] == (vec{}) {
+				complete = false
+			}
+		}
+		if complete {
+			return result, nil
+		}
+	}
 	// Smooth within an exact B-Rep face, including duplicated tessellation vertices;
 	// never blend normals across a CAD face boundary or infer persistent identity.
 	if len(m.FaceIDs) != len(m.Triangles) {

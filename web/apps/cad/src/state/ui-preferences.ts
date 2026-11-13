@@ -91,6 +91,31 @@ export function sketchLabelPositionKey(documentId:string, sketchId:string, const
   return JSON.stringify([documentId,sketchId,constraintId]);
 }
 
+export function migrateUIPreferences(persisted:unknown,version:number) {
+    const value = (persisted && typeof persisted === "object" ? persisted : {}) as Partial<UIPreferences> & { hiddenTreeKeys?: string[]; renderMode?: string };
+    const documentLengthUnits = Object.fromEntries(Object.entries(value.documentLengthUnits ?? {})
+      .map(([id, unit]) => [id, normalizeDisplayLengthUnit(unit)]));
+    const commandDialogPositions = Object.fromEntries(Object.entries(value.commandDialogPositions ?? {})
+      .flatMap(([id, position]) => { const normalized = normalizePanelPosition(position); return normalized ? [[id, normalized]] : []; }));
+    const sceneSettings=normalizeSceneSettings(value.sceneSettings),creationDefaults=normalizeCreationDefaults(value.creationDefaults);
+    // Upgrade only the exact former recipes. User-defined viewing values and
+    // object appearances in immutable documents are not preference defaults.
+    if(version<14){
+      const old=value.creationDefaults?.solid;
+      if(old?.color?.toLowerCase()==="#98a8b8"&&old.roughness===.5&&old.metalness===.04)
+        creationDefaults.solid={...DEFAULT_CREATION_DEFAULTS.solid};
+      if(sceneSettings.lighting==="ENGINEERING"&&sceneSettings.brightness===1&&sceneSettings.ambient===1&&sceneSettings.fill===1&&sceneSettings.reflection===1&&sceneSettings.azimuth===-126.87&&sceneSettings.elevation===54.46){
+        sceneSettings.azimuth=DEFAULT_SCENE_SETTINGS.azimuth;sceneSettings.elevation=DEFAULT_SCENE_SETTINGS.elevation;
+      }
+    }
+    return { ...value, sceneSettings,creationDefaults, sketchLabelPositions: version>=13?(value.sketchLabelPositions??{}):{}, gridVisibility:normalizeGridVisibility(value.gridVisibility), referenceVisibility: normalizeReferenceVisibility(value.referenceVisibility), solidDisplay: normalizeSolidDisplaySettings(value.solidDisplay ?? value.renderMode), commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
+      structureTreeWidth: clampStructureTreeWidth(value.structureTreeWidth),
+      navigationProfile: value.navigationProfile === "catia" || value.navigationProfile === "solidworks" ? value.navigationProfile : "default",
+      catiaRotationSphereVisible: value.catiaRotationSphereVisible === true,
+      captureSettings: normalizeCaptureSettings(value.captureSettings),
+      displayLengthUnit: normalizeDisplayLengthUnit(value.displayLengthUnit), documentLengthUnits } as UIPreferences;
+}
+
 export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   sceneSettings:{...DEFAULT_SCENE_SETTINGS},
   creationDefaults:structuredClone(DEFAULT_CREATION_DEFAULTS),
@@ -150,20 +175,8 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   }),
 }), {
   name: "occccad.ui-preferences.v1",
-  version: 13,
-  migrate: (persisted) => {
-    const value = (persisted && typeof persisted === "object" ? persisted : {}) as Partial<UIPreferences> & { hiddenTreeKeys?: string[]; renderMode?: string };
-    const documentLengthUnits = Object.fromEntries(Object.entries(value.documentLengthUnits ?? {})
-      .map(([id, unit]) => [id, normalizeDisplayLengthUnit(unit)]));
-    const commandDialogPositions = Object.fromEntries(Object.entries(value.commandDialogPositions ?? {})
-      .flatMap(([id, position]) => { const normalized = normalizePanelPosition(position); return normalized ? [[id, normalized]] : []; }));
-    return { ...value, sceneSettings:normalizeSceneSettings(value.sceneSettings),creationDefaults:normalizeCreationDefaults(value.creationDefaults), sketchLabelPositions: {}, gridVisibility:normalizeGridVisibility(value.gridVisibility), referenceVisibility: normalizeReferenceVisibility(value.referenceVisibility), solidDisplay: normalizeSolidDisplaySettings(value.solidDisplay ?? value.renderMode), commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
-      structureTreeWidth: clampStructureTreeWidth(value.structureTreeWidth),
-      navigationProfile: value.navigationProfile === "catia" || value.navigationProfile === "solidworks" ? value.navigationProfile : "default",
-      catiaRotationSphereVisible: value.catiaRotationSphereVisible === true,
-      captureSettings: normalizeCaptureSettings(value.captureSettings),
-      displayLengthUnit: normalizeDisplayLengthUnit(value.displayLengthUnit), documentLengthUnits } as UIPreferences;
-  },
+  version: 14,
+  migrate: migrateUIPreferences,
   partialize: (state) => ({ sceneSettings:state.sceneSettings,creationDefaults:state.creationDefaults, sketchLabelPositions:state.sketchLabelPositions, gridVisibility:state.gridVisibility, referenceVisibility: state.referenceVisibility, solidDisplay: state.solidDisplay, commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
     treeVisibilityOverrides: state.treeVisibilityOverrides, structureTreeWidth: state.structureTreeWidth,
     navigationProfile: state.navigationProfile, catiaRotationSphereVisible: state.catiaRotationSphereVisible, captureSettings: state.captureSettings,

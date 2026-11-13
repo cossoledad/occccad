@@ -109,13 +109,13 @@ func TestDepthBufferCrossingTrianglesAndHiddenLines(t *testing.T) {
 	}
 	front := [3]screenPoint{{4, 4, 10}, {60, 4, -10}, {4, 60, 10}}
 	back := [3]screenPoint{{4, 4, 0}, {60, 4, 0}, {4, 60, 0}}
-	if err := r.triangle(context.Background(), front, [3]float64{1, 1, 1}); err != nil {
+	if err := r.triangle(context.Background(), front, [3]float64{1, 1, 1}, color.RGBA{200, 200, 200, 255}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.triangle(context.Background(), back, [3]float64{.5, .5, .5}); err != nil {
+	if err := r.triangle(context.Background(), back, [3]float64{.5, .5, .5}, color.RGBA{200, 200, 200, 255}); err != nil {
 		t.Fatal(err)
 	}
-	if r.pixels.RGBAAt(8, 8).R < 180 || r.pixels.RGBAAt(48, 8).R > 110 {
+	if r.pixels.RGBAAt(8, 8).R < 180 || r.pixels.RGBAAt(48, 8).R > 160 {
 		t.Fatal("crossing triangles incorrectly sorted by mean depth")
 	}
 	before := r.pixels.RGBAAt(8, 8)

@@ -4,7 +4,7 @@ import * as THREE from "three";
  * PMREM turns their finite area into roughness-dependent highlight bands. */
 export function makeStudioEnvironmentScene(): THREE.Scene {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color().setRGB(0.18, 0.19, 0.20);
+  scene.background = new THREE.Color().setRGB(0.08, 0.09, 0.11);
   const card = (name: string, width: number, height: number, position: THREE.Vector3,
     radiance: [number, number, number]) => {
     const material = new THREE.MeshBasicMaterial({
@@ -17,11 +17,12 @@ export function makeStudioEnvironmentScene(): THREE.Scene {
     mesh.lookAt(0, 0, 0);
     scene.add(mesh);
   };
-  // Broad, lower-contrast cards keep coarse curved meshes from reflecting sharp strips.
-  card("studio-key", 11, 9, new THREE.Vector3(-4, -5, 7), [2.0, 2.0, 2.0]);
-  card("studio-side", 7, 9, new THREE.Vector3(6, 2, 3), [1.45, 1.48, 1.52]);
-  card("studio-top", 7, 5, new THREE.Vector3(1, 4, 8), [1.7, 1.72, 1.75]);
-  card("studio-fill", 7, 6, new THREE.Vector3(-5, 4, 1), [0.8, 0.82, 0.85]);
+  // Asymmetry and a broad vertical key reveal curvature without a chrome strip.
+  // Surface normals, rather than extra display triangles, carry this gradient.
+  card("studio-key", 4, 12, new THREE.Vector3(-3, 7, 4), [2.6, 2.65, 2.7]);
+  card("studio-side", 6, 8, new THREE.Vector3(6, 1, 3), [0.75, 0.8, 0.85]);
+  card("studio-top", 10, 4, new THREE.Vector3(0, 3, 8), [1.0, 1.02, 1.05]);
+  card("studio-fill", 6, 8, new THREE.Vector3(-5, -4, 2), [0.3, 0.32, 0.35]);
   scene.updateMatrixWorld(true);
   return scene;
 }

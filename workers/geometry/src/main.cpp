@@ -2614,7 +2614,7 @@ private:
         // kept outside this cache and bound to these IDs by the response manifest.
         std::ostringstream policy;
         policy.precision(std::numeric_limits<double>::max_digits10);
-        policy << geometry_id << ":visual-edge-profile-v3:" << linear_deflection << ':' << angular_deflection;
+        policy << geometry_id << ":visual-surface-normals-v4:" << linear_deflection << ':' << angular_deflection;
         const auto key = policy.str();
         auto found = visual_cache_.find(key);
         const bool visual_hit = !force_cold && found != visual_cache_.end();
@@ -2645,6 +2645,7 @@ private:
             size_t edge_points = 0; for (const auto& edge : m.edges) edge_points += edge.points.size();
             spdlog::info("edge_profile geometry={} sampling_ms={} normal_evaluations={} segments={} limited={}",
                 geometry_id,m.timings.edge_profile_ms,m.timings.edge_normal_evaluations,m.edge_profile.size(),m.timings.edge_sampling_limits);
+            spdlog::info("surface_normals geometry={} ms={} evaluations={} fallbacks={}",geometry_id,m.timings.normals_ms,m.timings.surface_normal_evaluations,m.timings.surface_normal_fallbacks);
             spdlog::info("visual_snapshot geometry={} mesh_ms={} faces_ms={} edges_ms={} normals_ms={} encoding_ms={} vertices={} triangles={} edges={} edge_points={} glb_bytes={}",
                 geometry_id, m.timings.meshing_ms, m.timings.faces_ms, m.timings.edges_ms, m.timings.normals_ms,
                 std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count(),

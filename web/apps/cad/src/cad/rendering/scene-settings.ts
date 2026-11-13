@@ -17,7 +17,7 @@ export const DEFAULT_SCENE_SETTINGS: Readonly<SceneSettings> = {
   grid:false,worldGrid:false,gridSpacing:10,gridOpacity:0.55,gridColor:"#8c979f",gridAutoColor:true,
   shadows:true,shadowOpacity:0.28,lighting:"ENGINEERING",brightness:1,ambient:1,fill:1,reflection:1,
   ambientOcclusion:false,aoIntensity:.35,
-  azimuth:-126.87,elevation:54.46,background:"THEME",backgroundTop:"#dce1e5",backgroundBottom:"#f0f2f4",
+  azimuth:-155,elevation:32,background:"THEME",backgroundTop:"#e1e6ec",backgroundBottom:"#f4f6f8",
 };
 
 const number=(v:unknown,fallback:number,min:number,max:number)=>typeof v==="number"&&Number.isFinite(v)?Math.max(min,Math.min(max,v)):fallback;
@@ -59,7 +59,7 @@ export function groundLevel(settings:SceneSettings,minimumZ:number|undefined,ext
 export function lightingPreset(preset:SceneSettings["lighting"]):Partial<SceneSettings>{
   return preset==="SOFT"?{lighting:preset,brightness:.85,ambient:1.35,fill:1.3,reflection:.65,azimuth:-126.87,elevation:65}:
     preset==="CONTOUR"?{lighting:preset,brightness:1,ambient:.65,fill:.55,reflection:.8,azimuth:-140,elevation:35}:
-    {lighting:preset,brightness:1,ambient:1,fill:1,reflection:1,azimuth:-126.87,elevation:54.46};
+    {lighting:preset,brightness:1,ambient:1,fill:1,reflection:1,azimuth:DEFAULT_SCENE_SETTINGS.azimuth,elevation:DEFAULT_SCENE_SETTINGS.elevation};
 }
 
 export function colorLuminance(hex:string):number {
@@ -83,5 +83,5 @@ export function sceneGridColor(settings:SceneSettings):string {
 
 /** Presets change viewing preferences only; existing object colours are preserved. */
 export function engineeringScenePreset(style:'NEUTRAL'|'DARK'):Partial<SceneSettings>{
- return {...lightingPreset('ENGINEERING'),background:style==='NEUTRAL'?'THEME':'GRADIENT',backgroundTop:style==='NEUTRAL'?'#dce1e5':'#233346',backgroundBottom:style==='NEUTRAL'?'#f0f2f4':'#506171',grid:false,worldGrid:false,gridOpacity:.55,gridAutoColor:true,shadows:true,shadowOpacity:.28};
+ return {...lightingPreset('ENGINEERING'),background:style==='NEUTRAL'?'THEME':'GRADIENT',backgroundTop:style==='NEUTRAL'?DEFAULT_SCENE_SETTINGS.backgroundTop:'#233346',backgroundBottom:style==='NEUTRAL'?DEFAULT_SCENE_SETTINGS.backgroundBottom:'#506171',grid:false,worldGrid:false,gridOpacity:.55,gridAutoColor:true,shadows:true,shadowOpacity:.28};
 }

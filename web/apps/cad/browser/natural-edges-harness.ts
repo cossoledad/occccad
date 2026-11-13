@@ -22,11 +22,12 @@ e.setDisplaySettings(reference,{...DEFAULT_SOLID_DISPLAY});
 e.setSceneSettings({...DEFAULT_SCENE_SETTINGS,groundMode:"OFF",shadows:false,grid:false,ambientOcclusion:false});
 const part=await mockApi.getDocument('mock-part-bracket');
 
-async function load(name:string,digest:string,size:number,color='#aebac7',count=1,stage:'uniform'|'basic'|'natural'='natural'){
+async function load(name:string,digest:string,size:number,color='#aebac7',count=1,stage:'uniform'|'basic'|'natural'='natural',options:{materialDefaults?:boolean;domain?:string}={}){
  const bytes=await (await fetch(`/edge-fixtures/${name}.glb`)).arrayBuffer(),decoded=decodeMeshGLB(bytes),mesh=decoded.mesh;
  const box=new THREE.Box3().setFromBufferAttribute(new THREE.BufferAttribute(mesh.buffers!.positions,3));
  const key=`edge-fixture:${name}`,id=`edge-fixture:${++sequence}`;
- const domain=['open','varying','coplanar'].includes(name)?'SHEET_SET':'SOLID_SET';
+ const domain=options.domain??(['open','varying','coplanar'].includes(name)?'SHEET_SET':'SOLID_SET');
+ const coefficients=options.materialDefaults?{}:{roughness:.72,metalness:0};
  const artifact:any={geometryKey:key,geometryId:key,representationKind:'PERSISTENT',geometryDomain:domain,
   representations:{VISUAL:{objectId:key,digest,schemaVersion:2,size,contentType:'model/gltf-binary',url:`/edge-fixtures/${name}.glb`}},
   triangleCount:mesh.buffers!.indices.length/3,displayVertexCount:mesh.buffers!.positions.length/3,bbox:{min:box.min.toArray(),max:box.max.toArray()},
@@ -37,7 +38,7 @@ async function load(name:string,digest:string,size:number,color='#aebac7',count=
  view.datumPlanes=[];view.axisSystems=[];view.datumAxes=[];view.referenceDisplayScopes=[];view.contextVariants=[];view.measurements=[];
  if(count===1){
   view.part={...part.part,features:[],bodies:[{...part.part!.bodies[0],id:'fixture-body',geometryKey:key,visible:true,consumed:false}],activeBodyId:'fixture-body',datumPlanes:[],axisSystems:[],datumAxes:[],datumPoints:[],publications:[]};
-  view.bodyAppearances={'fixture-body':{geometryKey:key,color,roughness:.72,metalness:0}};
+  view.bodyAppearances={'fixture-body':{geometryKey:key,color,...coefficients}};
  }else{
   const width=Math.ceil(Math.sqrt(count)),stride=box.getSize(new THREE.Vector3()).length()*.8;
   view.part=undefined;view.product={instances:[],constraints:[],publications:[]};view.resolvedInstances=[];
@@ -46,7 +47,7 @@ async function load(name:string,digest:string,size:number,color='#aebac7',count=
     rotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,2,3).normalize(),i*.37).toArray();
    const path={canonical:instanceId,segments:[{instanceId,documentId:'fixture-part',resolvedVersionId:'fixture-v1'}]};
    view.product.instances.push({name:instanceId,id:instanceId,documentId:'fixture-part',versionId:'fixture-v1',visible:true,translation,rotation});
-   view.resolvedInstances.push({id:`edge acceptance/${instanceId}`,occurrencePath:instanceId,documentId:'fixture-part',instancePath:path,bodyId:'fixture-body',bodyVisible:true,geometryKey:key,translation,rotation,bodyTreeNodeId:`document:${id}/instance:${instanceId}/body:fixture-body`,appearance:{geometryKey:key,color,roughness:.72,metalness:0},referenceGeometry:{datumPlanes:[],datumAxes:[],axisSystems:[]}});
+   view.resolvedInstances.push({id:`edge acceptance/${instanceId}`,occurrencePath:instanceId,documentId:'fixture-part',instancePath:path,bodyId:'fixture-body',bodyVisible:true,geometryKey:key,translation,rotation,bodyTreeNodeId:`document:${id}/instance:${instanceId}/body:fixture-body`,appearance:{geometryKey:key,color,...coefficients},referenceGeometry:{datumPlanes:[],datumAxes:[],axisSystems:[]}});
   }
  }
  // Choose the next scene's implementation without first preparing the previous

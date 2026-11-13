@@ -1,4 +1,5 @@
 import type {SpecificationTreeNode} from './specification-tree';
+export const TREE_ROW_HEIGHT=30;
 
 export type VisibleTreeNode = {
   node: SpecificationTreeNode; depth: number; hasChildren: boolean;

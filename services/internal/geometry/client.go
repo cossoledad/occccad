@@ -970,8 +970,6 @@ func (client *Client) EvaluatePart(
 	response, err := client.worker.EvaluatePart(ctx, &workerv1.EvaluatePartRequest{
 		RequestId: requestID, GeometryKey: geometryKey,
 		RectangularPads: protoPads, BaseBrepData: baseBRep,
-		LinearDeflection:  VisualLinearDeflectionMM,
-		AngularDeflection: VisualAngularDeflectionRadians,
 	}, grpc.Header(&header))
 	if err != nil {
 		return nil, fmt.Errorf("evaluate Part feature chain: %w", err)
@@ -994,8 +992,8 @@ func (client *Client) EvaluatePartFromArtifact(
 		})
 	}
 	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
-		RectangularPads: protoPads, LinearDeflection: VisualLinearDeflectionMM, AngularDeflection: VisualAngularDeflectionRadians,
-		BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey}
+		RectangularPads: protoPads,
+		BrepOutputKey:   brepOutputKey, GlbOutputKey: glbOutputKey}
 	if baseBRep.ObjectKey != "" {
 		request.BaseBrepArtifact = artifactProto(baseBRep)
 	}
@@ -1017,7 +1015,7 @@ func (client *Client) EvaluateProfilePart(ctx context.Context, requestID, geomet
 	finishRPC := perf.Start(ctx, "part-memory-rpc")
 	defer finishRPC()
 	response, err := client.worker.EvaluatePart(ctx, &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
-		ProfilePads: profilePadsProto(pads), BaseBrepData: baseBRep, LinearDeflection: VisualLinearDeflectionMM, AngularDeflection: VisualAngularDeflectionRadians,
+		ProfilePads: profilePadsProto(pads), BaseBrepData: baseBRep,
 		TopologyPolicy: topologyNamingPolicyProto(), ImportSeed: firstImportSeed(seeds), ForceCold: PartRuntime(ctx).ForceCold, ExactOnly: PartRuntime(ctx).ExactOnly, RuntimeAffinity: PartRuntime(ctx).Affinity}, grpc.Header(&header))
 	if err != nil {
 		return nil, fmt.Errorf("evaluate Part profile feature chain: %w", err)
@@ -1030,7 +1028,7 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
-		ProfilePads: profilePadsProto(pads), LinearDeflection: VisualLinearDeflectionMM, AngularDeflection: VisualAngularDeflectionRadians, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey}
+		ProfilePads: profilePadsProto(pads), BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey}
 	options := PartRuntime(ctx)
 	request.ForceCold = options.ForceCold
 	request.ExactOnly = options.ExactOnly
@@ -1079,7 +1077,6 @@ func (client *Client) ImportExchange(ctx context.Context, requestID, geometryKey
 	response, err := client.worker.ImportExchange(ctx, &workerv1.ImportExchangeRequest{
 		RequestId: requestID, GeometryKey: geometryKey, Format: format, Source: artifactProto(source),
 		DefinitionId: definitionID, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey,
-		LinearDeflection: VisualLinearDeflectionMM, AngularDeflection: VisualAngularDeflectionRadians,
 	}, grpc.Header(&header))
 	if err != nil {
 		return nil, fmt.Errorf("import %s exchange: %w", format, err)

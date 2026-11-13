@@ -1,4 +1,4 @@
-import { colorNumber, palette } from "../../design/visual-tokens";
+import { colorNumber, palette,studioMaterial } from "../../design/visual-tokens";
 
 // Kept as the established theme entrypoint for all renderer primitives.
 export const CATIA_VISUAL_THEME = {
@@ -17,8 +17,8 @@ export const CATIA_VISUAL_THEME = {
   axisX: colorNumber(palette.axisX), axisY: colorNumber(palette.axisY), axisZ: colorNumber(palette.axisZ),
   navigation: colorNumber(palette.selected), navigationHighlight: colorNumber(palette.snap),
   // Satin dielectric: broad highlights must not exaggerate tessellation normals.
-  surfaceRoughness: 0.62, surfaceMetalness: 0.02, surfaceEnvironmentIntensity: 0.30, datumOpacity: 0.07,
+  surfaceRoughness:studioMaterial.roughness, surfaceMetalness:studioMaterial.metalness, surfaceEnvironmentIntensity:studioMaterial.environmentIntensity, datumOpacity: 0.07,
   lightSky: 0xf7f8fa, lightGround: 0x747b82, lightKey: 0xffffff, lightFill: 0xf0f3f6, lightRim: 0xffffff,
-  hemisphereIntensity: 0.56, keyIntensity: 1.0, fillIntensity: 0.36, rimIntensity: 0.20,
+  hemisphereIntensity: 0.28, keyIntensity: 1.35, fillIntensity: 0.18, rimIntensity: 0.14,
 } as const;
 export type CadVisualTheme = {[K in keyof typeof CATIA_VISUAL_THEME]:number};

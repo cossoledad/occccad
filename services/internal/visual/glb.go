@@ -27,11 +27,18 @@ func (a Association) Validate(geometryID, namingDigest string) error {
 type Mesh struct {
 	Association      Association  `json:"-"`
 	Normals          [][3]float64 `json:"normals,omitempty"`
+	EdgeProfile      *EdgeProfile `json:"-"`
 	Vertices         [][3]float64 `json:"vertices"`
 	Triangles        [][3]uint32  `json:"triangles"`
 	FaceIDs          []uint32     `json:"faceIds"`
 	Edges            []Edge       `json:"edges"`
 	TopologyVertices []Point      `json:"topologyVertices"`
+}
+
+// Display evidence, scoped to this GLB; these locators are not persistent IDs.
+type EdgeProfile struct {
+	Positions, NormalA, NormalB [][3]float64
+	Metadata                    [][4]uint32
 }
 type Edge struct {
 	LocalID uint64       `json:"localId"`
@@ -112,6 +119,11 @@ func Decode(data []byte) (Mesh, json.RawMessage, error) {
 		Units, CoordinateSpace string
 		SchemaVersion          int
 		Association            Association
+		EdgeProfile            *struct {
+			SchemaVersion                         int
+			Source                                string
+			Positions, NormalA, NormalB, Metadata *int
+		}
 	}
 	if err := json.Unmarshal(document.Extensions["OCCCCAD_cad"], &cad); err != nil || cad.SchemaVersion != 2 || cad.Units != "mm" || cad.CoordinateSpace != "PART_LOCAL" {
 		return fail("CAD extension")
@@ -130,6 +142,9 @@ func Decode(data []byte) (Mesh, json.RawMessage, error) {
 		expected := "SCALAR"
 		if components == 3 {
 			expected = "VEC3"
+		}
+		if components == 4 {
+			expected = "VEC4"
 		}
 		if a.Type != expected || v.Buffer != 0 || v.ByteStride != 0 || v.ByteOffset < 0 || v.ByteLength < 0 || a.ByteOffset < 0 {
 			return nil, fmt.Errorf("unsupported layout")
@@ -270,6 +285,52 @@ func Decode(data []byte) (Mesh, json.RawMessage, error) {
 	}
 	if !completeNormals {
 		empty.Normals = nil
+	}
+	if p := cad.EdgeProfile; p != nil && p.SchemaVersion == 1 && p.Source == "OCCT_EDGE_USE_V1" {
+		if p.Positions == nil || p.NormalA == nil || p.NormalB == nil || p.Metadata == nil {
+			return fail("edge profile accessors")
+		}
+		positions, err := read(*p.Positions, 3, 5126)
+		if err != nil {
+			return fail(err.Error())
+		}
+		a, err := read(*p.NormalA, 3, 5126)
+		if err != nil {
+			return fail(err.Error())
+		}
+		b, err := read(*p.NormalB, 3, 5126)
+		if err != nil {
+			return fail(err.Error())
+		}
+		metadata, err := read(*p.Metadata, 4, 5125)
+		if err != nil {
+			return fail(err.Error())
+		}
+		if len(positions)%6 != 0 || len(a) != len(positions) || len(b) != len(positions) || len(metadata) != len(positions)/6*4 {
+			return fail("edge profile count")
+		}
+		edges := map[uint64]bool{}
+		for _, e := range empty.Edges {
+			edges[e.LocalID] = true
+		}
+		faces := map[uint32]bool{}
+		for _, id := range empty.FaceIDs {
+			faces[id] = true
+		}
+		profile := &EdgeProfile{}
+		for i := 0; i < len(positions); i += 3 {
+			profile.Positions = append(profile.Positions, [3]float64{positions[i], positions[i+1], positions[i+2]})
+			profile.NormalA = append(profile.NormalA, [3]float64{a[i], a[i+1], a[i+2]})
+			profile.NormalB = append(profile.NormalB, [3]float64{b[i], b[i+1], b[i+2]})
+		}
+		for i := 0; i < len(metadata); i += 4 {
+			entry := [4]uint32{uint32(metadata[i]), uint32(metadata[i+1]), uint32(metadata[i+2]), uint32(metadata[i+3])}
+			if !edges[uint64(entry[0])] || (entry[1] != 0 && !faces[entry[1]]) || (entry[2] != 0 && !faces[entry[2]]) || entry[3]&255 > 6 || entry[3]>>8 > 3 {
+				return fail("edge profile association")
+			}
+			profile.Metadata = append(profile.Metadata, entry)
+		}
+		empty.EdgeProfile = profile
 	}
 	var visualization map[string]any
 	if raw := document.Extensions["OCCCCAD_visualization"]; len(raw) > 0 {

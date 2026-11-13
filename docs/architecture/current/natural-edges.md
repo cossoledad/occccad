@@ -55,7 +55,7 @@ OCCT 在精确 Shape 的深拷贝上剖分，保留每个面上每次 EdgeUse �
 
 每段 BIN 负载 88 B：位置 24 B、法线 48 B、metadata 16 B，另有固定 JSON/accessor 开销。标准 FACE/EDGE/VERTEX primitive 保留，CAD schema 仍为 2，领域 Proto 不增加显示数组。原边 locator 只在冻结 Geometry 内定位；建模选择继续经同一 Naming 门绑定持久身份。
 
-Worker 的快照策略键包含 `visual-edge-profile-v3` 和离散精度，缓存计数包括 profile 容量。`edge_profile` 日志记录采样子阶段、D1 次数、渲染段数和上限次数；常量平面法线的初始计算与 EdgeUse 构建计入原 `edges_ms`，不计入该 D1 次数。`edge_profile_ms` 是 `edges_ms` 的子阶段，不能再相加成总时长。
+Worker 的快照策略键包含 `visual-surface-normals-v4` 和离散精度，缓存计数包括 profile 容量。`edge_profile` 日志记录采样子阶段、D1 次数、渲染段数和上限次数；常量平面法线的初始计算与 EdgeUse 构建计入原 `edges_ms`，不计入该 D1 次数。`edge_profile_ms` 是 `edges_ms` 的子阶段，不能再相加成总时长。
 
 正常实线按不可变 MeshData 共享几何，法线直接用 GLB FLOAT 数组的 interleaved view，只新建 kind/quality 的小型 GPU 属性。引用计数在最后一个 occurrence 释放时 dispose GPU geometry；WeakMap 不延长 MeshData 生命周期。虚线的屏幕距离随 instance placement 变化，因此保留独立几何。原 CAD 折线保留做拾取，材质不提交绘制，避免零 alpha 的重复 draw。跨实例的表面、材质和 draw call 没有合并；这里共享缓冲不代表整个装配只有一次 draw。
 
@@ -97,6 +97,6 @@ w=0 且无显式边色时：Cink=0，因此 Cout=(1−a)Csurface
 
 基础方案包含精确邻接、局部采样、连续强度、底色加深、保守降级和独立交互。随后根据实际绘制统计增加：实线几何共享、零复制法线属性、跳过透明拾取线绘制。验收用 `uniform / basic / natural` 保留三阶段投影：uniform 为恒定强度、basic 为独立缓冲的基础算法、natural 为默认优化算法。三者使用相同源 GLB 与显示条件；basic/natural 逐像素相同。
 
-没有新增相机相关全曲面轮廓、逐帧 CPU 边遍历、跨 occurrence 批量绘制、法线量化、OIT 或边线专用后处理。现有轮廓选择算法仍基于显示网格，不能宣称精确曲面轮廓。普通缩略图尚未接入本边线 shader，仍按自身 renderer 合同绘制。
+没有新增相机相关全曲面轮廓、逐帧 CPU 边遍历、跨 occurrence 批量绘制、法线量化、OIT 或边线专用后处理。现有轮廓选择算法仍基于显示网格，不能宣称精确曲面轮廓。缩略图已在 CPU 光栅器复用相同的局部分类、连续权重和底色加深规则；没有运行 WebGL shader，也没有视角轮廓增强，详见[曲面与预览](visual-studio.md)。
 
 已存储且缺少 profile 的 GLB 保守显示原结构线；重建几何显示制品后获得新效果，不在读取时改写不可变 Revision，也不为此清库。极端缩放、极短密集折线的端帽重叠、贴近共面几何的深度偏置、相交透明表面排序以及粗三角网格的表面棱感仍受现有光栅管线限制。真实硬件 GPU、百万级边装配与任意曲面的采样误差上界未作验收。

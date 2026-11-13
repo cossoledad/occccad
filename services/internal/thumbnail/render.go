@@ -18,7 +18,7 @@ import (
 const (
 	Width           = 640
 	Height          = 400
-	RendererVersion = "png-v11-exchange-results"
+	RendererVersion = "png-v12-studio-normals"
 	ContentType     = "image/png"
 	samples         = 2
 	// Bound scene preparation independently of pixel count and the job deadline.
@@ -106,7 +106,7 @@ func DefaultForType(_ string) []byte {
 		tanY := math.Tan(35 * math.Pi / 360)
 		for y := 0; y < Height; y++ {
 			blend := float64(y) / float64(Height-1)
-			base := [3]float64{35 + 77*blend, 51 + 83*blend, 70 + 85*blend}
+			base := [3]float64{225 + 19*blend, 230 + 16*blend, 236 + 12*blend}
 			for x := 0; x < Width; x++ {
 				ray := add(mul(eye, -1), add(mul(right, (2*(float64(x)+.5)/Width-1)*tanY*Width/Height), mul(up, (1-2*(float64(y)+.5)/Height)*tanY)))
 				intensity := 0.0
@@ -117,7 +117,7 @@ func DefaultForType(_ string) []byte {
 					line := math.Min(math.Abs(math.Remainder(point[0], 25)), math.Abs(math.Remainder(point[1], 25)))
 					intensity = math.Max(0, 1-line/footprint) * .12 * math.Min(1, 500/distance)
 				}
-				img.SetRGBA(x, y, color.RGBA{uint8(base[0] + (203-base[0])*intensity), uint8(base[1] + (220-base[1])*intensity), uint8(base[2] + (237-base[2])*intensity), 255})
+				img.SetRGBA(x, y, color.RGBA{uint8(base[0] + (149-base[0])*intensity), uint8(base[1] + (163-base[1])*intensity), uint8(base[2] + (178-base[2])*intensity), 255})
 			}
 		}
 		defaultImage, _ = encodePNG(context.Background(), img)

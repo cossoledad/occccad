@@ -372,11 +372,11 @@ select {
 
 .specification-tree { min-width: max-content; height: 100%; padding: 7px 16px 22px 4px; overflow: auto; pointer-events: none; user-select: none; }
 .specification-tree-virtual-space { position: relative; min-width: 280px; pointer-events: none; }
-.specification-tree-virtual-row { position: absolute; top: 0; left: 0; width: max-content; min-width: 100%; height: 27px; }
+.specification-tree-virtual-row { position: absolute; top: 0; left: 0; width: max-content; min-width: 100%; height: var(--tree-row-height,30px); }
 .specification-tree-connectors { position:absolute; top:0; left:0; fill:none; stroke:var(--tree-guide,#9caebc); stroke-width:1; pointer-events:none; }
 .specification-tree-level { position: relative; padding: 0; margin: 0; list-style: none; }
 .specification-tree-level.nested { margin-left: 23px; padding-left: 13px; }
-.specification-tree-node { position: relative; min-height: 27px; }
+.specification-tree-node { position: relative; min-height: var(--tree-row-height,30px); }
 .specification-tree-level.nested>.specification-tree-node::before {
   content: "";
   position: absolute;
@@ -401,7 +401,7 @@ select {
 .specification-tree-row {
   position: relative;
   z-index: 1;
-  height: 27px;
+  height: var(--tree-row-height,30px);
   display: flex;
   align-items: center;
   width: max-content;
