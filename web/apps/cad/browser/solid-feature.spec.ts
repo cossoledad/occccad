@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import { expect, test } from "@playwright/test";
 // Browser interaction coverage is separate from the exact Router/Worker corpus.
@@ -18,7 +19,7 @@ test("solid feature dialogs expose definitions and cancel cleanly", async ({ pag
             await expect(dialog.getByRole("button",{name:/^目标实体：/})).not.toContainText("请在视图区选择实体");
         }
         await expectViewport(viewportProbe(page,"navigation-camera")).toHaveText(camera!);
-        await expect(dialog.getByRole("button", { name: /确\s*定/ })).toBeDisabled();
+        await expect(dialog.getByRole("button", { name: confirmCommandName })).toBeDisabled();
         await dialog.getByRole("button", { name: "关闭", exact: true }).click();
         await expect(dialog).toHaveCount(0);
     }

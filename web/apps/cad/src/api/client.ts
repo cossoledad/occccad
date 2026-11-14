@@ -1,8 +1,8 @@
-import { apiURL, restApi, type CadApi } from "../api";
-import { mockApi } from "./mock-api";
+import { apiURL, type CadApi } from "../api";
+import { selectedApi, isMockMode } from "@cad-api-mode";
 
-export const isMockMode = import.meta.env.VITE_API_MODE === "mock";
-export const api: CadApi = isMockMode ? mockApi : restApi;
+export { isMockMode };
+export const api: CadApi = selectedApi;
 
 export function previewURL(documentID: string, versionID: string): string | undefined {
   if (isMockMode) return undefined;

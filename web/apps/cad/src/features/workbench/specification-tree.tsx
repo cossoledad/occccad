@@ -8,10 +8,11 @@ import {defaultTreeCommand} from "./tree-node-interaction";
 import {useOptionalCommandRegistry} from "../../cad/command/command-context";
 import {builtinCatalog} from "../../cad/command/workbench-catalog";
 import {CadIcon} from "../../cad/overlay/cad-icons";
-import { RightOutlined } from "@ant-design/icons";
+import { EyeInvisibleOutlined, EyeOutlined, SearchOutlined, RightOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Dropdown } from "antd";
-import { isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { Button, Dropdown, Input } from "antd";
+import {shallow} from "zustand/shallow";
+import { memo, isValidElement, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { selectionSetToken } from "../../cad/interaction/selection-identity";
 import type { DocumentStructureNode, InstancePath, Selection } from "../../types";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
@@ -69,7 +70,19 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, highlightedKeys, editSession, activeDocumentId, activeInstancePath, workingBodyId, workingGeometricalSetId, allowHistoricalCreation, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onReplace, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onUpdate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+/** Retain ancestors for context; IDs and original selection payloads are preserved. */
+export function filterTreeNodes(nodes:SpecificationTreeNode[],search:string):SpecificationTreeNode[]{
+ const needle=search.trim().toLocaleLowerCase();if(!needle)return nodes;
+ return nodes.flatMap(node=>{const children=node.children?filterTreeNodes(node.children,needle):undefined;
+  return titleText(node.title).toLocaleLowerCase().includes(needle)?[node]:children?.length?[{...node,children}]:[];});
+}
+function treePathLabels(nodes:SpecificationTreeNode[],path:string[]=[],output=new Map<string,string>()){
+ for(const node of nodes){const next=[...path,titleText(node.title)];output.set(node.key,next.join(' / '));if(node.children)treePathLabels(node.children,next,output);}return output;
+}
+type TreeRowProps={context:object;entry:VisibleTreeNode;start:number;highlighted:boolean;render:()=>ReactNode};
+const TreeRow=memo(function TreeRow({render}:TreeRowProps){return render()},(a,b)=>a.context===b.context&&a.entry===b.entry&&a.start===b.start&&a.highlighted===b.highlighted);
+
+export function SpecificationTree(props: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string;highlightedKeys?:string[]; editSession?: EditSession;
@@ -95,6 +108,15 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   onToggleVisibility?: (node: SpecificationTreeNode, scope: "DEFINITION" | "OCCURRENCE", mode?: "SHOW" | "HIDE" | "INHERIT") => void;
   onToggleSuppression?: (node: SpecificationTreeNode) => void;
 }) {
+  const { documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, highlightedKeys, editSession, activeDocumentId, activeInstancePath, workingBodyId, workingGeometricalSetId, allowHistoricalCreation, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onReplace, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onUpdate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression } = props;
+  const {highlightedKey:_highlightedKey,highlightedKeys:_highlightedKeys,...rowInputs}=props;
+  const stableInputs=useRef(rowInputs);
+  if(!shallow(stableInputs.current,rowInputs))stableInputs.current=rowInputs;
+  const [searchOpen,setSearchOpen]=useState(false),[query,setQuery]=useState("");
+  const searchInput=useRef<import("antd").InputRef>(null);
+  const search=useDeferredValue(query.trim().toLocaleLowerCase());
+  const [searchCollapsed,setSearchCollapsed]=useState<Set<string>>(new Set());
+  useEffect(()=>setSearchCollapsed(new Set()),[search]);
   const feedback=useOperationFeedback();
   const registry=useOptionalCommandRegistry();
   const declaration=(id:string)=>registry?.declaration(id)??builtinCatalog.commands.find(command=>command.id===id);
@@ -118,7 +140,9 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   },[contextMenu]);
   const anchorKey = useRef<string | undefined>(undefined);
   const scrollElement = useRef<HTMLElement>(null);
-  const visible = useMemo(() => visibleTreeLayout(nodes, expanded), [nodes, expanded]);
+  const pathLabels=useMemo(()=>search?treePathLabels(nodes):undefined,[nodes,Boolean(search)]);
+  const filtered=useMemo(()=>search?filterTreeNodes(nodes,search):nodes,[nodes,search]);
+  const visible = useMemo(() => visibleTreeLayout(filtered,search?new Set([...branchKeys(filtered)].filter(key=>!searchCollapsed.has(key))):expanded), [filtered, expanded,search,searchCollapsed]);
   const nodeIndex = useMemo(() => indexNodes(nodes), [nodes]);
   const visibleKeys = useMemo(() => visible.map((entry) => entry.node.key), [visible]);
   const selected = useMemo(() => new Set(selectedKeys), [selectedKeys]);
@@ -148,9 +172,12 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   },[nodes,reveal.sequence,reveal.intent,savedTree.revealedSequence]);
   useEffect(()=>{const key=pendingReveal.current;if(!key)return;const index=visibleKeys.indexOf(key);if(index>=0){virtualizer.scrollToIndex(index,{align:'auto'});pendingReveal.current=undefined}},[visibleKeys,virtualizer]);
 
-  const toggle = (key: string) => setExpanded((current) => {
+  const toggle = (key: string) => {
+    if(search){setSearchCollapsed(current=>{const next=new Set(current);if(next.has(key))next.delete(key);else next.add(key);return next});return;}
+    setExpanded((current) => {
     const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next;
   });
+  };
   const invokeDefault=(node:SpecificationTreeNode)=>{
     const command=defaultTreeCommand(node);
     if(!command||registry&&!registry.state(command,{payload:{node}}).enabled)return;
@@ -211,17 +238,24 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
     setContextMenu({ nodeKey: node.key, selectionSignature: menuSelectionSignature });
     event.currentTarget.focus();
   };
-  return <div className="specification-tree-browser">
+  // Closed menu content and row JSX are not rebuilt for unrelated hover changes.
+  // All non-hover inputs and internal interaction state invalidate row closures.
+  const rowContext=useMemo(()=>({}),[stableInputs.current,savedTree,focusedKey,contextMenu,visible,registry,feedback]);
+  return <div className="specification-tree-browser" onKeyDown={event=>{
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'){event.preventDefault();event.stopPropagation();setSearchOpen(true);requestAnimationFrame(()=>searchInput.current?.focus())}
+  }}>
+    <div className="specification-tree-tools">{searchOpen?<Input ref={searchInput} autoFocus allowClear size="small" aria-label="搜索结构树" placeholder="搜索结构树" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setQuery('');setSearchOpen(false)}}}/>:<Button size="small" type="text" aria-label="搜索结构树" icon={<SearchOutlined/>} onClick={()=>setSearchOpen(true)}/>}</div>
     <nav ref={scrollElement} className="specification-tree specification-tree-virtual" aria-label="Specification tree"
     role="tree" aria-multiselectable="true" style={{'--tree-row-height':`${TREE_ROW_HEIGHT}px`} as CSSProperties} onMouseLeave={() => onHover?.()}>
     <div className="specification-tree-virtual-space" style={{ height: virtualizer.getTotalSize() }}>
       {virtualizer.getVirtualItems().map((item) => {
         const entry = visible[item.index];
+        return <TreeRow key={entry.node.key} context={rowContext} entry={entry} start={item.start} highlighted={highlightedKey===entry.node.key||!!highlightedKeys?.includes(entry.node.key)} render={()=>{
         const { node, depth, hasChildren } = entry;
         const visibility = treeVisibilityAction(node, editSession);
         const assemblyNode = ["ASSEMBLY_CONSTRAINT", "ASSEMBLY_CONSTRAINT_SET"].includes(node.kind ?? "");
         const assemblyActionEnabled = node.documentId === activeDocumentId && (node.instancePath?.canonical ?? "") === (activeInstancePath ?? "");
-        const isExpanded = hasChildren && (depth === 0 || expanded.has(node.key));
+        const isExpanded = hasChildren && (depth === 0 || (search?!searchCollapsed.has(node.key):expanded.has(node.key)));
         const isSelected = selected.has(node.key);
         const defaultCommand=defaultTreeCommand(node);
         const actionEnabled=Boolean(defaultCommand)&&(!registry||registry.state(defaultCommand!,{payload:{node}}).enabled);
@@ -259,7 +293,10 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               </svg>
             </button> : <span className="specification-tree-junction leaf" />}
           <span className="specification-tree-icon">{node.icon}</span>
-          <span className="specification-tree-label">{node.title}</span>
+          <span className="specification-tree-label" title={pathLabels?.get(node.key)}>{node.title}</span>
+          {visibility&&onToggleVisibility&&<button type="button" className="specification-tree-visibility" aria-label={`${visibility.label==='show'?'显示':'隐藏'} ${titleText(node.title)}`} tabIndex={-1}
+            disabled={!!registry&&!registry.state('tree.visibility',{payload:{node}}).enabled} onDoubleClick={event=>event.stopPropagation()}
+            onClick={event=>{event.stopPropagation();onToggleVisibility(node,visibility.scope,visibility.mode)}}>{visibility.label==='show'?<EyeInvisibleOutlined/>:<EyeOutlined/>}</button>}
         </div>;
         return <div key={node.key} className={`specification-tree-virtual-row ${depth > 0 ? "nested" : "root"}`} style={rowStyle}>
           <svg className="specification-tree-connectors" width={depth * 22 + 18} height={TREE_ROW_HEIGHT} aria-hidden="true">
@@ -318,7 +355,9 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } },
             ...(onProperties?[{type:"divider" as const},{key:"properties",icon:menuIcon("tree.properties"),label:menuLabel("tree.properties"),onClick:()=>{setContextMenu(undefined);onProperties(node)}}]:[])],titleText(node.title),selectedNodes.filter(candidate=>candidate.presentationRole!=="INPUT_REFERENCE").length>1):[] }}>{row}</Dropdown>
         </div>;
+      }}/>;
       })}
     </div>
+    {search&&!visible.length&&<div className="specification-tree-empty">没有匹配的对象</div>}
   </nav></div>;
 }

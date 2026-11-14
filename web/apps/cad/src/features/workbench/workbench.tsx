@@ -1,34 +1,35 @@
-import {ShapeQualityPanel} from './shape-quality-panel';
-import {PartDeleteDialog} from './part-delete-dialog';
-import {PartContainerDialog} from './part-container-dialog';
+import {deferredPanel} from "../../components/deferred-panel";
+
+
+
 import {objectDeleteTarget,managedPartKinds,organizationalNode,type ObjectDeleteTarget} from './object-operations';
-import {GeometricFeatureEditor} from './geometric-feature-editor';
+
 import {defaultGeometricFeature,geometryBodyKind} from './geometric-feature-model';
 import {featureSketchPlane} from "../../cad/sketch/sketch-support-frame";
 import {owningInstanceSelection} from "../../cad/assembly/instance-selection";
 import {assemblyReferenceInContext} from "../../cad/assembly/assembly-reference";
 import {assemblyPublicationSelection,assemblyPublicationCandidates,type AssemblyPublicationChoice} from "./assembly-publication-selection";
-import {PublicationManager} from "./publication-manager";
+
 import {AssemblyDialogStatus} from "./assembly-dialog-status";
-import {ParameterExternalEditor} from "./parameter-external-editor";
-import {ReferenceElementEditor} from "./reference-element-editor";
+
+
 import {createdObjectReveal,requestTreeReveal} from "./tree-reveal";
 import {AnnotationLayoutSession} from "../../cad/measurement/annotation-layout";
 import {annotationLayoutAPI} from "../../api/document-presentation";
-import {MeasurementPanel} from './measurement-panel';
+
 import {measurements,type Measurement,type MeasurementKind} from '../../cad/measurement/measurement';
-import {SpatialAnalysisPanel} from "./spatial-analysis-panel";
+
 import {spatialPathsForView,type SpatialAnalysis} from "../../cad/assembly/spatial-analysis";
 import {interferenceDisplayIndex,withInterferenceDetail,staticBodySelection} from "../../cad/assembly/static-interference";
-import {StaticInterferencePanel} from "./static-interference-panel";
+
 import {consecutiveSolidFeatures,isSolidStage} from "./solid-feature-model";
 import {CommandInputError} from "../../cad/command/operation-failure";
 import {defaultModifierFeature} from "./solid-feature-model";
-import {DesignInputDialog} from "./design-input-dialog";
-import {ReplaceInstanceDialog} from "./replace-instance-dialog";
+
+
 import {ContextInputSource,boundContextParameter as contextParameterBinding} from './context-input-source';
 import {FeaturePickField} from './feature-pick-field';
-import {DesignAssociationDialog} from "./design-association-dialog";
+
 import {setContextEditScope,acceptedContextView,baseDocumentView,contextScopeForView,viewContextKey,commandForView} from "../../api/context-edit-scope";
 import {CommandFormContext,CommandField} from "../../cad/overlay/command-form";
 import {engineeringLabel,selectionName} from "../../cad/presentation/engineering-text";
@@ -43,14 +44,14 @@ import {newerRun} from "../assistant/conversation-model";
 import {useGlobalOptions} from "../preferences/global-options-center";
 import {sceneBackgroundIsLight} from "../../cad/rendering/scene-settings";
 import {AssemblyConstraintFields} from "./assembly-constraint-fields";
-import {ObjectPropertiesDialog} from "./object-properties-dialog";
+
 import {propertyEditorTarget,refreshPropertyTargets,type PropertyEditorTarget} from "./property-target";
 import {withMotionResults} from './motion-result-tree';
 import {structureCommandIDs,type StructureActions,type StructureInvocation} from "./commands/structure-commands";
 import {useWorkbenchCommandRegistration} from "./workbench-command-registration";
 import {ParameterReferenceInput} from "./parameter-reference-input";
 import {useFeaturePreview} from "./use-feature-preview";
-import { DatumEditor } from "./datum-editor";
+
 import type { DatumPreview } from "../../cad/rendering/datum-reference";
 import {assemblyGroupMember,groupMemberForInstance,groupMemberToken,groupMemberSelection} from "../../cad/assembly/group-selection";
 import { FeaturePickScope, pickFeatureSelection, type FeatureSelectionSession } from "../../cad/interaction/feature-selection";
@@ -77,17 +78,17 @@ import type { AssemblyInteractionCommit } from "../../cad/assembly/assembly-inte
 import { AssemblyConflictResponseGate,assemblyConflictCurrent,type AssemblyConflictReport,type AssemblyConflictMember,type AssemblyConflictRepair } from "../../cad/assembly/assembly-conflict";
 import { AssemblyConflictPanel } from "./assembly-conflict-panel";
 import {useOperationFeedback,useOperationFailureNotification} from "../../cad/command/operation-feedback";
-import { InsertDocumentDialog } from "./insert-document-dialog";
+
 import {SketchSupportEditor} from "./sketch-support-editor";
 import {profileRegionRepairFeature} from "./profile-region-selection";
-import {FeatureMoveDialog} from "./feature-move-dialog";
-import { SolidFeatureEditor, type FeatureInsertionContext } from "./solid-feature-editor";
+
+import type {FeatureInsertionContext } from "./solid-feature-editor";
 import {resumeSolidSketchDraft,solidSketchWorkflowMatches,type SolidFeatureDraft,type SolidSketchWorkflow} from './solid-sketch-workflow';
 import {createdSketchFeature} from "./historical-creation";
-import { BooleanFeatureDialog } from "./boolean-feature-dialog";
-import {SketchDiagnosticsPanel} from "./sketch-diagnostics-panel";
-import {SketchOffsetEditor} from "./sketch-offset-editor";
-import { InstancePatternDialog } from "./instance-pattern-dialog";
+
+
+
+
 import type { InstancePatternPreview } from "./instance-pattern";
 import "./workbench.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -114,6 +115,9 @@ import { DISPLAY_KINDS, visibilityResolverForView, type DisplayKind } from "../.
 import { assemblyGeometryRef, type AssemblyConstraintToolKind } from "../../cad/tool/cad-tool";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
 import {contextTabs} from "../../cad/command/workbench-catalog";
+import { useShallow } from "zustand/react/shallow";
+import {jobsQueryOptions} from "../activity/jobs-query";
+import {WorkbenchTree, WorkbenchViewport as CadViewport} from "./workbench-surfaces";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import { displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLength,
   useUIPreferences } from "../../state/ui-preferences";
@@ -129,7 +133,7 @@ import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } fr
 import { assemblyAutomaticPreviewAllowed, createAssemblyPreviewActor } from "./assembly-preview-machine";
 import {documentParameters, parameterInputUnit,isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
 import {kinematicKinds,motionSelectionTargets,qualifyMotionSelections,deleteMotionObjects,renameMotionObject} from "../../cad/assembly/motion-definitions";
-import {MechanismAnalysisPanel} from "./mechanism-analysis-panel";
+
 import {MotionStudyPanel,type MotionPanelHandle} from "./motion-study-panel";
 import {applicationDisplay,restoredApplicationSources} from "../../cad/assembly/application-display";
 import type {MotionPlayback} from "../../cad/assembly/motion-study";
@@ -139,10 +143,33 @@ import { associatedTreeKeyForSelection, deletableTreeNodesForSelections, ancesto
 import { assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
   validateReconnectCandidate, assemblyConstraintActionFailure } from "../../cad/assembly/assembly-constraint-ux";
 
+const ShapeQualityPanel=deferredPanel(()=>import("./shape-quality-panel").then(module=>({default:module.ShapeQualityPanel})));
+const PartDeleteDialog=deferredPanel(()=>import("./part-delete-dialog").then(module=>({default:module.PartDeleteDialog})));
+const PartContainerDialog=deferredPanel(()=>import("./part-container-dialog").then(module=>({default:module.PartContainerDialog})));
+const GeometricFeatureEditor=deferredPanel(()=>import("./geometric-feature-editor").then(module=>({default:module.GeometricFeatureEditor})));
+const PublicationManager=deferredPanel(()=>import("./publication-manager").then(module=>({default:module.PublicationManager})));
+const ParameterExternalEditor=deferredPanel(()=>import("./parameter-external-editor").then(module=>({default:module.ParameterExternalEditor})));
+const ReferenceElementEditor=deferredPanel(()=>import("./reference-element-editor").then(module=>({default:module.ReferenceElementEditor})));
+const MeasurementPanel=deferredPanel(()=>import("./measurement-panel").then(module=>({default:module.MeasurementPanel})));
+const SpatialAnalysisPanel=deferredPanel(()=>import("./spatial-analysis-panel").then(module=>({default:module.SpatialAnalysisPanel})));
+const StaticInterferencePanel=deferredPanel(()=>import("./static-interference-panel").then(module=>({default:module.StaticInterferencePanel})));
+const DesignInputDialog=deferredPanel(()=>import("./design-input-dialog").then(module=>({default:module.DesignInputDialog})));
+const ReplaceInstanceDialog=deferredPanel(()=>import("./replace-instance-dialog").then(module=>({default:module.ReplaceInstanceDialog})));
+const DesignAssociationDialog=deferredPanel(()=>import("./design-association-dialog").then(module=>({default:module.DesignAssociationDialog})));
+const ObjectPropertiesDialog=deferredPanel(()=>import("./object-properties-dialog").then(module=>({default:module.ObjectPropertiesDialog})));
+const DatumEditor=deferredPanel(()=>import("./datum-editor").then(module=>({default:module.DatumEditor})));
+const InsertDocumentDialog=deferredPanel(()=>import("./insert-document-dialog").then(module=>({default:module.InsertDocumentDialog})));
+const FeatureMoveDialog=deferredPanel(()=>import("./feature-move-dialog").then(module=>({default:module.FeatureMoveDialog})));
+const SolidFeatureEditor=deferredPanel(()=>import("./solid-feature-editor").then(module=>({default:module.SolidFeatureEditor})));
+const BooleanFeatureDialog=deferredPanel(()=>import("./boolean-feature-dialog").then(module=>({default:module.BooleanFeatureDialog})));
+const SketchDiagnosticsPanel=deferredPanel(()=>import("./sketch-diagnostics-panel").then(module=>({default:module.SketchDiagnosticsPanel})));
+const SketchOffsetEditor=deferredPanel(()=>import("./sketch-offset-editor").then(module=>({default:module.SketchOffsetEditor})));
+const InstancePatternDialog=deferredPanel(()=>import("./instance-pattern-dialog").then(module=>({default:module.InstancePatternDialog})));
+const MechanismAnalysisPanel=deferredPanel(()=>import("./mechanism-analysis-panel").then(module=>({default:module.MechanismAnalysisPanel})));
 const AssemblyDependencyPanel = lazy(() => import("./assembly-dependency-panel").then(module=>({default:module.AssemblyDependencyPanel})));
 const PartDependencyPanel=lazy(()=>import('./part-dependency-panel').then(module=>({default:module.PartDependencyPanel})));
 const FeatureRepairPanel=lazy(()=>import('./feature-repair-panel').then(module=>({default:module.FeatureRepairPanel})));
-const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
+
 
 
 function sketchPlane(datum: DatumPlane): SketchPlane {
@@ -348,7 +375,7 @@ export function Workbench() {
 
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
-  const store = useWorkbenchStore();
+  const store = useWorkbenchStore(useShallow(({preselection: _preselection, ...state}) => state));
   useEffect(()=>setSketchDiagnosticsOpen(false),[store.activeSketchID]);
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
 	useLayoutEffect(() => {
@@ -457,7 +484,7 @@ export function Workbench() {
     onSuccess:(updated)=>{void refresh(updated);},onError:()=>{void refresh();}});
   const view = document.data;
   const productUpdateFailure=productUpdateFailureSnapshot?.documentId===view?.document.id&&productUpdateFailureSnapshot?.revisionId===view?.document.versionId?productUpdateFailureSnapshot?.diagnostic:undefined;
-  const motionJobs=useQuery({queryKey:['motion-jobs',documentID],queryFn:async()=> (await api.listJobs()).filter(j=>j.type==='MOTION_STUDY'&&j.documentId===documentID),enabled:Boolean(view?.product),refetchInterval:5000});
+  const motionJobs=useQuery({...jobsQueryOptions(),enabled:Boolean(view?.product),select:useCallback((jobs: Awaited<ReturnType<typeof api.listJobs>>)=>jobs.filter(job=>job.type==='MOTION_STUDY'&&job.documentId===documentID),[documentID])});
 
   useEffect(()=>{
     if(staticInterferenceOpen||spatialEditor)return;
@@ -1286,7 +1313,7 @@ export function Workbench() {
           const ids=new Set(candidates.map(node=>node.entityId));
           store.setSelections(useWorkbenchStore.getState().selections.filter(s=>s.kind!=="kinematic-object"||s.entityKind!=="MOTION_RESULT"||!ids.has(s.id)));
         }catch(error){operationFeedback(error,'删除模拟结果')}
-        finally{await Promise.all([client.invalidateQueries({queryKey:['motion-jobs',documentID]}),client.invalidateQueries({queryKey:queryKeys.jobs})])}
+        finally{await client.invalidateQueries({queryKey:queryKeys.jobs})}
       })();return;
     }
     if (!editingView || !(canEdit||motionOpen&&canEditRoot&&!motionDisplay&&nodes.length>0&&nodes.every(node=>kinematicKinds.includes(node.kind??""))) || command.isPending) return;
@@ -1789,11 +1816,9 @@ onToggleConstruction:(node)=>{
       status={<WorkbenchStatus assistantOpen={assistantOpen} onAssistantToggle={!isMockMode?()=>setAssistantOpen(value=>!value):undefined} busy={sketchInteractionBusy} canEdit={motionOpen&&!motionDisplay?canEditRoot:canEdit} selectionCount={store.selections.length}
         sketchReceipt={sketchReceipt} onSketchReceiptCheck={()=>void viewport.current?.retrySketchReceipt()} sketchCommand={store.activeSketchID?sketchCommandState:undefined} onSketchAction={action=>viewport.current?.sketchCommandAction(action)}
         toolName={activeToolName} prompt={motionOpen?motionStatus:solidSketchWorkflow&&store.activeSketchID?'结束草图后返回特征定义；已确认的草图修改保留在历史中。':undefined} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
-      tree={<SpecificationTree key={documentID} documentSessions={documentSessions} hostDocumentId={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
+      tree={<WorkbenchTree key={documentID} documentSessions={documentSessions} hostDocumentId={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
             ancestorHintKeys={ancestorHintKeysForSelections(treeNodes, store.selections)}
             selectionToken={selectionSetToken(store.selections)}
-            highlightedKey={treeKeyForSelection(treeNodes, store.preselection)??associatedTreeKeyForSelection(treeNodes,store.preselection)}
-            highlightedKeys={treeKeysForSelections(treeNodes,store.preselection?[store.preselection]:[])}
             editSession={editSession}
             activeDocumentId={activeID}
             activeInstancePath={activeInstancePath}
@@ -1874,7 +1899,6 @@ onToggleConstruction:(node)=>{
           activeInstanceRotation={replacementPreview?.resolvedInstances?.find(i=>i.occurrencePath===activeInstancePath)?.rotation??activeResolvedInstance?.rotation}
           activeBodyTreeNodeId={activeResolvedInstance?.bodyTreeNodeId}
           selections={motionSelectionTargets(motionDisplay?.view??view,store.selections)}
-          preselection={store.preselection}
           treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={motionDisplay?undefined:store.sketchPlane} activeSketchID={motionDisplay?undefined:store.activeSketchID} activeToolID={motionDisplay?"select":store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
           propertyPreview={objectPreview} sceneSettings={sceneSettings} gridVisibility={{...gridVisibility,scene:true}} referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}

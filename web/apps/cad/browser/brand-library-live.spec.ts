@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { observeViewport, worldScreen } from "./camera-helpers";
@@ -80,7 +81,7 @@ test("user management approves accounts and keeps secondary actions reachable", 
     await expect(row).toContainText("待审批"); await row.getByRole("button", { name: /批\s*准/ }).click(); await expect(row).toContainText("已启用");
     await row.getByRole("button", { name: "账号操作 界面验收账号", exact: true }).click(); await page.getByRole("menuitem", { name: /重置密码/ }).click();
     const reset = page.getByRole("dialog", { name: "重置密码 · 界面验收账号", exact: true });
-    await reset.getByLabel("新密码", { exact: true }).fill("Updated-example-12345"); await reset.getByRole("button", { name: /确\s*定/ }).click(); await expect(reset).toHaveCount(0);
+    await reset.getByLabel("新密码", { exact: true }).fill("Updated-example-12345"); await reset.getByRole("button", { name: confirmCommandName }).click(); await expect(reset).toHaveCount(0);
     const account = await browser.newContext({ baseURL: "http://127.0.0.1:5175" });
     try { expect((await account.request.post("/api/auth/login", { data: { email: seed.email, password: "Updated-example-12345" } })).ok()).toBe(true); } finally { await account.close(); }
     await page.setViewportSize({ width: 390, height: 844 }); expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(390);

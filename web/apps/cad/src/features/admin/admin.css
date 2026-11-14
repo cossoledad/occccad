@@ -11,7 +11,7 @@
 .admin-drawer .ant-table-thead > tr > th { font-size:12px;color:#8893a3;font-weight:500; }
 .identity-cell { display:grid;gap:5px;min-width:0; }
 .identity-cell strong { font-weight:500; }
-.identity-cell small { color:#96a1af;font-size:11px; }
+.identity-cell small { color:var(--color-text-secondary);font-size:12px;overflow-wrap:anywhere; }
 .admin-role { color:#788597;font-size:12px; }
 .admin-row-actions { display:flex;align-items:center;justify-content:flex-end;gap:4px; }
 .admin-row-actions .ant-btn { padding-inline:8px; }
@@ -20,4 +20,7 @@
 .account-status.active { color:#479782; }.account-status.pending { color:#c49a4d; }
 .admin-drawer .ant-alert { margin-bottom:20px; }
 .admin-drawer .ant-pagination { padding-right:16px; }
+.admin-editor { max-width:480px;margin:12px auto;padding:28px;background:#fff;border:1px solid var(--color-border);border-radius:10px; }
+.admin-editor-title { display:flex;align-items:center;gap:8px; }
+.admin-editor-actions { display:flex;justify-content:flex-end;gap:10px;padding:4px 12px; }
 @media (max-width:600px) { .admin-drawer .ant-drawer-body { padding:20px 16px; }.admin-statistics { grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:24px; }.admin-statistics .ant-statistic { padding:14px 16px; }.drawer-toolbar { grid-template-columns:minmax(0,1fr) auto;gap:10px; }.drawer-toolbar > .ant-input-affix-wrapper { grid-column:1/-1; } }

@@ -35,7 +35,7 @@ export type WorkbenchCommandBindings={
 	prepareAssemblyMove?:()=>Promise<void>;
  setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;motionCommandEnabled?:(action:string)=>boolean;onMotionCommand?:(action:string,operation?:CommandOperation)=>void;
  treeActions?:StructureActions;closePanels?:(nextCommand?:string)=>void;toolContinuation?:boolean;formActive?:boolean;
- store:ReturnType<typeof useWorkbenchStore.getState>;editingView?:DocumentView;view?:DocumentView;
+ store:Omit<ReturnType<typeof useWorkbenchStore.getState>,"preselection">;editingView?:DocumentView;view?:DocumentView;
  canEdit:boolean;canEditRoot:boolean;command:{isPending:boolean};selectedNamingIssue:unknown;conflictOpen:boolean;moveReceiptPending:boolean;workingBodyID?:string;
  treeNodes:SpecificationTreeNode[];viewport:{current:CadViewportHandle|null};
  startSketch:()=>void;finishSketch:()=>void;normalToSelection:(signal?:AbortSignal)=>void|Promise<void>;

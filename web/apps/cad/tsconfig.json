@@ -4,6 +4,7 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": {"@cad-api-mode": ["./src/api/real-mode.ts"]},
     "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,

@@ -6,8 +6,9 @@ import type { DocumentSummary } from "../../types";
 import { relativeDate } from "./document-utils";
 
 /** Modal/search drafts and other cards' selection do not rebuild an unchanged card. */
-export const DocumentCard = memo(function DocumentCard({ document, selected, trash, onOpen, onToggle, onAction }: {
+export const DocumentCard = memo(function DocumentCard({ document, selected, trash, compact, onOpen, onToggle, onAction }: {
   document: DocumentSummary; selected: boolean; trash: boolean;
+  compact?: boolean;
   onOpen: (document: DocumentSummary) => void; onToggle: (document: DocumentSummary) => void;
   onAction: (action: string, document: DocumentSummary) => void;
 }) {
@@ -23,9 +24,8 @@ export const DocumentCard = memo(function DocumentCard({ document, selected, tra
   const menu = <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => onAction(key, document) }}>
     <Button className="card-menu" type="text" aria-label={`文档操作 ${document.name}`} icon={<MoreOutlined />} />
   </Dropdown>;
-  return <Card hoverable className={`document-card${selected ? " selected" : ""}`}
-    cover={<button className="thumbnail-button" aria-label={`预览 ${document.name}`} onClick={() => onToggle(document)} onDoubleClick={() => onOpen(document)}
-      onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); onOpen(document); } }}><DocumentThumbnail document={document} /></button>}>
+  return <Card hoverable className={`document-card${selected ? " selected" : ""}${compact ? " compact" : ""}`}
+    cover={<button className="thumbnail-button" disabled={trash} aria-label={`打开 ${document.name}`} onClick={() => onOpen(document)}><DocumentThumbnail document={document} /></button>}>
     <Card.Meta title={<span className="document-title">{!trash && <Checkbox aria-label={`选择 ${document.name}`} checked={selected}
       disabled={!editable} onChange={() => onToggle(document)} />}<button className="document-name" disabled={trash} title={document.name} onClick={() => onOpen(document)}>{document.name}</button>{menu}</span>}
       description={<>{document.description && <span className="document-description">{document.description}</span>}<small><span className={`document-kind ${document.type.toLowerCase()}`}>{document.type === "PART" ? "零件" : "装配"}</span><span>{relativeDate(document.lastUpdated)}</span></small></>} />

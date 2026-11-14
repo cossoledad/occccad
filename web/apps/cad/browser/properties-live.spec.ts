@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import {treeNavigator} from "./tree-helpers";
 import {worldScreen} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
@@ -36,7 +37,7 @@ test("real properties history, face preview, conflict recovery and adaptive scen
  const dialog=page.getByRole("dialog",{name:/^属性 ·/});
  const body=()=>page.locator(`[role="treeitem"][data-tree-key$="/body:${seed.bodyId}"]`);
  const openBody=async()=>{await treeNavigator(page)(seed.bodyName);await body().click({button:"right"});await page.getByRole("menuitem",{name:"属性…",exact:true}).click();await expect(dialog).toBeVisible()};
- const save=async()=>{await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0)};
+ const save=async()=>{await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0)};
  const appearance=async()=>{const v=await current(page,seed.id);return v.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).appearance};
  await openBody();await dialog.getByRole("textbox",{name:"颜色 HEX",exact:true}).fill("#2176ff");await dialog.getByRole("spinbutton",{name:"表面透明度",exact:true}).fill("40");await save();
  await expect.poll(async()=>(await appearance())?.opacity).toBeCloseTo(.6,8);
@@ -61,7 +62,7 @@ test("real properties history, face preview, conflict recovery and adaptive scen
   const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(id);
   await api.command(id,{type:"SET_PROPERTIES",versionId:v.document.versionId,properties:{targets:[{kind:"BODY",id:bodyId}],name:"Concurrent body name"}});
  },seed);
- await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toContainText("属性尚未保存");
+ await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toContainText("属性尚未保存");
  await expect(dialog.getByRole("button",{name:/加载最新/})).toHaveCount(0);await dialog.getByRole("button",{name:/取\s*消/}).click();await openBody();await dialog.getByRole("textbox",{name:"颜色 HEX",exact:true}).fill("#43a047");await save();
  const final=await current(page,seed.id);expect(final.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).name).toBe("Concurrent body name");
  expect(final.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).geometryKey).toBe(seed.key);

@@ -1,3 +1,7 @@
+import {exchangeNotices} from "../features/activity/exchange-notices";
+import {engineeringProblem} from "../cad/command/operation-failure";
+import type {Job} from "../types";
+import {mergeJobEvent} from "../features/activity/jobs-query";
 import { LogoutOutlined, QuestionCircleOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App as AntApp, Avatar, Button, Dropdown, Layout, Spin } from "antd";
@@ -9,7 +13,7 @@ import { Brand } from "../components/brand";
 import { AuthScreen } from "../features/auth/auth-screen";
 import { ActivityCenter } from "../features/activity/activity-center";
 import { exchangeCompletionWarnings } from "../features/activity/activity-model";
-import { DocumentCenter } from "../features/documents/document-center";
+
 import { DocumentTabsController } from "../features/workbench/document-tabs-controller";
 import {GlobalOptionsProvider,GlobalOptionsButton} from "../features/preferences/global-options-center";
 import { queryKeys } from "./query-keys";
@@ -17,6 +21,7 @@ import { UIHelpProvider, useUIHelp } from "../cad/help/ui-help-context";
 import { useApplicationContext } from "../state/application-context";
 import { DocumentSessionProvider } from "../cad/document/document-session-context";
 
+const DocumentCenter = lazy(() => import("../features/documents/document-center").then(module => ({default: module.DocumentCenter})));
 const AdminDrawer = lazy(() => import("../features/admin/admin-drawer").then((module) => ({ default: module.AdminDrawer })));
 const Workbench = lazy(() => import("../features/workbench/workbench").then((module) => ({ default: module.Workbench })));
 
@@ -37,28 +42,32 @@ function ApplicationShell() {
     enabled: Boolean(session.data) });
   useEffect(() => {
     if (!session.data || isMockMode) return;
+    const stopNotices=exchangeNotices.listen(jobs=>{
+      const failed=jobs.filter(job=>job.state==='FAILED');
+      const warnings=jobs.flatMap(job=>exchangeCompletionWarnings(job).map(warning=>`${job.fileName??'文件'}：${warning}`));
+      const first=jobs[0],single=jobs.length===1;
+      const title=single?(failed.length?`${first.type==='EXCHANGE_IMPORT'?'导入':'导出'}失败`:first.state==='CANCELED'?'任务已取消':`${first.type==='EXCHANGE_IMPORT'?'导入':'导出'}完成${warnings.length?'，有警告':''}`):`导入完成 · ${jobs.filter(job=>job.state==='SUCCEEDED').length}/${jobs.length}`;
+      const key=single?first.id:`import-batch:${first.id}`;
+      const action=single&&first.state==='SUCCEEDED'?(first.type==='EXCHANGE_IMPORT'&&first.documentId?<Button type="primary" onClick={()=>{notification.destroy(key);navigate(`/documents/${first.documentId}`)}}>打开文档</Button>:first.type==='EXCHANGE_EXPORT'?<Button type="primary" onClick={()=>void api.downloadJob(first.id).catch(error=>message.error(engineeringProblem(error)))}>下载文件</Button>:undefined):undefined;
+      notification[failed.length?'error':warnings.length?'warning':'success']({key,title,className:'exchange-completion-notice',
+        description:<div>{single&&first.fileName&&<p>{first.fileName}</p>}{failed.map(job=><p key={job.id}>{job.fileName}：{engineeringProblem(job.errorMessage??'任务失败')}</p>)}{warnings.map((warning,index)=><p key={index}>{warning}</p>)}</div>,
+        duration:failed.length||warnings.length?0:5,actions:action});
+    });
+    let refreshTimer:ReturnType<typeof setTimeout>|undefined;
+    const refreshJobs=()=>{if(refreshTimer===undefined)refreshTimer=setTimeout(()=>{refreshTimer=undefined;void client.invalidateQueries({queryKey:queryKeys.jobs})},200)};
     const unsubscribe = realtime.onJobEvent((job) => {
-      if (job.type !== "EXCHANGE_IMPORT" && job.type !== "EXCHANGE_EXPORT") return;
-      void client.invalidateQueries({ queryKey: queryKeys.jobs });
-      if (job.type === "EXCHANGE_IMPORT" && ["SUCCEEDED", "FAILED", "CANCELED"].includes(job.state)) void client.invalidateQueries({ queryKey: ["documents"] });
-      if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_IMPORT") {
-        const warnings = exchangeCompletionWarnings(job);
-        notification[warnings.length ? "warning" : "success"]({ key: job.id, message: warnings.length ? "文档导入完成，有警告" : "文档导入完成",
-          description: <div>{job.fileName&&<p>{job.fileName}</p>}{warnings.length ? warnings.map((warning) => <p key={warning}>{warning}</p>) : null}</div>,
-          duration: warnings.length ? 0 : undefined,
-          btn: job.documentId ? <Button type="primary" onClick={() => { notification.destroy(job.id); navigate(`/documents/${job.documentId}`); }}>打开文档</Button> : undefined });
-      } else if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_EXPORT") {
-        const warnings = exchangeCompletionWarnings(job);
-        notification[warnings.length ? "warning" : "success"]({ key: job.id, message: warnings.length ? "文档导出完成，有警告" : "文档导出完成", description: <div>{job.fileName&&<p>{job.fileName}</p>}{warnings.length ? warnings.map(warning=><p key={warning}>{warning}</p>) : null}</div>,duration:warnings.length ? 0 : undefined,
-          btn: <Button type="primary" onClick={() => void api.downloadJob(job.id).catch((error) => message.error(error.message))}>下载文件</Button> });
-      } else if (job.state === "FAILED") {
-        notification.error({ key: job.id, message: job.type === "EXCHANGE_IMPORT" ? "文档导入失败" : "文档导出失败",
-          description: job.errorMessage ?? "后台任务执行失败" });
-      }
+      const previous=client.getQueryData<Job[]>(queryKeys.jobs),next=mergeJobEvent(previous,job);
+      if(next!==previous)client.setQueryData(queryKeys.jobs,next);
+      if(!previous?.some(item=>item.id===job.id)||['SUCCEEDED','FAILED','CANCELED'].includes(job.state))refreshJobs();
+      if(job.type==='EXCHANGE_IMPORT'&&['SUCCEEDED','FAILED','CANCELED'].includes(job.state))void client.invalidateQueries({queryKey:['documents']});
+      exchangeNotices.receive(job);
+    });
+    const reconcile=client.getQueryCache().subscribe(event=>{
+      if(event.type==='updated'&&event.action.type==='success'&&event.query.queryKey[0]==='jobs')exchangeNotices.reconcile((event.query.state.data??[]) as Job[]);
     });
     const recover = realtime.onRecovery(() => { void client.invalidateQueries({ queryKey: queryKeys.jobs }); });
     realtime.start();
-    return () => { unsubscribe(); recover(); realtime.stop(); };
+    return () => { if(refreshTimer!==undefined)clearTimeout(refreshTimer);unsubscribe(); recover(); reconcile();stopNotices();realtime.stop(); };
   }, [client, message, navigate, notification, session.data]);
 
   if (session.isLoading) return <div className="application-loading"><Brand /><Spin size="large" /></div>;
@@ -98,7 +107,7 @@ function ApplicationShell() {
 export function App() {
   return <UIHelpProvider><Routes>
     <Route element={<ApplicationShell />}>
-      <Route index element={<DocumentCenter />} />
+      <Route index element={<Suspense fallback={<RouteLoading />}><DocumentCenter /></Suspense>} />
       <Route path="documents/:documentID" element={<Suspense fallback={<RouteLoading />}><Workbench /></Suspense>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>

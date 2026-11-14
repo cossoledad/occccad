@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import {treeNavigator} from "./tree-helpers";
 import {expect,test,type Page} from '@playwright/test';
 import {setProjection,worldScreen} from './camera-helpers';
@@ -134,7 +135,7 @@ test('Reference elements preview, tree picking, owned parameters and Product par
  });
  await page.goto(`/documents/${id}`);await expect(page.locator('canvas')).toBeVisible();
  await expect(page.locator('[role=treeitem]').filter({hasText:'XY Plane'})).toBeVisible();await expect(page.locator('[role=treeitem]').filter({hasText:/^Origin$/})).toHaveCount(0);
- const createPoint=async(z:string)=>{await openMeasure(page,'参考点');const dialog=page.getByRole('dialog',{name:'创建参考点',exact:true});await dialog.getByRole('combobox',{name:'Z',exact:true}).fill(z);await dialog.getByRole('combobox',{name:'Z',exact:true}).blur();await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0)};
+ const createPoint=async(z:string)=>{await openMeasure(page,'参考点');const dialog=page.getByRole('dialog',{name:'创建参考点',exact:true});await dialog.getByRole('combobox',{name:'Z',exact:true}).fill(z);await dialog.getByRole('combobox',{name:'Z',exact:true}).blur();await expect(dialog.getByRole('button',{name:confirmCommandName})).toBeEnabled();await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0)};
  await createPoint('0');await createPoint('10');
  const current=async()=>(await page.request.get(`/api/documents/${id}`)).json();
  let view=await current();const [a,b]=view.part.datumPoints;
@@ -142,9 +143,9 @@ test('Reference elements preview, tree picking, owned parameters and Product par
  await openMeasure(page,'参考线');let dialog=page.getByRole('dialog',{name:'创建参考线',exact:true});
  await page.locator(`[role=treeitem][data-tree-key$="/point:${a.id}"]`).click();
  const pointScreen=await worldScreen(page,[0,0,10]);await page.mouse.click(pointScreen.x,pointScreen.y);
- await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ await expect(dialog.getByRole('button',{name:confirmCommandName})).toBeEnabled();await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  view=await current();expect(view.part.datumAxes[0].direction).toEqual([0,0,1]);expect(view.part.geometricalSets).toHaveLength(1);
- await page.locator(`[role=treeitem][data-tree-key$="/point:${b.id}"]`).dblclick();dialog=page.getByRole('dialog',{name:'编辑参考点',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('combobox',{name:'Z',exact:true}).fill('20');await dialog.getByRole('combobox',{name:'Z',exact:true}).blur();await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ await page.locator(`[role=treeitem][data-tree-key$="/point:${b.id}"]`).dblclick();dialog=page.getByRole('dialog',{name:'编辑参考点',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('combobox',{name:'Z',exact:true}).fill('20');await dialog.getByRole('combobox',{name:'Z',exact:true}).blur();await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();view=await current();expect(view.part.datumPoints[1].position[2]).toBe(20);
  await page.screenshot({path:info.outputPath('reference-elements.png')});const partName=view.document.name;
  const productID=await page.evaluate(async id=>{
@@ -161,7 +162,7 @@ test('Reference elements preview, tree picking, owned parameters and Product par
  await dialog.getByRole('textbox',{name:'搜索文档',exact:true}).fill(partName);
  await dialog.getByRole('combobox',{name:'来源文档',exact:true}).click();await page.locator('.ant-select-dropdown .ant-select-item-option').filter({hasText:partName}).click();
  await dialog.getByRole('combobox',{name:'发布参数',exact:true}).click();await page.locator('.ant-select-dropdown .ant-select-item-option').filter({hasText:'Anchor height'}).click();
- await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ await expect(dialog.getByRole('button',{name:confirmCommandName})).toBeEnabled();await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  await expect.poll(async()=>((await (await page.request.get(`/api/documents/${productID}`)).json()).product.parameters[0].evaluatedValue.siValue)).toBe(.02);
  expect(errors).toEqual([]);
 });

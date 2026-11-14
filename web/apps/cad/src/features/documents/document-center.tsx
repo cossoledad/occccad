@@ -1,13 +1,14 @@
+import {exchangeNotices} from "../activity/exchange-notices";
 import {engineeringProblem,useOperationFeedback} from "../../cad/command/operation-feedback";
 import {
   ApartmentOutlined, BuildOutlined, ClockCircleOutlined, DeleteOutlined, EditOutlined,
   FolderAddOutlined, FolderFilled, FolderOutlined, MoreOutlined, PlusOutlined, ReloadOutlined,
-  SearchOutlined, ShareAltOutlined, TeamOutlined, UndoOutlined, UploadOutlined, InboxOutlined, LoadingOutlined,
+  AppstoreOutlined, BarsOutlined, SearchOutlined, ShareAltOutlined, TeamOutlined, UndoOutlined, UploadOutlined, InboxOutlined, LoadingOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert, App, Breadcrumb, Button, Card, Checkbox, Dropdown, Empty, Form, Input, Layout, Menu, Modal, Pagination,
-  Segmented, Select, Space, Spin, Typography, Upload,
+  Segmented, Select, Skeleton, Space, Typography, Upload,
 } from "antd";
 import { useCallback, useEffect,useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -15,7 +16,8 @@ import { api, isMockMode } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { DocumentCard } from "./document-card";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
-import { flattenFolderTree, relativeDate, type LibraryScope } from "./document-utils";
+import {FolderPicker} from "./folder-picker";
+import { relativeDate, type LibraryScope } from "./document-utils";
 import { DocumentEditorDialog, type DocumentForm } from "./document-editor-dialog";
 import type { DocumentSummary, FolderSummary } from "../../types";
 import { submitImportBatch, type ImportFile } from "./import-batch";
@@ -37,7 +39,10 @@ export function DocumentCenter() {
   const [sort, setSort] = useState<"updated" | "name" | "created">("updated");
   const [offset, setOffset] = useState(0);
   const [pageSize,setPageSize]=useState(24);
+  const [viewMode,setViewMode]=useState("grid");
+  const [foldersExpanded,setFoldersExpanded]=useState(false);
   const [currentFolderID, setCurrentFolderID] = useState("");
+  useEffect(()=>setFoldersExpanded(false),[currentFolderID]);
   const [selectedDocuments, setSelectedDocuments] = useState<DocumentSummary[]>([]);
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -81,7 +86,6 @@ export function DocumentCenter() {
   });
   const trashedFolders = useQuery({ queryKey: ["folders", "trash"], queryFn: () => api.listTrashedFolders(), enabled: scope === "trash" });
   const breadcrumbs = useQuery({ queryKey: ["folder-breadcrumbs", currentFolderID], queryFn: () => api.folderBreadcrumbs(currentFolderID), enabled: Boolean(currentFolderID) });
-  const folderTree = useQuery({ queryKey: ["folder-options"], queryFn: () => flattenFolderTree((parentID) => api.listFolders(parentID)), staleTime: 10_000, enabled: Boolean(operation) });
   const currentPermission = breadcrumbs.data?.at(-1)?.permission;
   const writableLocation = !currentFolderID || canEdit(currentPermission);
 
@@ -92,7 +96,7 @@ export function DocumentCenter() {
     ]);
   }, [client]);
   const invalidateFolders = async () => {
-    await Promise.all([client.invalidateQueries({ queryKey: ["folders"] }), client.invalidateQueries({ queryKey: ["folder-options"] })]);
+    await Promise.all([client.invalidateQueries({ queryKey: ["folders"] }), client.invalidateQueries({ queryKey: ["folder-breadcrumbs"] })]);
   };
   const saveDocument = useMutation({
     mutationFn: async (values: DocumentForm) => editing
@@ -125,8 +129,9 @@ export function DocumentCenter() {
     mutationFn: async () => {
       if (importFiles.length === 0) throw new Error("请选择需要导入的 STEP 或 BREP 文件");
       setImportProgress(0);
-      return submitImportBatch(importFiles, (file) => api.importDocument(file, currentFolderID), 3,
-        (finished) => setImportProgress(finished));
+      const batch=exchangeNotices.begin();
+      try {return await submitImportBatch(importFiles, async file=>{const job=await api.importDocument(file,currentFolderID);batch.track(job);return job},3,
+        (finished)=>setImportProgress(finished));} finally {batch.seal()}
     },
     onSuccess: async ({ submitted, failures }) => {
       await client.invalidateQueries({ queryKey: queryKeys.jobs });
@@ -161,18 +166,18 @@ export function DocumentCenter() {
     title: `将“${document.name}”移入回收站？`,
     okText: "移入回收站", okButtonProps: { danger: true },
     onOk: async () => { await api.deleteDocument(document.id); setSelectedDocuments((current) => current.filter((item) => item.id !== document.id));
-      await invalidateDocuments(); message.success("文档已移入回收站"); }
+      await invalidateDocuments();  }
   }), [modal, invalidateDocuments, message]);
-  const restoreDocument = useCallback(async (document: DocumentSummary) => { await api.restoreDocument(document.id); await invalidateDocuments(); message.success("文档已恢复"); }, [invalidateDocuments, message]);
+  const restoreDocument = useCallback(async (document: DocumentSummary) => { await api.restoreDocument(document.id); await invalidateDocuments();  }, [invalidateDocuments, message]);
   const removeFolder = (folder: FolderSummary) => modal.confirm({
     title: `将文件夹“${folder.name}”移入回收站？`, content: "包含其中的文件夹与文档。", okText: "移入回收站", okButtonProps: { danger: true },
     onOk: async () => {
-      try { await api.deleteFolder(folder.id); setSelectedDocuments([]); await Promise.all([invalidateFolders(), invalidateDocuments()]); message.success("文件夹已移入回收站"); }
+      try { await api.deleteFolder(folder.id); setSelectedDocuments([]); await Promise.all([invalidateFolders(), invalidateDocuments()]);  }
       catch (error) { feedback(error,"文件操作"); }
     }
   });
   const restoreFolder = async (folder: FolderSummary) => {
-    try { await api.restoreFolder(folder.id); await Promise.all([invalidateFolders(), invalidateDocuments()]); message.success("文件夹及其内容已恢复"); }
+    try { await api.restoreFolder(folder.id); await Promise.all([invalidateFolders(), invalidateDocuments()]);  }
     catch (error) { feedback(error,"文件操作"); }
   };
   const addSelected = (items: DocumentSummary[]) => setSelectedDocuments((current) => {
@@ -213,8 +218,7 @@ export function DocumentCenter() {
       }));
       setSelectedDocuments((current) => current.filter((item) => !succeeded.has(item.id)));
       await invalidateDocuments();
-      failed.length ? message.warning(`已删除 ${succeeded.size} 个，失败 ${failed.length} 个：${failed.join("、")}`)
-        : message.success(`已将 ${succeeded.size} 个文档移入回收站`);
+      if(failed.length)message.warning(`已删除 ${succeeded.size} 个，失败 ${failed.length} 个：${failed.join("、")}`);
     },
   });
   const listAllTrash = async () => {
@@ -231,7 +235,7 @@ export function DocumentCenter() {
       const results = await Promise.allSettled(items.map((item) => api.restoreDocument(item.id)));
       await invalidateDocuments();
       const failed = results.filter((result) => result.status === "rejected").length;
-      failed ? message.warning(`已还原 ${items.length - failed} 个，${failed} 个失败`) : message.success(`已还原 ${items.length} 个文档`);
+      if(failed)message.warning(`已还原 ${items.length - failed} 个，${failed} 个失败`);
     } });
   const emptyTrash = () => modal.confirm({ title: "永久删除回收站中的全部文档？",
     content: "此操作不可撤销。", okText: "永久删除", okButtonProps: { danger: true },
@@ -259,11 +263,11 @@ export function DocumentCenter() {
   const navItems = [
     { key: "active", icon: <FolderOutlined aria-hidden />, label: "全部文档" }, { key: "recent", icon: <ClockCircleOutlined aria-hidden />, label: "最近打开" },
     { key: "shared", icon: <TeamOutlined aria-hidden />, label: "与我共享" }, { key: "parts", icon: <BuildOutlined aria-hidden />, label: "零件" },
-    { key: "products", icon: <ApartmentOutlined aria-hidden />, label: "产品" }, { key: "trash", icon: <DeleteOutlined aria-hidden />, label: "回收站" },
+    { key: "products", icon: <ApartmentOutlined aria-hidden />, label: "装配" }, { key: "trash", icon: <DeleteOutlined aria-hidden />, label: "回收站" },
   ];
-  const folderOptions = [{ value: "", label: "我的文档（根目录）" }, ...(folderTree.data ?? []).map((item) => ({ value: item.id, label: item.label }))];
   const selectablePage = (documents.data?.documents ?? []).filter((item) => canEdit(item.permission));
   const visibleFolders = !specialScope && !search ? folders.data ?? [] : [];
+  const displayedFolders = foldersExpanded ? visibleFolders : visibleFolders.slice(0,8);
 
   return <Layout className="document-center-layout">
     <Layout.Sider width={224} className="library-sider">
@@ -288,7 +292,7 @@ export function DocumentCenter() {
           <Input allowClear prefix={<SearchOutlined />} aria-label="搜索文档" placeholder="搜索文档" value={query} onChange={(event) => setQuery(event.target.value)} />
           <div className="browser-filters">{scope !== "parts" && scope !== "products" && <Segmented aria-label="文档类型" value={type} onChange={(value) => { setType(String(value)); setOffset(0); }} options={[{label:"全部",value:""},...documentTypes.map(type=>({label:type.name,value:type.id}))]} />}
           {scope !== "recent" && <Select aria-label="排序" value={sort} onChange={value => { setSort(value); setOffset(0); }} options={[{ value: "updated", label: "最近修改" }, { value: "name", label: "名称" }, { value: "created", label: "创建时间" }]} />}
-          <Button type="text" aria-label="刷新文档" icon={<ReloadOutlined spin={documents.isFetching} />} onClick={() => void documents.refetch()} /></div>
+          <Segmented aria-label="显示方式" value={viewMode} onChange={setViewMode} options={[{value:"grid",icon:<AppstoreOutlined/>,title:"缩略图"},{value:"list",icon:<BarsOutlined/>,title:"列表"}]}/><Button type="text" aria-label="刷新文档" icon={<ReloadOutlined spin={documents.isFetching} />} onClick={() => void documents.refetch()} /></div>
         </div>
         {scope !== "trash" && <div className="browser-selection-controls">
           <Checkbox disabled={!selectablePage.length} checked={selectablePage.length > 0 && selectablePage.every((item) => selectedDocuments.some((selected) => selected.id === item.id))}
@@ -296,7 +300,7 @@ export function DocumentCenter() {
             onChange={(event) => event.target.checked ? addSelected(documents.data?.documents ?? [])
               : setSelectedDocuments((current) => current.filter((item) => !documents.data?.documents.some((visible) => visible.id === item.id)))}>
             全选</Checkbox>
-          <span className="selection-count">{selectedDocuments.length ? `已选择 ${selectedDocuments.length} 个` : `${documents.data?.total ?? 0} 个文档`}</span>
+          <span className="selection-count">{selectedDocuments.length ? `已选择 ${selectedDocuments.length} 个` : documents.data ? `${documents.data.total} 个文档` : ""}</span>
           {selectedDocuments.length > 0 && <><Button size="small" type="text" disabled={query.trim() !== search || documents.isPending} loading={selectionBusy} onClick={() => void selectAllResults()}>全选筛选结果</Button>
           <Button size="small" type="text" onClick={() => setSelectedDocuments([])}>取消选择</Button>
           <Button size="small" danger type="text" aria-label="移入回收站" icon={<DeleteOutlined aria-hidden />} onClick={removeSelected}>移入回收站</Button></>}
@@ -306,7 +310,7 @@ export function DocumentCenter() {
             <FolderFilled /><span><strong>{folder.name}</strong><small>{relativeDate(folder.deletedAt ?? folder.updatedAt)}</small></span>
             <Button size="small" disabled={!canEdit(folder.permission)} onClick={() => void restoreFolder(folder)}>恢复</Button>
           </div></div>)}</div> : null}
-        {visibleFolders.length ? <section className="folder-section" aria-label="文件夹"><h3>文件夹</h3><div className="folder-grid">{visibleFolders.map((folder) => <div key={folder.id} className="folder-card">
+        {visibleFolders.length ? <section className="folder-section" aria-label="文件夹"><div className="folder-section-heading"><h3>文件夹 <span>{visibleFolders.length}</span></h3>{visibleFolders.length>8&&<Button size="small" type="text" onClick={()=>setFoldersExpanded(value=>!value)}>{foldersExpanded?"收起":`展开全部 (${visibleFolders.length})`}</Button>}</div><div className="folder-grid">{displayedFolders.map((folder) => <div key={folder.id} className="folder-card">
           <button type="button" className="folder-open" aria-label={`打开文件夹 ${folder.name}`} onClick={() => enterFolder(folder.id)}><FolderFilled /><span><strong>{folder.name}</strong><small>{folder.documentCount} 文档{folder.childCount > 0 ? ` · ${folder.childCount} 文件夹` : ""}</small></span></button>
             {canEdit(folder.permission) && <Dropdown trigger={["click"]} menu={{
               items: [
@@ -321,31 +325,31 @@ export function DocumentCenter() {
           </div>)}</div></section> : null}
         {documents.error && <Alert type="error" title="无法加载文档" description={engineeringProblem(documents.error)}
           action={<Button size="small" onClick={() => void documents.refetch()}>重试</Button>} />}
-        {documents.isLoading ? <div className="center-spinner"><Spin /></div> : documents.data?.documents.length
-          ? <div className="document-grid">{documents.data.documents.map(document => <DocumentCard key={document.id} document={document}
-            selected={selectedDocuments.some(item => item.id === document.id)} trash={scope === "trash"}
-            onOpen={openDocument} onToggle={toggleSelected} onAction={documentAction} />)}</div> : documents.error || visibleFolders.length || (scope === "trash" && trashedFolders.data?.length) ? null : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={search ? "没有找到文档" : "暂无文档"} />}
-        <Pagination current={Math.floor(offset / pageSize) + 1} pageSize={pageSize} showSizeChanger pageSizeOptions={[24,50,100]} total={documents.data?.total ?? 0} onChange={(page,size) => {setPageSize(size);setOffset(size!==pageSize?0:(page-1)*size)}} />
+        {documents.isLoading ? <div className="document-grid" aria-label="加载文档" aria-busy="true">{Array.from({length:8},(_,i)=><div className="document-skeleton" key={i}><Skeleton.Node active/><Skeleton active title={{width:"65%"}} paragraph={{rows:1}}/></div>)}</div> : documents.data?.documents.length
+          ? <div className={`document-grid ${viewMode}`}>{documents.data.documents.map(document => <DocumentCard key={document.id} document={document}
+            selected={selectedDocuments.some(item => item.id === document.id)} trash={scope === "trash"} compact={viewMode==="list"}
+            onOpen={openDocument} onToggle={toggleSelected} onAction={documentAction} />)}</div> : documents.error || visibleFolders.length || (scope === "trash" && trashedFolders.data?.length) ? null : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={search ? "没有找到文档" : "暂无文档"}>{!specialScope&&!search&&writableLocation&&<Button type="primary" icon={<PlusOutlined/>} onClick={()=>openDocumentEditor()}>新建文档</Button>}</Empty>}
+        {documents.data&&documents.data.total>24&&<Pagination current={Math.floor(offset / pageSize) + 1} pageSize={pageSize} showSizeChanger pageSizeOptions={[24,50,100]} total={documents.data?.total ?? 0} onChange={(page,size) => {setPageSize(size);setOffset(size!==pageSize?0:(page-1)*size)}} />}
       </Card>
     </Layout.Content>
 
     {createOpen && <DocumentEditorDialog title={editing ? "编辑文档" : "创建设计文档"} editing={editing}
       documents={documents.data?.documents} documentTypes={documentTypes} busy={saveDocument.isPending}
       onClose={() => { setCreateOpen(false); setEditing(undefined); }} onSave={values => saveDocument.mutate(values)} />}
-    <Modal title={folderEditor !== "new" && folderEditor?.id ? "编辑文件夹" : "新建文件夹"} open={Boolean(folderEditor)} onCancel={() => { setFolderEditor(undefined); folderForm.resetFields(); }}
+    <Modal title={folderEditor !== "new" && folderEditor?.id ? "编辑文件夹" : "新建文件夹"} open={Boolean(folderEditor)} okText={folderEditor === "new" ? "创建" : "保存"} cancelButtonProps={{disabled:saveFolder.isPending}} closable={!saveFolder.isPending} onCancel={() => { if(saveFolder.isPending)return;setFolderEditor(undefined); folderForm.resetFields(); }}
       onOk={() => folderForm.submit()} confirmLoading={saveFolder.isPending} destroyOnHidden>
       <Form form={folderForm} layout="vertical" onFinish={(values) => saveFolder.mutate(values)}><Form.Item name="name" label="文件夹名称" rules={[{ required: true }]}><Input autoFocus /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} /></Form.Item></Form>
     </Modal>
-    <Modal title={operation?.type === "copy" ? "复制文档" : "移动文档"} open={Boolean(operation)} onCancel={() => setOperation(undefined)}
+    <Modal title={operation?.type === "copy" ? "复制文档" : "移动文档"} open={Boolean(operation)} okText={operation?.type === "copy" ? "复制" : "移动"} cancelButtonProps={{disabled:runOperation.isPending}} closable={!runOperation.isPending} onCancel={() => {if(!runOperation.isPending)setOperation(undefined)}}
       onOk={() => operationForm.submit()} confirmLoading={runOperation.isPending} destroyOnHidden>
       <Form form={operationForm} layout="vertical" onFinish={(values) => runOperation.mutate(values)}>
         {operation?.type === "copy" && <Form.Item name="name" label="副本名称" rules={[{ required: true }]}><Input autoFocus /></Form.Item>}
-        <Form.Item name="folderID" label="目标文件夹"><Select showSearch optionFilterProp="label" options={folderOptions} /></Form.Item>
+        <Form.Item name="folderID" label="目标文件夹"><FolderPicker disabled={runOperation.isPending}/></Form.Item>
       </Form>
     </Modal>
     <Modal className="exchange-dialog" title="导入文档" open={importOpen} okText="导入" confirmLoading={importDocument.isPending}
-      okButtonProps={{ disabled: importFiles.length === 0 }} onOk={() => importDocument.mutate()}
+      cancelButtonProps={{disabled:importDocument.isPending}} closable={!importDocument.isPending} okButtonProps={{ disabled: importFiles.length === 0 }} onOk={() => importDocument.mutate()}
       onCancel={() => { if (!importDocument.isPending) { setImportOpen(false); setImportFiles([]); } }} destroyOnHidden>
       {importDocument.isPending&&<Typography.Paragraph>已提交 {importProgress}/{importFiles.length}</Typography.Paragraph>}
       {exchangeCapabilities.error && <Alert type="error" title="无法读取导入设置" description={engineeringProblem(exchangeCapabilities.error)} action={<Button onClick={() => void exchangeCapabilities.refetch()}>重试</Button>} />}

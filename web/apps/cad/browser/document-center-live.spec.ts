@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import { expect, test, type Page } from "@playwright/test";
 test.use({ actionTimeout: 15_000 });
 
@@ -126,7 +127,7 @@ test("library search, page size and real create/open/reopen remain usable", asyn
   const name = `Library performance ${Date.now()}`;
   await dialog.getByRole("textbox", { name: "文档名称", exact: true }).fill(name);
   const saved = page.waitForResponse(response => new URL(response.url()).pathname === "/api/documents" && response.request().method() === "POST");
-  await dialog.getByRole("button", { name: /确\s*定/ }).click();
+  await dialog.getByRole("button", { name: confirmCommandName }).click();
   const response = await saved; expect(response.ok()).toBeTruthy();
   const view = await response.json();
   await expect(page).toHaveURL(new RegExp(`/documents/${view.document.id}$`));

@@ -26,7 +26,7 @@ export function DocumentEditorDialog({ editing, documents = [], documentTypes, t
     suggested.current = next;
     form.setFieldValue("name", next);
   }, [catalog.data, editing, form]);
-  return <Modal title={title} open onCancel={onClose} onOk={() => form.submit()} confirmLoading={busy}
+  return <Modal title={title} open okText={editing?"保存":"创建"} cancelButtonProps={{disabled:busy}} closable={!busy} onCancel={()=>{if(!busy)onClose()}} onOk={() => form.submit()} confirmLoading={busy}
     footer={createAndOpen ? null : undefined}>
     <Form form={form} layout="vertical" requiredMark={false} initialValues={{ type: editing?.type ?? "PART", name: initialName, description: editing?.description ?? "" }} onFinish={onSave}>
       <Form.Item name="type" label="文档类型" rules={[{ required: true }]}><Segmented block disabled={Boolean(editing)}

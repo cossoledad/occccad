@@ -1,16 +1,22 @@
 import {expect,type Page} from "@playwright/test";
 
+/** Read the mounted component's engine ref. Do not import another HMR module
+ * identity, force a render or move the camera just to obtain the test probe. */
 export async function observeViewport(page:Page){
- await page.evaluate(async()=>{
-  if((window as any).__cameraEngine)return;
-  const paths=new Set(['/src/viewport/cad-viewport-engine.ts',...performance.getEntriesByType('resource').map(e=>new URL(e.name)).filter(u=>u.pathname==='/src/viewport/cad-viewport-engine.ts').map(u=>u.pathname+u.search)]);
-  for(const path of paths){const {CadViewportEngine}=await import(path),p=CadViewportEngine.prototype;if(p.__cameraObserved)continue;p.__cameraObserved=true;for(const name of ['hitTest','invalidate']){const original=p[name];p[name]=function(...args:any[]){(window as any).__cameraEngine=this;return original.apply(this,args)}}}
- });
- await expect.poll(async()=>{
-  const point=await page.evaluate(()=>{const canvas=document.querySelector('canvas');if(!canvas)return;const r=canvas.getBoundingClientRect();for(let y=30;y<r.height-10;y+=30)for(let x=30;x<r.width-10;x+=30)if(document.elementFromPoint(r.x+x,r.y+y)===canvas)return {x:r.x+x,y:r.y+y}});
-  if(point){await page.mouse.move(point.x,point.y);await page.mouse.move(point.x+2,point.y+2)}
-  return page.evaluate(()=>Boolean((window as any).__cameraEngine));
- }).toBeTruthy();
+ await expect.poll(()=>page.evaluate(()=>{
+  const canvas=document.querySelector('canvas');if(!canvas)return false;
+  const current=(window as any).__cameraEngine;
+  if(current?.renderer?.domElement===canvas&&!current.disposed)return true;
+  const host=canvas.parentElement as any;if(!host)return false;
+  const key=Object.getOwnPropertyNames(host).find(key=>key.startsWith('__reactFiber$'));if(!key)return false;
+  for(let fiber=host[key];fiber;fiber=fiber.return){
+   for(let hook=fiber.memoizedState;hook&&typeof hook==='object'&&'memoizedState' in hook;hook=hook.next){
+    const engine=hook.memoizedState?.current;
+    if(engine?.renderer?.domElement===canvas&&engine.navigation&&engine.camera&&!engine.disposed){(window as any).__cameraEngine=engine;return true;}
+   }
+  }
+  return false;
+ })).toBeTruthy();
 }
 export async function worldScreen(page:Page,point:number[]){
  await observeViewport(page);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.viewTransition.active)).toBeFalsy();

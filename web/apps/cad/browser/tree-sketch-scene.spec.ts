@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test} from "@playwright/test";
@@ -22,7 +23,7 @@ test("sketch focus hides both scene grids and adapts sketch feedback to bright b
  const state=async()=>JSON.parse((await viewportProbe(page,"scene-grid").getAttribute("data-state"))!);
  await expect.poll(async()=>(await state()).ground).toBe(true);const before=await state();
  await page.getByRole("button",{name:"选项",exact:true}).click();const options=page.getByRole("dialog",{name:"选项",exact:true});
- await options.getByRole("button",{name:/明\s*亮/}).click();await options.getByRole("button",{name:/确\s*定/}).click();
+ await options.getByRole("button",{name:/明\s*亮/}).click();await options.getByRole("button",{name:confirmCommandName}).click();
  await expect.poll(async()=>(await state()).sketchGridColor).not.toBe(before.sketchGridColor);
  await treeNavigator(page)("Sketch");
  await page.getByRole("treeitem").filter({hasText:"Sketch"}).last().dblclick();await expect(page.getByRole("button",{name:"退出草图",exact:true})).toBeVisible();

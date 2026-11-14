@@ -1,3 +1,4 @@
+import {makeSurfaceGeometry,SurfaceGeometryPool} from "../cad/rendering/surface-geometry";
 import { ViewportSnapshots } from "./viewport-snapshot";
 import { meshTopologyIndex } from "../cad/rendering/mesh-topology-index";
 import { triangleCount } from "../cad/visual/packed-mesh";
@@ -78,7 +79,7 @@ import * as THREE from "three";
 import {occurrenceSnapshot,refreshOccurrenceSelection} from "../cad/assembly/assembly-occurrence-snapshot";
 import {exactSnapCandidates,ManipulatorSnapCache,type SupportInspection} from "../cad/interaction/manipulator-snap";
 import {assemblyGeometryRef} from "../cad/assembly/assembly-reference";
-import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
+import { acceleratedRaycast } from "three-mesh-bvh";
 import { InputManager } from "../cad/input/input-manager";
 import { snapshotTransform, TransformTransitionSystem, type TransformPose } from "../cad/animation/transform-transition";
 import type { InputState } from "../cad/input/input-types";
@@ -295,32 +296,12 @@ function constraintTreeNodeID(featureTreeNode: string, kind: ConstraintKind, con
 }
 
 function makeGeometry(artifact: Artifact, pickable = true): THREE.BufferGeometry {
-  const geometry = new THREE.BufferGeometry();
-  const packed = artifact.mesh.buffers;
-  const positions = packed?.positions ?? new Float32Array(artifact.mesh.vertices.length * 3);
-  if (!packed) artifact.mesh.vertices.forEach((point, i) => positions.set(point, i * 3));
-  const indices = packed?.indices ?? new Uint32Array(triangleCount(artifact.mesh) * 3);
-  if (!packed) artifact.mesh.triangles.forEach((triangle, i) => indices.set(triangle, i * 3));
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  if (packed?.normals || (!packed && artifact.mesh.normals)) {
-    const normals = packed?.normals ?? new Float32Array(artifact.mesh.normals!.length * 3);
-    if (!packed) artifact.mesh.normals!.forEach((normal, i) => normals.set(normal, i * 3));
-    geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-  }
-  else geometry.computeVertexNormals();
-  if(positions.length)geometry.computeBoundingSphere();
-  const accelerated = geometry as THREE.BufferGeometry & {
-    computeBoundsTree: typeof computeBoundsTree; disposeBoundsTree: typeof disposeBoundsTree;
-  };
-  accelerated.computeBoundsTree = computeBoundsTree;
-  accelerated.disposeBoundsTree = disposeBoundsTree;
-  if(pickable && triangleCount(artifact.mesh))accelerated.computeBoundsTree({ indirect: true });
-  return geometry;
+  return makeSurfaceGeometry(artifact.mesh,pickable);
 }
 
 
 export class CadViewportEngine {
+  private readonly surfaceGeometries = new SurfaceGeometryPool();
   private moveFinalization?:Promise<void>;
   private toolActivationGeneration=0;
   async settleAssemblyInteraction():Promise<void>{
@@ -3324,11 +3305,13 @@ export class CadViewportEngine {
     this.overlayEpoch++;
     context={...context,displayStageFeatureId:artifact.displayStageFeatureId??context.displayStageFeatureId};
     if(context.result&&triangleCount(artifact.mesh))color=CATIA_VISUAL_THEME.engineeringSurface;
-    const geometry = makeGeometry(artifact);
+    const geometryLease = this.surfaceGeometries.acquire(artifact.mesh);
+    const geometry = geometryLease.geometry;
     geometry.userData.navigationFaceIds = artifact.mesh.buffers?.faceIds ?? artifact.mesh.faceIds;
     const group = new THREE.Group();
     const scopedAppearance = scopedSurfaceAppearance(appearance,artifact.geometryKey);
     const mesh = new THREE.Mesh(geometry, surfaceAppearanceMaterials(geometry,(artifact.mesh.buffers?.faceIds ?? artifact.mesh.faceIds),scopedAppearance,color,(value,properties)=>artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET'?this.materials.engineeringSurface(value,properties):this.materials.surface(value,properties)));
+    mesh.userData.cadGeometryRelease = geometryLease.release;
     mesh.userData.cadSurfaceKey=JSON.stringify([context.documentId,context.occurrencePath,context.bodyId,context.displayStageFeatureId??'']);
     mesh.raycast = acceleratedRaycast;
     markNavigationPickable(mesh);

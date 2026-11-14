@@ -1,6 +1,6 @@
-import { DeleteOutlined, KeyOutlined, MoreOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, KeyOutlined, MoreOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, App, Button, Col, Drawer, Dropdown, Form, Input, Modal, Row, Select, Statistic, Table, Tag } from "antd";
+import { Alert, App, Button, Col, Drawer, Dropdown, Form, Input, Row, Select, Statistic, Table, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { engineeringProblem, useOperationFeedback } from "../../cad/command/operation-feedback";
 import { api } from "../../api/client";
@@ -41,9 +41,15 @@ export function AdminDrawer({ open, onClose }: { open: boolean; onClose: () => v
     form.resetFields(); form.setFieldsValue(user ?? { platformRole: "MEMBER", status: "ACTIVE" });
   };
 
+  const editorOpen=creating||Boolean(editing)||Boolean(resetting);
+  const pending=save.isPending||resetPassword.isPending;
+  const closeEditor=()=>{if(pending)return;setCreating(false);setEditing(undefined);setResetting(undefined);form.resetFields();resetForm.resetFields()};
   return <>
-    <Drawer size="min(880px, 100vw)" className="admin-drawer" open={open} onClose={onClose} title="用户管理" extra={<Button type="text" aria-label="刷新账号" icon={<ReloadOutlined spin={users.isFetching} />}
-      onClick={() => void refresh()} />}>
+    <Drawer size="min(880px, 100vw)" className="admin-drawer" open={open} onClose={()=>{if(pending)return;closeEditor();onClose()}} closable={!pending}
+      title={editorOpen?<span className="admin-editor-title"><Button type="text" aria-label="返回用户列表" disabled={pending} icon={<ArrowLeftOutlined/>} onClick={closeEditor}/>{resetting?`重置密码 · ${resetting.displayName}`:editing?"编辑账号":"添加账号"}</span>:"用户管理"}
+      extra={!editorOpen&&<Button type="text" aria-label="刷新账号" icon={<ReloadOutlined spin={users.isFetching}/>} onClick={()=>void refresh()}/>}
+      footer={editorOpen&&<div className="admin-editor-actions"><Button disabled={pending} onClick={closeEditor}>取消</Button><Button type="primary" loading={pending} onClick={()=>resetting?resetForm.submit():form.submit()}>{resetting?"重置密码":editing?"保存":"创建"}</Button></div>}>
+      <div hidden={editorOpen}>
       <div className="admin-statistics">
         {[{ key: "users", title: "全部账号" }, { key: "pending", title: "待审批" }, { key: "activeSessions", title: "活跃会话" }, { key: "documents", title: "设计文档" }].map(item =>
           <Statistic key={item.key} title={item.title} value={stats.data?.[item.key as keyof NonNullable<typeof stats.data>] ?? "—"} />)}
@@ -51,7 +57,7 @@ export function AdminDrawer({ open, onClose }: { open: boolean; onClose: () => v
       {(users.error || stats.error) && <Alert showIcon type="error" title="无法加载管理信息" description={engineeringProblem(users.error ?? stats.error)} action={<Button onClick={() => void refresh()}>重试</Button>} />}
       <div className="drawer-toolbar"><Input prefix={<SearchOutlined />} placeholder="搜索账号" aria-label="搜索账号" allowClear value={query} onChange={(event) => setQuery(event.target.value)} />
         <Select aria-label="账号状态筛选" value={status} onChange={setStatus} options={[{ value: "", label: "全部状态" }, { value: "PENDING", label: "待审批" }, { value: "ACTIVE", label: "已启用" }, { value: "DISABLED", label: "已禁用" }]} />
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => showEditor()}>添加账号</Button></div>
+        <Button type="primary" aria-label="添加账号" icon={<PlusOutlined />} onClick={() => showEditor()}>添加账号</Button></div>
       <Table<User> rowKey="id" loading={users.isLoading} dataSource={users.data} pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }} scroll={{ x: 620 }} locale={{ emptyText: "没有找到账号" }} columns={[
         { title: "账号", render: (_, user) => <span className="identity-cell"><strong>{user.displayName}</strong><small>{user.email}</small></span> },
         { title: "角色", dataIndex: "platformRole", width: 100, render: (value) => <span className="admin-role">{value === "ADMIN" ? "管理员" : "成员"}</span> },
@@ -60,27 +66,24 @@ export function AdminDrawer({ open, onClose }: { open: boolean; onClose: () => v
           ? <Button type="link" loading={approve.isPending && approve.variables?.id === user.id} onClick={() => approve.mutate(user)}>批准</Button>
           : <Button type="link" onClick={() => showEditor(user)}>编辑</Button>}
           <Dropdown trigger={["click"]} menu={{ items: [
-            { key: "edit", label: "编辑账号", onClick: () => showEditor(user) },
+            ...(user.status === "PENDING" ? [{ key: "edit", label: "编辑账号", onClick: () => showEditor(user) }] : []),
             { key: "reset", label: "重置密码", icon: <KeyOutlined />, onClick: () => { resetForm.resetFields(); setResetting(user); } },
             ...(user.status !== "DISABLED" ? [{ key: "disable", label: "禁用账号", danger: true, icon: <DeleteOutlined />, onClick: () => disable(user) }] : []),
           ] }}><Button type="text" aria-label={`账号操作 ${user.displayName}`} icon={<MoreOutlined />} /></Dropdown></div> },
       ]} />
-    </Drawer>
-    <Modal title={editing ? "编辑账号" : "创建账号"} open={creating || Boolean(editing)} onCancel={() => { setCreating(false); setEditing(undefined); }}
-      onOk={() => form.submit()} confirmLoading={save.isPending} destroyOnHidden>
-      <Form form={form} layout="vertical" requiredMark={false} onFinish={(values) => save.mutate(values)}>
-        <Form.Item name="displayName" label="显示名称" rules={[{ required: true }]}><Input /></Form.Item>
+      </div>
+      {(creating||editing)&&<div className="admin-editor"><Form disabled={pending} form={form} layout="vertical" requiredMark={false} onFinish={(values) => save.mutate(values)}>
+        <Form.Item name="displayName" label="显示名称" rules={[{ required: true }]}><Input autoFocus /></Form.Item>
         {!editing && <><Form.Item name="email" label="电子邮箱" rules={[{ required: true }, { type: "email" }]}><Input /></Form.Item>
           <Form.Item name="password" label="初始密码" rules={[{ required: true, min: 10, message: "密码至少 10 位" }]}><Input.Password autoComplete="new-password" placeholder="至少 10 位" /></Form.Item></>}
         <Row gutter={12}><Col span={12}><Form.Item name="platformRole" label="平台角色"><Select options={[{ value: "MEMBER", label: "成员" }, { value: "ADMIN", label: "管理员" }]} /></Form.Item></Col>
           <Col span={12}><Form.Item name="status" label="账号状态"><Select options={[{ value: "ACTIVE", label: "已启用" }, { value: "PENDING", label: "待审批" }, { value: "DISABLED", label: "已禁用" }]} /></Form.Item></Col></Row>
       </Form>
-    </Modal>
-    <Modal title={`重置密码 · ${resetting?.displayName ?? ""}`} open={Boolean(resetting)} onCancel={() => setResetting(undefined)}
-      onOk={() => resetForm.submit()} confirmLoading={resetPassword.isPending} destroyOnHidden>
-      <Form form={resetForm} layout="vertical" requiredMark={false} onFinish={(values) => resetPassword.mutate(values)}>
+      </div>}
+      {resetting&&<div className="admin-editor"><Form disabled={pending} form={resetForm} layout="vertical" requiredMark={false} onFinish={(values) => resetPassword.mutate(values)}>
         <Form.Item name="password" label="新密码" rules={[{ required: true, min: 10, message: "密码至少 10 位" }]}><Input.Password autoFocus autoComplete="new-password" placeholder="至少 10 位" /></Form.Item>
       </Form>
-    </Modal>
+      </div>}
+    </Drawer>
   </>;
 }

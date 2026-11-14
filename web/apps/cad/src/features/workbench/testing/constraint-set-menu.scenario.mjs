@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url), ts = require("typescript"), React = require("react");
 const modules = new Map();
 let stateSlots=[],hookCursor=0;
-const hooks = { ...React, useMemo: fn => fn(), useEffect() {}, useRef: value => ({ current: value }),
+const hooks = { ...React, useMemo: fn => fn(), useDeferredValue:value=>value, useEffect() {}, useRef: value => ({ current: value }),
   useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
   useState: value => {const index=hookCursor++,slots=stateSlots;
     if(!(index in slots))slots[index]=typeof value==='function'?value():value;
@@ -42,6 +42,7 @@ function dropdown(tree) {
   if (!tree) return undefined;
   if (Array.isArray(tree)) return tree.map(dropdown).find(Boolean);
   if (tree.type === Dropdown) return tree;
+  if(tree.props?.render&&tree.type?.$$typeof===Symbol.for("react.memo"))return dropdown(tree.props.render());
   return dropdown(tree.props?.children);
 }
 const node = { key: "product/assembly-constraints", kind: "ASSEMBLY_CONSTRAINT_SET", entityId: "assembly-constraints",

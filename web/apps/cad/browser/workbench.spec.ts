@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import {treeNavigator} from "./tree-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -153,10 +154,10 @@ test("paged component browser, folder breadcrumbs, insertion recovery and histor
   await dialog.getByRole("button", { name: "全部文档", exact: true }).click();
   await search.fill("Mounting");
   await dialog.getByRole("button", { name: "选择 Mounting Bracket", exact: true }).click();
-  await dialog.getByRole("button", { name: /确\s*定/ }).click();
+  await dialog.getByRole("button", { name: confirmCommandName }).click();
   await expect(dialog).toContainText("插入失败");
   await expect(dialog.getByRole("button", { name: "选择 Mounting Bracket", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await dialog.getByRole("button", { name: /确\s*定/ }).click();
+  await dialog.getByRole("button", { name: confirmCommandName }).click();
   await expect(dialog).toHaveCount(0);
   const instanceCount = () => page.evaluate(async () => (await (await import("/src/api/client.ts")).api.getDocument("mock-product-frame")).product!.instances.length);
   await expect.poll(instanceCount).toBe(4);

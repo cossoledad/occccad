@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {createServer} from "vite";
 const server=await createServer({server:{middlewareMode:true},appType:"custom",logLevel:"silent"});
 try {
+ const {SurfaceGeometryPool}=await server.ssrLoadModule("/src/cad/rendering/surface-geometry.ts");
  const {featureSelectionHit}=await server.ssrLoadModule("/src/cad/interaction/feature-selection.ts");
  const {selectedAxis,bodyStage,selectedSketch,patternRangeEnds,patternSourceCandidates,patternRangeFromSelections}=await server.ssrLoadModule("/src/features/workbench/feature-picking.ts");
 
@@ -156,7 +157,7 @@ try {
  assert.equal(pendingPrefix.part.bodies[0].geometryKey,undefined,"loading fails closed instead of restoring final geometry");
  const {CadViewportEngine}=await server.ssrLoadModule('/src/viewport/cad-viewport-engine.ts'),THREE=await server.ssrLoadModule('three');
  const productRenderer=Object.create(CadViewportEngine.prototype);
- Object.assign(productRenderer,{editContext:{historicalBoundary:{afterFeatureId:'base',versionId:'v'},occurrencePath:'active'},content:new THREE.Group(),instanceGroups:new Map(),selectable:new Map(),selectionIndex:{register(){}},materials:{surface:()=>new THREE.MeshBasicMaterial()},addAssemblyConstraintMarkers(){}});
+ Object.assign(productRenderer,{surfaceGeometries:new SurfaceGeometryPool(),editContext:{historicalBoundary:{afterFeatureId:'base',versionId:'v'},occurrencePath:'active'},content:new THREE.Group(),instanceGroups:new Map(),selectable:new Map(),selectionIndex:{register(){}},materials:{surface:()=>new THREE.MeshBasicMaterial()},addAssemblyConstraintMarkers(){}});
  const emptyRoot={document:{id:'root',type:'PRODUCT',name:'Assembly'},product:{instances:['active','sibling'].map(id=>({id,documentId:'part',versionId:'v',translation:[0,0,0],rotation:[0,0,0,1]}))},resolvedInstances:[],artifacts:{}};
  productRenderer.renderProduct(emptyRoot);
  assert.equal(productRenderer.instanceGroups.get('active').children.length,0,'a pending/empty historical prefix is not an invented cube');

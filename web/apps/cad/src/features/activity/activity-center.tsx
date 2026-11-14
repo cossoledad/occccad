@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { buildActivityFeed, type ActivityStatus } from "./activity-model";
+import { jobsQueryOptions } from "./jobs-query";
 
 const activeStates = new Set(["QUEUED", "RETRY_WAIT", "RUNNING"]);
 const statusPresentation: Record<ActivityStatus, { color: string; label: string }> = {
@@ -20,8 +21,7 @@ export function ActivityCenter() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const feedback=useOperationFeedback();
-  const jobs = useQuery({ queryKey: queryKeys.jobs, queryFn: api.listJobs,
-    refetchInterval: (query) => query.state.data?.some((job) => activeStates.has(job.state)) ? 2_500 : false });
+  const jobs = useQuery(jobsQueryOptions());
   const items = useMemo(() => buildActivityFeed(jobs.data ?? []), [jobs.data]);
   const activeCount = jobs.data?.filter((job) => activeStates.has(job.state)).length ?? 0;
   const refresh = async () => { await client.invalidateQueries({ queryKey: queryKeys.jobs }); };

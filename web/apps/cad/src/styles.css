@@ -500,9 +500,9 @@ select {
 
 
 
-.global-options-layout { display: grid; grid-template-columns: 148px minmax(0,1fr); min-height: 450px; }
+.global-options-layout { display: grid; grid-template-columns: 124px minmax(0,1fr); align-items:start; }
 .global-options-layout > .ant-menu { border-inline-end: 1px solid var(--cad-border, #e1e7ed); }
-.global-options-content { min-width: 0; padding: 0 22px 12px; max-height: min(65vh,620px); overflow-y: auto; }
+.global-options-content { min-width: 0; padding: 0 16px 8px; max-height: min(65vh,620px); overflow-y: auto; }
 .global-options-fields { width: 100%; }
 .global-options-fields > .ant-space-item { width: 100%; }
 .global-options-fields .ant-select { min-width: 176px; }

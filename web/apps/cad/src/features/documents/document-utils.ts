@@ -1,5 +1,5 @@
 import {nextObjectName} from "../../utils/automatic-name";
-import type { DocumentSummary, FolderSummary } from "../../types";
+import type { DocumentSummary } from "../../types";
 
 export type LibraryScope = "active" | "recent" | "shared" | "parts" | "products" | "trash";
 
@@ -25,17 +25,4 @@ export function relativeDate(value: string): string {
   if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)} 小时前`;
   if (elapsed < 604_800_000) return `${Math.floor(elapsed / 86_400_000)} 天前`;
   return date.toLocaleDateString();
-}
-
-export async function flattenFolderTree(
-  loadChildren: (parentID: string) => Promise<FolderSummary[]>, parentID = "", prefix = "",
-): Promise<Array<{ id: string; label: string }>> {
-  const folders = await loadChildren(parentID);
-  const result: Array<{ id: string; label: string }> = [];
-  for (const folder of folders) {
-    const label = `${prefix}${folder.name}`;
-    result.push({ id: folder.id, label });
-    result.push(...await flattenFolderTree(loadChildren, folder.id, `${label} / `));
-  }
-  return result;
 }

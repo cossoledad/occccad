@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import {expect,test,type Page,type Locator} from '@playwright/test';
 import {treeNavigator} from './tree-helpers';
 import {observeViewport} from './camera-helpers';
@@ -15,7 +16,7 @@ async function row(page:Page,id:string,name:string,kind='feature'){
  return page.locator(`[role=treeitem][data-tree-key$="/${kind}:${id}"]`).getByText(name,{exact:true});
 }
 async function choose(page:Page,id:string,name:string,kind='feature'){await (await row(page,id,name,kind)).click()}
-async function save(dialog:Locator){await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0)}
+async function save(dialog:Locator){await expect(dialog.getByRole('button',{name:confirmCommandName})).toBeEnabled();await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0)}
 async function seed(page:Page){return page.evaluate(async()=>{
  // @ts-ignore Vite source module, real authenticated API.
  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Part object delivery acceptance');const id=v.document.id;
@@ -41,7 +42,7 @@ test('Part lifecycle: impact, missing input, repair and compensation in the work
  await del.getByRole('checkbox',{name:'同时删除依赖特征',exact:true}).check();await del.getByRole('tab',{name:/删除/}).click();await expect(del).toContainText(s.solid.name!);await del.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,s.id)).document.versionId).toBe(before.document.versionId);
  await (await row(page,s.input.id,s.input.name!)).click({button:'right'});await page.getByRole('menuitem',{name:/^删除/}).click();await save(del);
  let v=await current(page,s.id);expect(v.part.features.find((f:any)=>f.id===s.sheet.id).evaluationStatus).toBe('FAILED');expect(v.part.features.find((f:any)=>f.id===s.solid.id).evaluationStatus).toBe('BLOCKED');
- await (await row(page,s.sheet.id,s.sheet.name!)).dblclick();const edit=page.getByRole('dialog',{name:'编辑拉伸曲面',exact:true});await expect(edit).toContainText('已删除');await expect(edit.getByRole('button',{name:/确\s*定/})).toBeDisabled();
+ await (await row(page,s.sheet.id,s.sheet.name!)).dblclick();const edit=page.getByRole('dialog',{name:'编辑拉伸曲面',exact:true});await expect(edit).toContainText('已删除');await expect(edit.getByRole('button',{name:confirmCommandName})).toBeDisabled();
  await choose(page,s.alternate.id,s.alternate.name!);await expect(edit).toContainText('Alternate input');await save(edit);
  v=await current(page,s.id);expect(v.part.features.find((f:any)=>f.id===s.solid.id).evaluationStatus).toBeFalsy();
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,s.id)).part.features.find((f:any)=>f.id===s.sheet.id).evaluationStatus).toBe('FAILED');
@@ -68,7 +69,7 @@ test('Multiple point preselection and associative surface revolution use compact
  await login(page);const s=await seed(page);await page.goto(`/documents/${s.id}`);await expect(page.locator('canvas')).toBeVisible();
  await choose(page,s.points[0].id,s.points[0].name,'point');await (await row(page,s.points[1].id,s.points[1].name,'point')).click({modifiers:['Control']});await tool(page,'样条');const spline=page.getByRole('dialog',{name:'样条',exact:true});await expect(spline.locator('.feature-pick-item')).toHaveCount(2);await expect(spline).toContainText('Point A');await expect(spline).toContainText('Point B');await save(spline);
  // The picked direction line supplies the rotation axis; angle stays scalar.
- await choose(page,s.generatrix.id,s.generatrix.name!);await tool(page,'旋转曲面');const revolve=page.getByRole('dialog',{name:'旋转曲面',exact:true});await expect(revolve).toContainText('Revolution profile');await expect(revolve.getByRole('button',{name:/确\s*定/})).toBeDisabled();await choose(page,s.axis.id,s.axis.name,'datum-axis');
+ await choose(page,s.generatrix.id,s.generatrix.name!);await tool(page,'旋转曲面');const revolve=page.getByRole('dialog',{name:'旋转曲面',exact:true});await expect(revolve).toContainText('Revolution profile');await expect(revolve.getByRole('button',{name:confirmCommandName})).toBeDisabled();await choose(page,s.axis.id,s.axis.name,'datum-axis');
  await save(revolve);const revolved=(await current(page,s.id)).part.features.at(-1);expect(revolved.geometry.axis.datum.entityId).toBe(s.axis.id);expect(revolved.result.domain).toBe('SHEET_SET');
  await choose(page,s.circle.id,s.circle.name!);await tool(page,'填充曲面');const fill=page.getByRole('dialog',{name:'填充曲面',exact:true});await expect(fill).toContainText('Fill boundary');await save(fill);expect((await current(page,s.id)).part.features.at(-1).geometry.inputs[0].featureId).toBe(s.circle.id);
  // Quality diagnostics are read only and dispose their transient overlay.
@@ -86,7 +87,7 @@ test.describe('Compact engineering forms at DPR 2',()=>{
   });
   await page.goto(`/documents/${s.id}`);await expect(page.locator('canvas')).toBeVisible();await choose(page,s.sections[0].id,s.sections[0].name!);await tool(page,'曲面放样');const loft=page.getByRole('dialog',{name:'曲面放样',exact:true});
   for(const section of s.sections.slice(1))await choose(page,section.id,section.name!);
-  const confirm=loft.getByRole('button',{name:/确\s*定/}),list=loft.getByRole('listbox',{name:'截面设置',exact:true});await expect(confirm).toBeEnabled();await expect(list.getByRole('option')).toHaveCount(3);await list.getByRole('option').nth(2).click();await expect(list.getByRole('option').nth(2)).toHaveAttribute('aria-selected','true');
+  const confirm=loft.getByRole('button',{name:confirmCommandName}),list=loft.getByRole('listbox',{name:'截面设置',exact:true});await expect(confirm).toBeEnabled();await expect(list.getByRole('option')).toHaveCount(3);await list.getByRole('option').nth(2).click();await expect(list.getByRole('option').nth(2)).toHaveAttribute('aria-selected','true');
   await loft.getByRole('button',{name:'添加对应点',exact:true}).click();await expect(confirm).toBeDisabled();await expect(loft.getByRole('button',{name:'移除对应 1',exact:true})).toBeVisible();await loft.getByRole('button',{name:'移除对应 1',exact:true}).click();await expect(confirm).toBeEnabled();
   const box=await loft.boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.y).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(1024);expect(box!.y+box!.height).toBeLessThanOrEqual(720);expect(await loft.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.screenshot({path:info.outputPath('loft-details-dpr2.png')});await loft.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,s.id)).document.versionId).toBe(s.revision);

@@ -3,6 +3,7 @@ import { createServer } from "vite";
 
 const server = await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try {
+ const {SurfaceGeometryPool}=await server.ssrLoadModule("/src/cad/rendering/surface-geometry.ts");
   const THREE = await server.ssrLoadModule("three");
   const {CadViewportEngine} = await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
   const {CadMaterialFactory}=await server.ssrLoadModule('/src/cad/rendering/cad-material-factory.ts');
@@ -44,7 +45,7 @@ try {
     resolvedInstances:[...first.resolved,...second.resolved],
     structureTree:{kind:"PRODUCT",documentId:"product",children:[first.node,second.node]}};
   const engine=Object.create(CadViewportEngine.prototype);
-  Object.assign(engine,{view,content:new THREE.Group(),helpers:new THREE.Group(),selectable:new Map(),
+  Object.assign(engine,{surfaceGeometries:new SurfaceGeometryPool(),view,content:new THREE.Group(),helpers:new THREE.Group(),selectable:new Map(),
     instanceGroups:new Map(),solidBindings:new Map(),selectionIndex:new SelectionIndex(),treeVisibilityOverrides:{},
     referenceVisibility:{},materials:new CadMaterialFactory(new CadShaderLibrary()),
     refreshSceneGround(){},addAssemblyConstraintMarkers(){},refreshInteractionHighlights(){}});

@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import {expect,test} from "@playwright/test";
 
 test("tree-only properties, consolidated object menu and no viewport context menu",async({page})=>{
@@ -7,7 +8,7 @@ test("tree-only properties, consolidated object menu and no viewport context men
  await page.keyboard.press("Alt+Enter");const dialog=page.getByRole("dialog",{name:/^属性 ·/});await expect(dialog).toBeVisible();
  await dialog.getByRole("textbox",{name:"属性名称"}).fill("属性测试文档");
  await expect(dialog.getByRole("button",{name:"场景属性…",exact:true})).toHaveCount(0);
- await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  await page.getByRole("treeitem").first().click({button:"right"});
  await expect(page.getByRole("menuitem",{name:"重命名",exact:true})).toHaveCount(0);await expect(page.getByRole("menuitem",{name:"颜色材质",exact:true})).toHaveCount(0);
  await page.getByRole("menuitem",{name:"属性…",exact:true}).click();await expect(dialog.getByRole("textbox",{name:"属性名称"})).toHaveValue("属性测试文档");

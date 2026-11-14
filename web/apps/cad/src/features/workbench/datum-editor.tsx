@@ -125,7 +125,7 @@ export function DatumEditor({kind,view,seed,unit,datumId,occurrencePath,placemen
   {mode==="CUSTOM"?<>{vector(`原点（${unit}）`,'')}{vector(kind==="plane"?"法向":"方向",'d')}</>:<>
    {(["source","rotationAxis","translationDirection"] as Slot[]).map(slot=><FeaturePickField compact key={slot} selected={Boolean(refs[slot])} label={slot==="source"?"源基准":slot==="rotationAxis"?"旋转轴":"平移方向"} value={refs[slot]?label(refs[slot]):slot==="source"?"未选择":"默认"} active={picking===slot} onActivate={()=>activate(slot)} error={parameterSlot===slot?parameterError:undefined} selections={datumSelection(refs[slot])} onClear={refs[slot]?()=>setRefs(old=>({...old,[slot]:undefined})):undefined}/>)}
    <CommandField  label={<>旋转角度（deg）</>} error={parameterSlot==="angle"?parameterError:undefined} width="expression"><ParameterReferenceInput value={angle} onChange={setAngle} parameters={view.part?.parameters??[]} placeholder="倾角 或 30 deg"/></CommandField>
-   <CommandField  label={<>平移距离（{unit}）</>} error={parameterSlot==="distance"?parameterError:undefined} width="expression"><ParameterReferenceInput value={distance} onChange={setDistance} parameters={view.part?.parameters??[]} unit={unit} placeholder="高度 或 20 mm"/></CommandField>
+   <CommandField  label={<>平移距离</>} unit={unit} error={parameterSlot==="distance"?parameterError:undefined} width="expression"><ParameterReferenceInput value={distance} onChange={setDistance} parameters={view.part?.parameters??[]} unit={unit} placeholder="高度 或 20 mm"/></CommandField>
   </>}
   {(error||(parameterSlot==="frame"&&parameterError)||!valid)&&<Alert type="error" message={error??parameterError}/>}
 

@@ -98,16 +98,16 @@ export function ToolbarGroup({ children }: PropsWithChildren) {
 
 export function ToolbarSeparator() { return <span className="cad-toolbar-separator" aria-hidden />; }
 
-export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText="确定",cancelText="取消", confirmLoading = false, confirmDisabled = false, size = "M",footer=true,placement,onCancelPick,secondaryActions,commandStatus,bodyClassName="",scrollBody=true }: PropsWithChildren<{
+export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText="确定",cancelText="取消", confirmLoading = false, confirmDisabled = false, size = "M",width:preferredWidth,footer=true,placement,onCancelPick,secondaryActions,commandStatus,bodyClassName="",scrollBody=true }: PropsWithChildren<{
   bodyClassName?:string;scrollBody?:boolean;id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
-  confirmText?:string;cancelText?:string;confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;footer?:boolean;placement?:'left'|'right';onCancelPick?:()=>boolean;secondaryActions?:ReactNode;commandStatus?:ReactNode;
+  confirmText?:string;cancelText?:string;confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;width?:number;footer?:boolean;placement?:'left'|'right';onCancelPick?:()=>boolean;secondaryActions?:ReactNode;commandStatus?:ReactNode;
 }>) {
   const feedback=useOperationFeedback(),parentForm=useCommandForm();
   const openRef=useRef(open);openRef.current=open;
   const cancelPickRef=useRef(onCancelPick);cancelPickRef.current=onCancelPick;
   const savedPosition = useUIPreferences((state) => state.commandDialogPositions[id]);
   const savePosition = useUIPreferences((state) => state.setCommandDialogPosition);
-  const width=commandPanelWidths[size];
+  const width=preferredWidth??commandPanelWidths[size];
   const placed=useRef(Boolean(normalizePanelPosition(savedPosition)));
   const [position, setPosition] = useState(() => normalizePanelPosition(savedPosition) ?? { x: 16, y: 16 });
   const [submitting, setSubmitting] = useState(false);
@@ -153,7 +153,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
       observer.disconnect(); window.removeEventListener("keydown", keyDown);
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
     };
-  }, [open,overlayHost,size]);
+  }, [open,overlayHost,size,preferredWidth,placement]);
   if (!open) return null;
   const pointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;

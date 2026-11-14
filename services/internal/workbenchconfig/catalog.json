@@ -3,14 +3,14 @@
   "documents": [
     {
       "id": "PART",
-      "name": "Part",
+      "name": "零件",
       "helpText": "参数化零件",
       "iconKey": "pad",
       "adapter": "PART"
     },
     {
       "id": "PRODUCT",
-      "name": "Product",
+      "name": "装配",
       "helpText": "产品与装配",
       "iconKey": "insert",
       "adapter": "PRODUCT"

@@ -1,3 +1,4 @@
+import {confirmCommandName} from "./command-labels";
 import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
@@ -63,7 +64,7 @@ test("datum editors preview arbitrary geometry, copy references and delete throu
  });
  dialog=await openCommand(page,"基准面","创建基准面");
  await expectViewport(viewportProbe(page,"viewport-datum-preview")).toContainText('"origin":[8,9,10]');
- await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).__datumFixture.commits[0].datumDefinition.source)).toMatchObject({kind:"TOPOLOGY",selection:{anchor:{outputSlot:"FIXTURE_PLANAR_FACE"},expectedType:"FACE"}});
  const revealTree=treeNavigator(page);await revealTree("Plane");
  const copiedPlane=page.getByRole("treeitem").filter({hasText:/^Plane$/});
@@ -82,7 +83,7 @@ test("datum editors preview arbitrary geometry, copy references and delete throu
  await dialog.getByRole("spinbutton",{name:"原点（mm） Y",exact:true}).fill("5");
  await expectViewport(viewportProbe(page,"viewport-datum-preview")).toContainText('"origin":[0,5,0]');
  await page.screenshot({path:testInfo.outputPath("datum-axis-preview.png")});
- await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  await revealTree("Axis");
  const custom=page.getByRole("treeitem").filter({hasText:/^Axis$/});
  await expect(custom).toBeVisible();await custom.click();

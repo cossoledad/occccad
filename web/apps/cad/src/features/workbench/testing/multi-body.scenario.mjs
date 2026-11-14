@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import {createServer} from "vite";
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try {
+ const {SurfaceGeometryPool}=await server.ssrLoadModule("/src/cad/rendering/surface-geometry.ts");
  const THREE=await server.ssrLoadModule("three");
  const {InteractionGeometryCache}=await server.ssrLoadModule("/src/cad/rendering/interaction-geometry-cache.ts");
  const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
@@ -15,7 +16,7 @@ try {
  const view={document:{id:"part",name:"Part",type:"PART",versionId:"v1"},part:{activeBodyId:"a",bodies:[{id:"a",name:"A",visible:true,geometryKey:a.geometryKey},{id:"b",name:"B",visible:true,geometryKey:b.geometryKey}],features:[]},artifacts:{[a.geometryKey]:a,[b.geometryKey]:b}};
  function engine() {
   const e=Object.create(CadViewportEngine.prototype);
-  Object.assign(e,{view,content:new THREE.Group(),helpers:new THREE.Group(),scene:new THREE.Scene(),host:{dataset:{}},solidBindings:new Map(),selectable:new Map(),instanceGroups:new Map(),selectionIndex:new SelectionIndex(),solidDisplay:DEFAULT_SOLID_DISPLAY,
+  Object.assign(e,{surfaceGeometries:new SurfaceGeometryPool(),view,content:new THREE.Group(),helpers:new THREE.Group(),scene:new THREE.Scene(),host:{dataset:{}},solidBindings:new Map(),selectable:new Map(),instanceGroups:new Map(),selectionIndex:new SelectionIndex(),solidDisplay:DEFAULT_SOLID_DISPLAY,
   materials:{sectionLine(){},surface:()=>new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),edge:()=>new THREE.LineBasicMaterial(),topologyPoint:()=>new THREE.PointsMaterial(),point:()=>new THREE.PointsMaterial()},refreshSceneGround(){},addVisualPrimitives(){},addAssemblyConstraintMarkers(){},updateCameraClipping(){},invalidate(){}});
   return e;
  }

@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import {createServer} from "vite";
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try{
+ const {SurfaceGeometryPool}=await server.ssrLoadModule("/src/cad/rendering/surface-geometry.ts");
  const THREE=await server.ssrLoadModule("three");
  const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
  const {assemblyGeometryRef}=await server.ssrLoadModule("/src/cad/assembly/assembly-reference.ts");
  const engine=Object.create(CadViewportEngine.prototype);
- Object.assign(engine,{content:new THREE.Group(),instanceGroups:new Map(),selectable:new Map(),selectionIndex:{register(){}},addVisualPrimitives(){},addAssemblyConstraintMarkers(){}});
+ Object.assign(engine,{surfaceGeometries:new SurfaceGeometryPool(),content:new THREE.Group(),instanceGroups:new Map(),selectable:new Map(),selectionIndex:{register(){}},addVisualPrimitives(){},addAssemblyConstraintMarkers(){}});
  const selections=[];
  const add=(kind,datum,parent,context,axis)=>{parent.add(new THREE.Group());selections.push({...context,kind,entityId:datum.id,axis})};
  engine.addDatumPlane=(datum,parent,selectable,context)=>add("plane",datum,parent,context);

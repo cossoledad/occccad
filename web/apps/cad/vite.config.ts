@@ -11,6 +11,10 @@ export default defineConfig(({ mode }) => {
   const target = listen.replace(/^0\.0\.0\.0:/, "127.0.0.1:").replace(/^\[::\]:/, "[::1]:");
   const hmrPort = Number(environment.VITE_HMR_CLIENT_PORT || 0) || undefined;
   return {
+    // Resolve one implementation before bundling. Real builds must not execute
+    // or download Mock fixtures and the modeling helpers they import.
+    resolve: {alias: {"@cad-api-mode": fileURLToPath(new URL(
+      environment.VITE_API_MODE === "mock" ? "./src/api/mock-mode.ts" : "./src/api/real-mode.ts", import.meta.url))}},
     plugins: [react(), {
       name: "cad-dependency-cache",
       config(config, { mode }) {

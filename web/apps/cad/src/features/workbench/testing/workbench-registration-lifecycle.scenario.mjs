@@ -12,6 +12,8 @@ function load(file){
  const js=ts.transpileModule(readFileSync(file,'utf8').replaceAll('import.meta.env','({})'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true},fileName:file}).outputText;
  const localRequire=createRequire(file);
  new Function('require','module','exports',js)(name=>{
+  // Match the default real-mode alias for this isolated CommonJS source loader.
+  if(name==='@cad-api-mode')return load(resolve(base,'../../../api/real-mode.ts'));
   if(!name.startsWith('.'))return localRequire(name);
   const path=resolve(dirname(file),name),target=[path,`${path}.ts`,`${path}.tsx`,`${path}/index.ts`].find(path=>existsSync(path)&&statSync(path).isFile());
   assert(target,`cannot resolve ${name}`);return load(target);

@@ -22,9 +22,9 @@ export function FeaturePickField({onSelect,onHover,compact=false,label,value,act
  if(items!==undefined){
   const visible=items.filter(item=>item.active||item.error||!query.trim()||(item.searchText??[typeof item.value==='string'?item.value:'',typeof item.detail==='string'?item.detail:''].join(' ')).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <div role="group" aria-label={label} className={`feature-pick-field feature-pick-collection ${active||busyItem?'is-active':''}`} data-pick-active={active||!!busyItem||undefined}>
-   <div className="feature-pick-collection-heading"><strong>{label}</strong><span className="feature-pick-count">{items.length} 项</span>{invalid>0&&<span className="command-field-error">{invalid} 项待修复</span>}
+   <div className="feature-pick-collection-heading"><strong>{label}</strong>{items.length>0&&<span className="feature-pick-count">{items.length} 项</span>}{invalid>0&&<span className="command-field-error">{invalid} 项待修复</span>}
     <div className="feature-pick-actions">
-     {onActivate&&<Button size="small" aria-label={`选择${label}`} aria-pressed={active} type={active?'primary':'default'} disabled={disabled} onClick={active?cancel:onActivate}>{active?'结束拾取':items.length?'增减':'选择'}</Button>}
+     {onActivate&&<Button size="small" aria-label={`选择${label}`} aria-pressed={active} type={active?'primary':'default'} disabled={disabled} onClick={active&&items.length?cancel:onActivate}>{active&&items.length?'完成':items.length?'增减':`选择${label}`}</Button>}
      {onClear&&compactAction(`移除${label}`,'清空',<CloseOutlined/>,()=>{cancel();onClear()})}
      {items.length>0&&compactAction(`${expanded?'收起':'展开'}${label}`,expanded?'收起':'展开',expanded?<DownOutlined/>:<RightOutlined/>,()=>setExpanded(v=>!v))}{actions}
     </div>
@@ -53,12 +53,12 @@ export function FeaturePickField({onSelect,onHover,compact=false,label,value,act
  const locateSingle=locate(onLocate,selections);
  return <div className={`feature-pick-field ${compact?'is-compact':''} ${active?'is-active':''}`} data-pick-active={active||undefined}>
   <CommandField label={label} width="selection" error={error}>
-   <div className="feature-pick-content"><span className="feature-pick-value" role={onSelect?"button":undefined} tabIndex={onSelect?0:undefined} aria-label={onSelect?`高亮${label}`:undefined} onClick={onSelect} onMouseEnter={()=>onHover?.(true)} onMouseLeave={()=>onHover?.(false)} onKeyDown={e=>{if(onSelect&&!e.nativeEvent.isComposing&&(e.key==="Enter"||e.key===" ")){e.preventDefault();e.stopPropagation();onSelect()}}} title={typeof value==='string'?value:undefined}>{value||'未选择'}</span>
+   <div className="feature-pick-content"><span className="feature-pick-value" role={onSelect?"button":undefined} tabIndex={onSelect?0:undefined} aria-label={onSelect?`高亮${label}`:undefined} onClick={onSelect} onMouseEnter={()=>onHover?.(true)} onMouseLeave={()=>onHover?.(false)} onKeyDown={e=>{if(onSelect&&!e.nativeEvent.isComposing&&(e.key==="Enter"||e.key===" ")){e.preventDefault();e.stopPropagation();onSelect()}}} title={typeof value==='string'?value:undefined}>{value||`选择${label}`}</span>
     {detail&&<small className="feature-pick-detail">{detail}</small>}
     <div className="feature-pick-actions">
      {compact?<>{locateSingle&&compactAction(`定位${label}`,'定位',<AimOutlined/>,locateSingle,!hasValue)}{onActivate&&compactAction(`选择${label}`,active?'取消选择':hasValue?'更换':'选择',<SwapOutlined/>,active?cancel:onActivate,false,active)}{onClear&&compactAction(`移除${label}`,'移除',<CloseOutlined/>,()=>{cancel();onClear()})}{actions}</>:<>{locateSingle&&<Button size="small" disabled={disabled||!hasValue} aria-label={`定位${label}`} onClick={locateSingle}>定位</Button>}
      {onActivate&&<Button size="small" disabled={disabled} aria-label={`选择${label}`} aria-pressed={active} type={active?'primary':'default'} onClick={active?cancel:onActivate}>{active?'取消选择':hasValue?mode==='single'?'更换':'增减':'选择'}</Button>}
-     {onClear&&<Button size="small" disabled={disabled} aria-label={`移除${label}`} onClick={()=>{cancel();onClear()}}>移除</Button>}{actions}</>}
+     {onClear&&<Button size="small" disabled={disabled} aria-label={`移除${label}`} onClick={()=>{cancel();onClear()}}>清除</Button>}{actions}</>}
     </div>
    </div>{children}
   </CommandField>
