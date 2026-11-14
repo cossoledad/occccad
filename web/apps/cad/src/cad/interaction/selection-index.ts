@@ -37,7 +37,7 @@ export class SelectionIndex {
     this.semanticEntries.delete(selectionKey(selection));
     for (const map of [this.objects,this.treeObjects]) for (const [key,objects] of map) {
       for (const object of removed) objects.delete(object);
-      if(!objects.size){map.delete(key);if(map===this.objects)this.semanticEntries.delete(key);}
+      if(!objects.size){map.delete(key);if(map===this.objects)this.semanticEntries.delete(key);else this.tree.delete(key);}
     }
     if(selection.treeNodeId && !this.treeObjects.has(selection.treeNodeId))this.tree.delete(selection.treeNodeId);
     for(let i=this.picks.length-1;i>=0;i--)if(removed.has(this.picks[i].root))this.picks.splice(i,1);

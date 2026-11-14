@@ -19,7 +19,7 @@
 | InspectExchange / ImportExchange / ExportExchange | ArtifactReference 上的 STEP/BREP/XDE；[交换](../../docs/architecture/current/jobs-artifacts.md) |
 | GetTopology | 冷恢复/缓存精确面边点及提示；[几何制品](../../docs/architecture/current/geometry-representations.md) |
 
-Proto 中的 LoadGeometry、UnloadGeometry、Tessellate、CreateChamfer、CreateFillet 当前没有 server override，调用返回 UNIMPLEMENTED。局部圆角/倒角由 EvaluatePart 承载。
+UnloadGeometry 幂等释放指定驻留 Shape 及拓扑属性；检查点和其他缓存仍按各自预算管理，完整进程回收由 Router 执行。Proto 中的 LoadGeometry、Tessellate、CreateChamfer、CreateFillet 当前没有 server override，调用返回 UNIMPLEMENTED。局部圆角/倒角由 EvaluatePart 承载。
 
 `kernel/api` 定义 OCCT-free 值类型，`kernel/occt` 实现精确几何，`kernel/assembly` 只求纯数值刚体约束，`sketch/` 隔离 PlaneGCS 类型。源码、RPC 代理、结果采用与 CAS 的完整检查归[Worker/Router 合同](../../docs/architecture/current/worker-contracts.md)。
 
@@ -30,6 +30,7 @@ Proto 中的 LoadGeometry、UnloadGeometry、Tessellate、CreateChamfer、Create
 - 持久存储支持 LOCAL/S3；Go 将远端输入验证并 materialize 到 LOCAL scratch，Worker 输出由 Adopt 上传。API/Jobs/Worker 仍需共享 `OCCCCAD_DATA_DIR`，object key 是根目录内 opaque 相对键。
 - 请求携带 request_id、geometry_key，Trace Context 用 gRPC metadata。每个 Body 有独立 GeometryId 与 BREP/Visual/Naming；相同 Part occurrence 复用几何，仅施加 InstancePath/Transform。
 - 首次 GetTopology 可从不可变 BREP 冷恢复，Router 先保留 owner；后续精确拓扑查询过滤同一缓存。完整显示载荷唯一来源为 GLB，格式归 [Visual/Naming](../../docs/architecture/current/visual-naming-artifacts.md)，schema 与 Naming policy 版本独立。
+- GetTopology 的 `speculative` 支撑预备仅使用空闲容量；普通调用可取消锁等待，响应区分 queue/load/query 耗时。控制面的有界缓存保存冻结输入下的精确属性，坐标系及持久选择资格仍由正式来源验证。
 - EvaluatePart 的 `exact_only` 省略 GLB，`force_cold` 绕过热缓存并冷重建，`runtime_affinity` 只是路由提示；`runtime_stats` 记录实际执行/复用。`OCCCCAD_STAGE_CACHE_BYTES` 默认 134217728，0 关闭，最大 2147483648，超预算项不缓存。完整键与恢复语义归[增量运行时](../../docs/architecture/current/jobs-artifacts.md#part-增量运行时)。
 
 ## 日志

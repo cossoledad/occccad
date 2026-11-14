@@ -4982,8 +4982,11 @@ type PartRuntimeStats struct {
 	CancellationPollMs   float64                `protobuf:"fixed64,31,opt,name=cancellation_poll_ms,json=cancellationPollMs,proto3" json:"cancellation_poll_ms,omitempty"`
 	MeshReusedFaces      uint64                 `protobuf:"varint,32,opt,name=mesh_reused_faces,json=meshReusedFaces,proto3" json:"mesh_reused_faces,omitempty"`
 	MeshComputedFaces    uint64                 `protobuf:"varint,33,opt,name=mesh_computed_faces,json=meshComputedFaces,proto3" json:"mesh_computed_faces,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Checkpoint admission cost, included in the enclosing RPC wall time.
+	CacheAccountingMs             float64 `protobuf:"fixed64,34,opt,name=cache_accounting_ms,json=cacheAccountingMs,proto3" json:"cache_accounting_ms,omitempty"`
+	CacheAccountingSerializations uint64  `protobuf:"varint,35,opt,name=cache_accounting_serializations,json=cacheAccountingSerializations,proto3" json:"cache_accounting_serializations,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *PartRuntimeStats) Reset() {
@@ -5243,6 +5246,20 @@ func (x *PartRuntimeStats) GetMeshReusedFaces() uint64 {
 func (x *PartRuntimeStats) GetMeshComputedFaces() uint64 {
 	if x != nil {
 		return x.MeshComputedFaces
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetCacheAccountingMs() float64 {
+	if x != nil {
+		return x.CacheAccountingMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetCacheAccountingSerializations() uint64 {
+	if x != nil {
+		return x.CacheAccountingSerializations
 	}
 	return 0
 }
@@ -11330,6 +11347,7 @@ type PingResponse struct {
 	WorkerId              string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
 	OcctVersion           string                 `protobuf:"bytes,2,opt,name=occt_version,json=occtVersion,proto3" json:"occt_version,omitempty"`
 	ResidentGeometryCount uint32                 `protobuf:"varint,3,opt,name=resident_geometry_count,json=residentGeometryCount,proto3" json:"resident_geometry_count,omitempty"`
+	ResidentMemoryBytes   uint64                 `protobuf:"varint,4,opt,name=resident_memory_bytes,json=residentMemoryBytes,proto3" json:"resident_memory_bytes,omitempty"` // current RSS when the platform exposes it
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -11381,6 +11399,13 @@ func (x *PingResponse) GetOcctVersion() string {
 func (x *PingResponse) GetResidentGeometryCount() uint32 {
 	if x != nil {
 		return x.ResidentGeometryCount
+	}
+	return 0
+}
+
+func (x *PingResponse) GetResidentMemoryBytes() uint64 {
+	if x != nil {
+		return x.ResidentMemoryBytes
 	}
 	return 0
 }
@@ -11584,6 +11609,7 @@ type GetTopologyRequest struct {
 	TopologyType  string                 `protobuf:"bytes,3,opt,name=topology_type,json=topologyType,proto3" json:"topology_type,omitempty"`
 	LocalId       uint64                 `protobuf:"varint,4,opt,name=local_id,json=localId,proto3" json:"local_id,omitempty"`
 	BrepArtifact  *ArtifactReference     `protobuf:"bytes,5,opt,name=brep_artifact,json=brepArtifact,proto3" json:"brep_artifact,omitempty"`
+	Speculative   bool                   `protobuf:"varint,6,opt,name=speculative,proto3" json:"speculative,omitempty"` // optional support warmup; never queue behind modeling
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -11653,6 +11679,13 @@ func (x *GetTopologyRequest) GetBrepArtifact() *ArtifactReference {
 	return nil
 }
 
+func (x *GetTopologyRequest) GetSpeculative() bool {
+	if x != nil {
+		return x.Speculative
+	}
+	return false
+}
+
 type GetTopologyResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FaceCount     uint32                 `protobuf:"varint,1,opt,name=face_count,json=faceCount,proto3" json:"face_count,omitempty"`
@@ -11662,6 +11695,10 @@ type GetTopologyResponse struct {
 	Faces         []*FaceInfo            `protobuf:"bytes,5,rep,name=faces,proto3" json:"faces,omitempty"`
 	Edges         []*EdgeInfo            `protobuf:"bytes,6,rep,name=edges,proto3" json:"edges,omitempty"`
 	Vertices      []*VertexInfo          `protobuf:"bytes,7,rep,name=vertices,proto3" json:"vertices,omitempty"`
+	QueueMs       float64                `protobuf:"fixed64,8,opt,name=queue_ms,json=queueMs,proto3" json:"queue_ms,omitempty"`
+	LoadMs        float64                `protobuf:"fixed64,9,opt,name=load_ms,json=loadMs,proto3" json:"load_ms,omitempty"`
+	QueryMs       float64                `protobuf:"fixed64,10,opt,name=query_ms,json=queryMs,proto3" json:"query_ms,omitempty"`
+	CacheHit      bool                   `protobuf:"varint,11,opt,name=cache_hit,json=cacheHit,proto3" json:"cache_hit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -11743,6 +11780,34 @@ func (x *GetTopologyResponse) GetVertices() []*VertexInfo {
 		return x.Vertices
 	}
 	return nil
+}
+
+func (x *GetTopologyResponse) GetQueueMs() float64 {
+	if x != nil {
+		return x.QueueMs
+	}
+	return 0
+}
+
+func (x *GetTopologyResponse) GetLoadMs() float64 {
+	if x != nil {
+		return x.LoadMs
+	}
+	return 0
+}
+
+func (x *GetTopologyResponse) GetQueryMs() float64 {
+	if x != nil {
+		return x.QueryMs
+	}
+	return 0
+}
+
+func (x *GetTopologyResponse) GetCacheHit() bool {
+	if x != nil {
+		return x.CacheHit
+	}
+	return false
 }
 
 type TopologyProperty struct {
@@ -15988,8 +16053,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\finput_digest\x18\x02 \x01(\tR\vinputDigest\x12\x1f\n" +
 	"\vgeometry_id\x18\x03 \x01(\tR\n" +
 	"geometryId\x12\x16\n" +
-	"\x06reused\x18\x04 \x01(\bR\x06reused\"\xf2\n" +
-	"\n" +
+	"\x06reused\x18\x04 \x01(\bR\x06reused\"\xea\v\n" +
 	"\x10PartRuntimeStats\x12'\n" +
 	"\x0fstages_executed\x18\x01 \x01(\rR\x0estagesExecuted\x12#\n" +
 	"\rstages_reused\x18\x02 \x01(\rR\fstagesReused\x12'\n" +
@@ -16026,7 +16090,9 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x12cancellation_polls\x18\x1e \x01(\x04R\x11cancellationPolls\x120\n" +
 	"\x14cancellation_poll_ms\x18\x1f \x01(\x01R\x12cancellationPollMs\x12*\n" +
 	"\x11mesh_reused_faces\x18  \x01(\x04R\x0fmeshReusedFaces\x12.\n" +
-	"\x13mesh_computed_faces\x18! \x01(\x04R\x11meshComputedFaces\"\x93\x06\n" +
+	"\x13mesh_computed_faces\x18! \x01(\x04R\x11meshComputedFaces\x12.\n" +
+	"\x13cache_accounting_ms\x18\" \x01(\x01R\x11cacheAccountingMs\x12F\n" +
+	"\x1fcache_accounting_serializations\x18# \x01(\x04R\x1dcacheAccountingSerializations\"\x93\x06\n" +
 	"\fProfileCurve\x12\x1b\n" +
 	"\tentity_id\x18\x01 \x01(\tR\bentityId\x12\x1a\n" +
 	"\breversed\x18\x02 \x01(\bR\breversed\x12\x12\n" +
@@ -16641,11 +16707,12 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\vsolid_count\x18\x04 \x01(\rR\n" +
 	"solidCount\x12'\n" +
 	"\x0fgeometry_domain\x18\x05 \x01(\tR\x0egeometryDomain\"\r\n" +
-	"\vPingRequest\"\x86\x01\n" +
+	"\vPingRequest\"\xba\x01\n" +
 	"\fPingResponse\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12!\n" +
 	"\focct_version\x18\x02 \x01(\tR\vocctVersion\x126\n" +
-	"\x17resident_geometry_count\x18\x03 \x01(\rR\x15residentGeometryCount\"2\n" +
+	"\x17resident_geometry_count\x18\x03 \x01(\rR\x15residentGeometryCount\x122\n" +
+	"\x15resident_memory_bytes\x18\x04 \x01(\x04R\x13residentMemoryBytes\"2\n" +
 	"\x13LoadGeometryRequest\x12\x1b\n" +
 	"\tbrep_data\x18\x01 \x01(\fR\bbrepData\"\xa9\x01\n" +
 	"\x14LoadGeometryResponse\x12\x1f\n" +
@@ -16659,14 +16726,15 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x15UnloadGeometryRequest\x12\x1f\n" +
 	"\vgeometry_id\x18\x01 \x01(\tR\n" +
 	"geometryId\"\x18\n" +
-	"\x16UnloadGeometryResponse\"\xdd\x01\n" +
+	"\x16UnloadGeometryResponse\"\xff\x01\n" +
 	"\x12GetTopologyRequest\x12\x1f\n" +
 	"\vgeometry_id\x18\x01 \x01(\tR\n" +
 	"geometryId\x12\x1b\n" +
 	"\tbrep_data\x18\x02 \x01(\fR\bbrepData\x12#\n" +
 	"\rtopology_type\x18\x03 \x01(\tR\ftopologyType\x12\x19\n" +
 	"\blocal_id\x18\x04 \x01(\x04R\alocalId\x12I\n" +
-	"\rbrep_artifact\x18\x05 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\fbrepArtifact\"\xb8\x02\n" +
+	"\rbrep_artifact\x18\x05 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\fbrepArtifact\x12 \n" +
+	"\vspeculative\x18\x06 \x01(\bR\vspeculative\"\xa4\x03\n" +
 	"\x13GetTopologyResponse\x12\x1d\n" +
 	"\n" +
 	"face_count\x18\x01 \x01(\rR\tfaceCount\x12\x1d\n" +
@@ -16677,7 +16745,12 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"solidCount\x121\n" +
 	"\x05faces\x18\x05 \x03(\v2\x1b.occccad.worker.v1.FaceInfoR\x05faces\x121\n" +
 	"\x05edges\x18\x06 \x03(\v2\x1b.occccad.worker.v1.EdgeInfoR\x05edges\x129\n" +
-	"\bvertices\x18\a \x03(\v2\x1d.occccad.worker.v1.VertexInfoR\bvertices\"\xfb\x01\n" +
+	"\bvertices\x18\a \x03(\v2\x1d.occccad.worker.v1.VertexInfoR\bvertices\x12\x19\n" +
+	"\bqueue_ms\x18\b \x01(\x01R\aqueueMs\x12\x17\n" +
+	"\aload_ms\x18\t \x01(\x01R\x06loadMs\x12\x19\n" +
+	"\bquery_ms\x18\n" +
+	" \x01(\x01R\aqueryMs\x12\x1b\n" +
+	"\tcache_hit\x18\v \x01(\bR\bcacheHit\"\xfb\x01\n" +
 	"\x10TopologyProperty\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
 	"\fnumber_value\x18\x02 \x01(\x01H\x00R\vnumberValue\x12%\n" +

@@ -157,7 +157,7 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 	return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, Volume: e.Volume, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount, "domain": geometryDomain(e)}, TriangleCount: e.TriangleCount, DisplayVertexCount: e.DisplayVertexCount, Visualization: v}, objects)
 }
 func (s *Service) ensureVisualizationArtifact(ctx context.Context, model PartModel) (string, error) {
-	v := visualizationManifest(model)
+	v := bodyDisplayMetadata(model)
 	raw, _ := json.Marshal(v)
 	sum := sha256.Sum256(append([]byte(evaluatorVersion+"|body="+model.ActiveBodyID+"|"), raw...))
 	key := "sha256:" + hex.EncodeToString(sum[:])

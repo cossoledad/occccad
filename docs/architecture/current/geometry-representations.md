@@ -22,6 +22,8 @@ flowchart LR
 
 Worker 输出通过摘要/长度验证后登记 READY 对象；GLB 业务显示扩展在暂存阶段合并后只发布最终一份 GLB。几何摘要和全部 role 引用在同一个短事务提交，网络上传不占用数据库事务。数据库事务失败可能留下无引用对象，不能产生已发布但尚未上传的引用；自动 GC 不在本阶段。
 
+Body GLB 保存三维显示与 Naming 关联，不再合入草图绘制图元。草图、关联偏移和草图阵列由已接纳参数模型生成 Revision 级 `sketchVisualization`，冻结 occurrence/变体各用自身投影；该二维投影不替代 BREP 或三维网格。小草图编辑可以沿用原 Body 的全部制品与 GPU 数据。缩略图同样接纳当前草图投影，避免使用旧 Body GLB 中的草图或重新显示隐藏对象。
+
 ## 持久模型
 
 - `geometry_artifacts`：不可变 GeometryKey/GeometryId、evaluator/OCCT 版本、毫米单位、bbox、volume、拓扑计数、显示顶点/三角形计数，以及轻量业务基准几何。没有 `brep_data`、`glb_data`、`mesh_json`、`topology_manifest_data`。`reference_geometry_json` 的数据库约束禁止放入非空显示 primitives。
@@ -63,9 +65,9 @@ local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持�
 
 Worker 的 `fill_evaluation` 统一调度离散与编码，`make_glb` 消费快照中的有向曲面法线；采样、降级和显示精度取舍见[曲面与光照](visual-studio.md)。Worker 仍通过互斥锁串行管理同一驻留内核；整 Body 剖分和曲面抽壳布尔复用 OCCT 内部至多 4 路并行，不拆分相邻 Face。快照以 `shared_ptr<const ...>` 缓存，编码/提取目前按稳定顺序执行。不同 Worker 可并发计算独立输入。
 
-两级易失缓存分别保存冻结请求的完整求值结果和 GeometryId/精度/离散策略对应的可视化快照，各有 64 MiB 计数预算；超大结果正常计算但不缓存。请求键包含真实输入、命名策略及精度，不以调用者 geometryKey 代替输入身份。串行门合并排队的相同请求，命中后复用 BREP/GLB/Naming 字节并写入当前 attempt 路径，不重复求值或编码。BREP 与 GLB 字节通过不可变共享所有权借用，缓存/发布不再各复制一份；精确 Shape 的驻留计数按共享几何并集计量，避免同源结果被反复当作完整导入件收费。Naming 仍由该请求的实际命名历史绑定到同一 GeometryId；Go 在现有 GLB 制品装配阶段加入 Naming digest。前端要求带 Naming 的制品具有完整关联，成套 hydrate 后切换，显示/hover/selected 读取同一 mesh.edges。
+两级易失缓存分别保存冻结请求的完整求值结果和 GeometryId/精度/离散策略对应的可视化快照，各有 64 MiB 计数预算；超大结果正常计算但不缓存。请求键包含真实输入、命名策略及精度，不以调用者 geometryKey 代替输入身份。串行门合并排队的相同请求，命中后复用 BREP/GLB/Naming 字节并写入当前 attempt 路径，不重复求值或编码。BREP 与 GLB 字节通过不可变共享所有权借用，缓存/发布不再各复制一份；驻留 Shape、Stage 和网格根费用复用冻结 BREP 大小的保守估计，共享网格包另行去重，不再为记账编码整个并集；共享原生图可能被重复收费。Naming 仍由该请求的实际命名历史绑定到同一 GeometryId；Go 在现有 GLB 制品装配阶段加入 Naming digest。前端要求带 Naming 的制品具有完整关联，成套 hydrate 后切换，显示/hover/selected 读取同一 mesh.edges。
 
-`visual_snapshot` 日志记录剖分、面提取、边界提取/验证、法线、编码耗时及顶点/三角形/边节点/GLB 字节数，缓存命中另有标识。剖分与 Part Boolean 已接入 OCCT progress 协作取消，编码及缓存接纳前再次检查取消；其余原生算法不保证中途响应。缓存预算不包含驻留 BREP 与计算峰值；尚未实现进程整体按字节淘汰。
+`visual_snapshot` 日志记录剖分、面提取、边界提取/验证、法线、编码耗时及顶点/三角形/边节点/GLB 字节数，缓存命中另有标识。剖分与 Part Boolean 已接入 OCCT progress 协作取消，编码及缓存接纳前再次检查取消；其余原生算法不保证中途响应。各缓存预算不覆盖整个进程峰值；Router 以采样 RSS 控制扩容和空闲额外副本回收，不提供单次计算的硬内存限制。
 
 定向验证包括 `CurvedVisualSnapshotUsesEveryAdjacentMeshBoundary`（圆柱、球面接缝、修剪曲面、圆角、嵌套变换、串并行字节一致与 BREP 精度抽样）、真实 Worker 缓存/抽壳测试，以及 `OCCCCAD_TEST_CURVED_GLB` 注入真实 C++ GLB 的前端 `multi-body` 场景（接缝拾取、hover/selected 折线及过期快照隔离）。这些检查不替代实机 WebGL 验收，也不构成任意曲面的全局 Hausdorff 误差证明。
 
@@ -86,7 +88,7 @@ Multi-Body 定向入口为 `TestMultiBodyIndependentGeometryAndHistory`（双 Bo
 其他定向入口包括真实 Router 的 Cut/Hole 和 Face/Edge/Vertex/导入命名历史回归、`TestRepresentationDownloadAuthorizationAndSnapshot`、`TestCppWorkerAcceptsPartNamingContract`、`TestS3WorkerExchangeRoundTrip`，以及前端 `mesh-glb` 场景。真实 C++ GLB 可通过 `OCCCCAD_TEST_GLB_FIXTURE` 同时交给 Go 缩略图与 TypeScript 解码器核对拾取映射。
 
 
-现有数据职责分层不构成 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、几何分块/按需装载、进程全局内存预算和跨主机 Worker 数据面尚未实现。现有模块缓存预算不等于全进程 RSS 上限。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE 支持基础 RGB [颜色材质](surface-appearance.md)，PMI 等完整 AP242 扩展尚未交付；WebSocket 控制面见独立分册。未发布格式的重建规则见[开发数据边界](../../../AGENTS.md#当前开发数据边界)；当前不提供旧内联数据回退。
+现有数据职责分层不构成 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、几何分块/按需装载、进程硬内存限制和跨主机 Worker 数据面尚未实现；Router 的 RSS 软预算只作用于调度与空闲回收。现有模块缓存预算不等于全进程 RSS 上限。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE 支持基础 RGB [颜色材质](surface-appearance.md)，PMI 等完整 AP242 扩展尚未交付；WebSocket 控制面见独立分册。未发布格式的重建规则见[开发数据边界](../../../AGENTS.md#当前开发数据边界)；当前不提供旧内联数据回退。
 
 ## 独立几何分析的 exact 输入
 

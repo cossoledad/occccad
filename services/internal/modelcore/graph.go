@@ -1,6 +1,7 @@
 package modelcore
 
 import (
+	"container/heap"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -191,21 +192,65 @@ func (graph *DependencyGraph) TopologicalOrder() []DependencyKey {
 			ready = append(ready, key)
 		}
 	}
-	sortDependencyKeys(ready)
+	queue := dependencyQueue(ready)
+	heap.Init(&queue)
 	result := []DependencyKey{}
-	for len(ready) > 0 {
-		key := ready[0]
-		ready = ready[1:]
+	for queue.Len() > 0 {
+		key := heap.Pop(&queue).(DependencyKey)
 		result = append(result, key)
 		for _, target := range adj[key] {
 			indegree[target]--
 			if indegree[target] == 0 {
-				ready = append(ready, target)
-				sortDependencyKeys(ready)
+				heap.Push(&queue, target)
 			}
 		}
 	}
 	return result
+}
+
+type dependencyQueue []DependencyKey
+
+func (q dependencyQueue) Len() int           { return len(q) }
+func (q dependencyQueue) Less(i, j int) bool { return q[i] < q[j] }
+func (q dependencyQueue) Swap(i, j int)      { q[i], q[j] = q[j], q[i] }
+func (q *dependencyQueue) Push(v any)        { *q = append(*q, v.(DependencyKey)) }
+func (q *dependencyQueue) Pop() any {
+	old := *q
+	last := old[len(old)-1]
+	*q = old[:len(old)-1]
+	return last
+}
+
+// ChangedInputs uses the same versioned node/dependency digest as Evaluate,
+// without serializing a full graph/Revision manifest just to plan execution.
+func (graph *DependencyGraph) ChangedInputs(prior *EvaluationManifest, evaluatorDigest, unitDigest string, evaluator NodeEvaluator) ([]DependencyKey, error) {
+	results := map[DependencyKey]NodeResult{}
+	incoming := map[DependencyKey][]DependencyKey{}
+	for _, edge := range graph.Edges {
+		incoming[edge.Target] = append(incoming[edge.Target], edge.Source)
+	}
+	var changed []DependencyKey
+	for _, key := range graph.TopologicalOrder() {
+		node := graph.Nodes[key]
+		deps := map[DependencyKey]NodeResult{}
+		for _, source := range incoming[key] {
+			deps[source] = results[source]
+		}
+		digest := dependencyInputDigest(node, deps, evaluatorDigest, unitDigest)
+		if prior != nil && prior.EvaluatorDigest == evaluatorDigest && prior.UnitProfileDigest == unitDigest {
+			if previous, ok := prior.NodeResults[key]; ok && previous.InputDigest == digest && previous.Status != "FAILED" && previous.Status != "BLOCKED" {
+				results[key] = previous
+				continue
+			}
+		}
+		output, err := evaluator(node, deps)
+		if err != nil {
+			return nil, err
+		}
+		results[key] = NodeResult{InputDigest: digest, OutputDigest: output, Status: "SUCCEEDED"}
+		changed = append(changed, key)
+	}
+	return changed, nil
 }
 
 func (graph *DependencyGraph) Digest() (string, error) {
@@ -272,6 +317,15 @@ type EvaluationManifest struct {
 }
 type NodeEvaluator func(node DependencyNode, dependencyResults map[DependencyKey]NodeResult) (string, error)
 
+func dependencyInputDigest(node DependencyNode, deps map[DependencyKey]NodeResult, evaluator, units string) string {
+	data, _ := json.Marshal(struct {
+		Node             DependencyNode
+		Deps             map[DependencyKey]NodeResult
+		Evaluator, Units string
+	}{node, deps, evaluator, units})
+	return ValueDigest(data)
+}
+
 func (graph *DependencyGraph) Evaluate(revisionID, modelHash, evaluatorDigest, unitDigest string, seeds []DependencyKey, prior *EvaluationManifest, evaluator NodeEvaluator) (EvaluationManifest, error) {
 	graphDigest, err := graph.Digest()
 	if err != nil {
@@ -296,12 +350,7 @@ func (graph *DependencyGraph) Evaluate(revisionID, modelHash, evaluatorDigest, u
 		for _, source := range incoming[key] {
 			deps[source] = manifest.NodeResults[source]
 		}
-		inputData, _ := json.Marshal(struct {
-			Node             DependencyNode
-			Deps             map[DependencyKey]NodeResult
-			Evaluator, Units string
-		}{node, deps, evaluatorDigest, unitDigest})
-		inputDigest := ValueDigest(inputData)
+		inputDigest := dependencyInputDigest(node, deps, evaluatorDigest, unitDigest)
 		if _, isDirty := dirtySet[key]; !isDirty && prior != nil {
 			if previous, exists := prior.NodeResults[key]; exists && previous.InputDigest == inputDigest {
 				manifest.NodeResults[key] = previous

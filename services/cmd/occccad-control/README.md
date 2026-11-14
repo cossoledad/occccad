@@ -39,6 +39,7 @@ flowchart LR
 | `OCCCCAD_GEOMETRY_WORKER_MAX` | `8` | 最大 Worker 数 |
 | `OCCCCAD_GEOMETRY_PER_WORKER` | `2` | 新 GeometryKey 的驻留软调度容量，不是原生计算并行槽数；达到该值时优先选择/拉起其他 Worker，不迁移或删除既有不可变 Body 缓存 |
 | `OCCCCAD_GEOMETRY_WORKER_IDLE` | `5m` | 超出最小副本后的空闲回收时间 |
+| `OCCCCAD_GEOMETRY_MEMORY_BUDGET_MB` | `4096` | 已采样 Worker 总 RSS 的软预算，用于扩容/支撑预备准入及空闲额外副本回收；范围 1..1048576，不限制最小副本或单次原生峰值 |
 | `OCCCCAD_LOG_LEVEL` | `info` | Geometry Worker 控制台与文件日志级别 |
 | `OCCCCAD_LOG_DIR` | `./logs` | Geometry Worker 滚动日志目录；相对路径以 `services/` 为基准 |
 | `OCCCCAD_SERVER_BIN` | 构建目录中的二进制 | API 可执行文件覆盖 |

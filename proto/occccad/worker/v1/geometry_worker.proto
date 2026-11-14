@@ -574,6 +574,9 @@ message PartRuntimeStats {
     double cancellation_poll_ms = 31;
     uint64 mesh_reused_faces = 32;
     uint64 mesh_computed_faces = 33;
+    // Checkpoint admission cost, included in the enclosing RPC wall time.
+    double cache_accounting_ms = 34;
+    uint64 cache_accounting_serializations = 35;
 }
 
 message ProfileCurve {
@@ -1252,6 +1255,7 @@ message PingResponse {
     string worker_id = 1;
     string occt_version = 2;
     uint32 resident_geometry_count = 3;
+    uint64 resident_memory_bytes = 4; // current RSS when the platform exposes it
 }
 
 // ---------------------------------------------------------------------------
@@ -1285,6 +1289,7 @@ message GetTopologyRequest {
     string topology_type = 3;
     uint64 local_id = 4;
     ArtifactReference brep_artifact = 5;
+    bool speculative = 6; // optional support warmup; never queue behind modeling
 }
 
 message GetTopologyResponse {
@@ -1295,6 +1300,10 @@ message GetTopologyResponse {
     repeated FaceInfo faces = 5;
     repeated EdgeInfo edges = 6;
     repeated VertexInfo vertices = 7;
+    double queue_ms = 8;
+    double load_ms = 9;
+    double query_ms = 10;
+    bool cache_hit = 11;
 }
 
 message TopologyProperty {

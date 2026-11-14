@@ -46,6 +46,12 @@ flowchart LR
 
 ## 当前启动拓扑
 
+Geometry Router 的 Body runtime 亲和可沿用已加载的精确根 owner；亲和是调度提示，不是业务身份。显式选面后的可取消支撑预备只使用现有空闲 Worker，不排在忙碌 owner 后或额外扩容。正常查询/求值保留权威执行，原生拓扑查询的锁等待支持取消；B-Rep 反序列化等部分原生片段仍只能在返回后检查取消。
+
+完成 RPC 后的 Ping 在每 Worker 至多一个后台探测中更新健康与驻留 RSS，不延长已完成调用；连续失败判定保留。额外 Worker 即使仍有驻留几何，也可在空闲租期结束后回收。`OCCCCAD_GEOMETRY_MEMORY_BUDGET_MB` 默认 4096，限制基于已采样总 RSS 的扩容及预备，并在压力下回收空闲额外 Worker；最小副本、正在执行的工作和单次原生峰值不受此参数硬限制。缓存预算与该调度预算都不是操作系统 RSS 上限。
+
+当前 Worker 在 Linux 通过 `/proc/self/statm` 上报 RSS；未提供该读数的平台不能据此字节预算约束实际驻留量。
+
 ### 统一本地模式
 
 原生制品由 mise --profile release|debug|sanitize 选择，位于 `build/cmake/linux-gcc15-x86_64/<profile>`；Go 服务位于 `build/services/<profile>`。`mise run dev` 增量构建后，将 Control/API/Jobs/Worker 复制到 `build/runtime/instances/<runtimeId>`，由现有 Control 使用启动快照管理进程。复制完成即释放构建锁，同 profile 后续构建不更新正在运行的实例；重启后用 doctor --live 验证磁盘产物、加载快照和后端身份。前端 Vite/HMR 与后端身份分开；配置、锁和资源规则见[开发环境](../../development/environment.md)。

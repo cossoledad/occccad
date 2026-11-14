@@ -30,6 +30,8 @@ struct PartRuntimeStats {
            modifier_calls = 0, body_operation_calls = 0, stage_cache_bytes = 0, stage_evictions = 0;
     double exact_ms = 0, naming_ms = 0;
     double base_ms = 0, adjacency_ms = 0;
+    double cache_accounting_ms = 0;
+    size_t cache_accounting_serializations = 0;
     size_t volume_integrations = 0, face_evidence_computed = 0, face_evidence_reused = 0;
     bool base_stage_restored = false;
     std::vector<std::string> executed_feature_ids, reused_feature_ids;

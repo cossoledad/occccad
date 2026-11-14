@@ -109,6 +109,16 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 	s := &renderScene{}
 	triangles, vertices := 0, 0
 	cache := map[string]*preparedMesh{}
+	withoutSketches := func(a workspace.Artifact) workspace.Artifact {
+		var primitives []workspace.VisualPrimitive
+		for _, p := range a.Visualization.Primitives {
+			if !strings.HasPrefix(p.Semantic, "SKETCH_") {
+				primitives = append(primitives, p)
+			}
+		}
+		a.Visualization.Primitives = primitives
+		return a
+	}
 	appendArtifact := func(a workspace.Artifact, p pose, appearance workspace.ResolvedAppearance) error {
 		triangles += len(a.Mesh.Triangles)
 		vertices += len(a.Mesh.Vertices)
@@ -247,12 +257,23 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 		sort.SliceStable(instances, func(i, j int) bool { return instances[i].ID < instances[j].ID })
 		for _, instance := range instances {
 			if a, ok := view.Artifacts[instance.GeometryKey]; ok && (instance.BodyID == "" || instance.BodyVisible) {
+				for _, scope := range view.ReferenceDisplayScopes {
+					if scope.InstancePath.Canonical == instance.OccurrencePath && scope.SketchVisualization != nil {
+						a = withoutSketches(a)
+						break
+					}
+				}
 				if err := appendArtifact(a, newPose(instance.Translation, instance.Rotation), instance.Appearance); err != nil {
 					return nil, err
 				}
 			}
 		}
 		for _, scope := range view.ReferenceDisplayScopes {
+			if scope.SketchVisualization != nil {
+				if err := appendArtifact(workspace.Artifact{Visualization: *scope.SketchVisualization}, newPose(scope.Translation, scope.Rotation), workspace.ResolvedAppearance{}); err != nil {
+					return nil, err
+				}
+			}
 			for _, result := range scope.Results {
 				if !result.Visible {
 					continue
@@ -271,6 +292,9 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				continue
 			}
 			if a, ok := view.Artifacts[body.GeometryKey]; ok {
+				if view.SketchVisualization != nil {
+					a = withoutSketches(a)
+				}
 				if err := appendArtifact(a, newPose(vec{}, [4]float64{}), view.BodyAppearances[body.ID]); err != nil {
 					return nil, err
 				}
@@ -285,6 +309,11 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				if err := appendArtifact(a, newPose(vec{}, [4]float64{}), view.ResultAppearances[feature.ID]); err != nil {
 					return nil, err
 				}
+			}
+		}
+		if view.SketchVisualization != nil {
+			if err := appendArtifact(workspace.Artifact{Visualization: *view.SketchVisualization}, newPose(vec{}, [4]float64{}), workspace.ResolvedAppearance{}); err != nil {
+				return nil, err
 			}
 		}
 		hasModelDisplay := len(s.meshes)+len(s.lines) > 0
@@ -302,7 +331,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 			s.include(point.Position)
 			s.lines = append(s.lines, sceneLine{points: []vec{point.Position}, engineering: true, appearance: view.ObjectAppearances["REFERENCE_POINT:"+point.ID]})
 		}
-		if !hasModelDisplay {
+		if !hasModelDisplay && view.SketchVisualization == nil {
 			if err := appendSketchFallback(ctx, s, view.Part.Features); err != nil {
 				return nil, err
 			}

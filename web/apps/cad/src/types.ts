@@ -481,6 +481,7 @@ export type SketchProfileAnalysis = {
 };
 
 export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;contextOccurrencePath?:string;contextProduct?:DocumentView;
+  sketchVisualization?: VisualizationManifest;
   bodyAppearances?: Record<string, ResolvedAppearance>;
   resultAppearances?: Record<string, ResolvedAppearance>;
   objectAppearances?:Record<string,ResolvedAppearance>;
@@ -497,7 +498,7 @@ export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;co
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
   resolvedInstances?: ResolvedInstance[];
-  referenceDisplayScopes?:Array<{documentId:string;versionId:string;instancePath:InstancePath;translation:Vec3;rotation:[number,number,number,number];referenceGeometry:ReferenceGeometry;results?:Array<{featureId:string;resultId:string;geometryKey:string;domain:string;visible:boolean;appearance:ResolvedAppearance}>}>;
+  referenceDisplayScopes?:Array<{documentId:string;versionId:string;instancePath:InstancePath;translation:Vec3;rotation:[number,number,number,number];referenceGeometry:ReferenceGeometry;sketchVisualization?:VisualizationManifest;results?:Array<{featureId:string;resultId:string;geometryKey:string;domain:string;visible:boolean;appearance:ResolvedAppearance}>}>;
   constraintDisplayScopes?: Array<{documentId:string;versionId:string;instancePath:InstancePath;treeNodeId:string;constraints:AssemblyConstraint[]}>;
   structureTree?: DocumentStructureNode;
   referenceUpdates?: ReferenceUpdate[];

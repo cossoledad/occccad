@@ -148,6 +148,16 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 			view.ResolvedInstances = slices.DeleteFunc(view.ResolvedInstances, func(r ResolvedInstance) bool { return r.OccurrencePath == variant.OwningInstancePath.Canonical })
 			continue
 		}
+		if variant.Part != nil {
+			for i := range view.ReferenceDisplayScopes {
+				scope := &view.ReferenceDisplayScopes[i]
+				if scope.InstancePath.Canonical == variant.OwningInstancePath.Canonical {
+					visual := sketchDisplayProjection(*variant.Part)
+					scope.SketchVisualization = &visual
+					scope.ReferenceGeometry = referenceGeometry(*variant.Part)
+				}
+			}
+		}
 		for _, body := range variant.Bodies {
 			if body.GeometryKey == "" || body.Consumed {
 				continue
@@ -402,6 +412,8 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 
 // Value-dependent collections are projected for both independent and accepted views.
 func projectPartCollections(view *DocumentView, model PartModel) {
+	sketchVisual := sketchDisplayProjection(model)
+	view.SketchVisualization = &sketchVisual
 	view.ReplicationSources = replicationSources(model)
 	view.FeatureOrderDigest = featureOrderDigest(model)
 	view.SketchDerivedEntities = map[string][]SketchEntity{}

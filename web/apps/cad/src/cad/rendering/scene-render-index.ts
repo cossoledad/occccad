@@ -11,6 +11,7 @@ export class SceneRenderIndex {
   readonly meshes = new Set<THREE.Mesh>();
   readonly points = new Set<THREE.Points>();
   readonly screenObjects = new Set<THREE.Object3D>();
+  readonly sketchObjects = new Set<THREE.Object3D>();
   private readonly objects = new Set<THREE.Object3D>();
   private readonly added = (event: { child: THREE.Object3D }) => this.attach(event.child);
   private readonly removed = (event: { child: THREE.Object3D }) => this.detach(event.child);
@@ -39,6 +40,7 @@ export class SceneRenderIndex {
     if (object instanceof THREE.Mesh) this.meshes.add(object);
     if (object instanceof THREE.Points) this.points.add(object);
     if (screenUpdates.has(object)) this.screenObjects.add(object);
+    if(object.userData.sketchFeatureID||object.userData.kind==='sketch-constraint')this.sketchObjects.add(object);
     object.addEventListener("childadded", this.added);
     object.addEventListener("childremoved", this.removed);
     for (const child of object.children) this.attach(child);
@@ -51,9 +53,25 @@ export class SceneRenderIndex {
     this.meshes.delete(object as THREE.Mesh);
     this.points.delete(object as THREE.Points);
     this.screenObjects.delete(object);
+    this.sketchObjects.delete(object);
     for (const child of object.children) this.detach(child);
   }
   dispose(): void { this.detach(this.root); }
+}
+
+/** Sketch presentation visits owned subtrees only, never an imported Body's
+ * mesh/edge hierarchy on every cursor frame. Unindexed small roots fall back. */
+export function forEachSketchRoot(root:THREE.Object3D,visit:(object:THREE.Object3D)=>void):boolean {
+  const index=indexFor(root);if(!index)return false;
+  for(const object of index.sketchObjects){
+    let parent=object.parent,covered=false;
+    while(parent&&parent!==root){
+      if(index.sketchObjects.has(parent)){covered=true;break}
+      parent=parent.parent;
+    }
+    if(!covered&&(object===root||parent===root))visit(object);
+  }
+  return true;
 }
 
 function indexFor(root: THREE.Object3D): SceneRenderIndex | undefined {

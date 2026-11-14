@@ -739,6 +739,8 @@ struct ToolBuild {
     std::string feature_id;
     bool topology_history_complete{true};
     std::vector<std::string> diagnostics;
+    size_t retained_charge = 0; // immutable shape estimate travels with checkpoints
+    TopoDS_Shape retained_shape;
 };
 
 SemanticTopologyRef profile_source(const ProfilePadSpec& spec, const std::string& slot,
@@ -4302,6 +4304,7 @@ struct OcctKernel::Impl {
         std::shared_ptr<const std::vector<uint8_t>> brep;
         uint64_t used = 0;
         std::optional<double> volume;
+        size_t charge = 0;
     };
 
     // Checkpoints own immutable shapes and true history. OCCT operations remain
@@ -4334,11 +4337,10 @@ struct OcctKernel::Impl {
     std::unordered_map<GeometryId, std::unordered_map<std::string, TopologyInfo>> topology_queries;
     size_t shape_bytes=0,shape_budget=128*1024*1024;
     bool retain_operation_graph=false;
-    size_t retained_shape_bytes() const {
-        if (shapes.empty()) return 0;
-        BRep_Builder builder; TopoDS_Compound combined; builder.MakeCompound(combined); size_t buffers=0;
-        for (const auto& entry : shapes) {builder.Add(combined,entry.second.shape); buffers+=entry.second.brep->capacity();}
-        return buffers + write_brep(combined).size()*16;
+    double accounting_ms = 0;
+    size_t accounting_serializations = 0;
+    static size_t history_charge(const FeatureResult& value) {
+        return value.topology_history.lineage.size()*sizeof(TopologyLineage)+value.semantic_outputs.size()*sizeof(SemanticTopologyOutput);
     }
     void trim_shapes(const GeometryId& active) {
         // Active handles are also owned by local execution / stage checkpoints.
@@ -4348,16 +4350,20 @@ struct OcctKernel::Impl {
             for(auto it=shapes.begin();it!=shapes.end();++it)
                 if(it->first!=active&&(oldest==shapes.end()||it->second.used<oldest->second.used))oldest=it;
             if(oldest==shapes.end())break;
-            topologies.erase(oldest->first);topology_queries.erase(oldest->first);shapes.erase(oldest);shape_bytes=retained_shape_bytes();
+            shape_bytes-=oldest->second.charge;
+            topologies.erase(oldest->first);topology_queries.erase(oldest->first);shapes.erase(oldest);
         }
     }
     void adopt(const GeometryId& id,const TopoDS_Shape& shape,std::vector<uint8_t> bytes) {
         const auto previous=shapes.find(id);
         if(previous!=shapes.end()){previous->second.used=++clock;return;}
         const auto incoming=bytes.capacity()+bytes.size()*16;
-        shapes.emplace(id,StoredGeometry{shape,std::make_shared<const std::vector<uint8_t>>(std::move(bytes)),++clock,{}});
-        if(retain_operation_graph){shape_bytes+=incoming;return;}
-        shape_bytes=retained_shape_bytes();
+        // Conservative additive charges reuse already serialized bytes. Shared
+        // native graphs can be overcharged; accounting never re-encodes all
+        // resident geometry or pins evicted OCCT handles.
+        shapes.emplace(id,StoredGeometry{shape,std::make_shared<const std::vector<uint8_t>>(std::move(bytes)),++clock,{},incoming});
+        shape_bytes+=incoming;
+        if(retain_operation_graph)return;
         trim_shapes(id);
     }
 
@@ -4595,8 +4601,8 @@ GeometryId OcctKernel::loadStepData(const std::vector<uint8_t>& data) {
 }
 
 void OcctKernel::unload(const GeometryId& id) {
-    impl_->shapes.erase(id);
-    impl_->shape_bytes=impl_->retained_shape_bytes();
+    const auto found=impl_->shapes.find(id);
+    if(found!=impl_->shapes.end()){impl_->shape_bytes-=found->second.charge;impl_->shapes.erase(found);}
     impl_->topologies.erase(id);
     impl_->topology_queries.erase(id);
 }
@@ -4644,6 +4650,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     PartRuntimeStats local_stats;
     auto& stats = runtime.stats ? *runtime.stats : local_stats;
     stats = {};
+    const auto accounting_started=impl_->accounting_ms;
+    const auto accounting_serializations_started=impl_->accounting_serializations;
     ShapeFacts facts;
     facts.cancelled = runtime.cancelled;
     facts.stats = &stats;
@@ -4658,6 +4666,16 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         impl_->boolean_partitions.clear();impl_->mesh_reuse.clear();
         impl_->shapes.clear();impl_->topologies.clear();impl_->topology_queries.clear();impl_->shape_bytes=0;
     }
+    TopTools_IndexedMapOfShape accounted_shapes;
+    std::vector<size_t> accounted_charges;
+    const auto shape_charge=[&](const TopoDS_Shape& shape){
+        const auto known=accounted_shapes.FindIndex(shape);
+        if(known)return accounted_charges[known-1];
+        size_t bytes=0;
+        for(const auto& entry:impl_->shapes)if(entry.second.shape.IsSame(shape)){bytes=entry.second.brep->capacity()*16;break;}
+        if(!bytes){bytes=write_brep(shape).size()*16;++impl_->accounting_serializations;}
+        accounted_shapes.Add(shape);accounted_charges.push_back(bytes);return bytes;
+    };
     std::shared_ptr<const Impl::Stage> restored;
     size_t resume = 0;
     const bool needs_pattern_context=std::any_of(specs.begin(),specs.end(),[](const auto& spec){return spec.generator=="SOLID_PATTERN";});
@@ -4839,7 +4857,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     using FeatureHistory=detail::ImmutablePrefix<FeatureResult>;
     std::shared_ptr<const FeatureHistory> history=restored?restored->history:nullptr;
     if(!history && !runtime.force_cold && runtime.stage_keys.size()==specs.size())
-        for(const auto& feature:evaluation.feature_results)history=FeatureHistory::append(history,feature);
+        for(const auto& feature:evaluation.feature_results)history=FeatureHistory::append(history,feature,Impl::history_charge(feature));
     stats.base_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-base_started).count();
     for (size_t spec_index=resume;spec_index<specs.size();++spec_index) {
         const auto& spec=specs[spec_index];
@@ -5407,24 +5425,31 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             if(!runtime.force_cold && runtime.stage_keys.size()==specs.size()) {
                 auto stage=std::make_shared<Impl::Stage>();
                 stage->shape=result;stage->geometry_id=result_id;stage->named=live_named;
-                history=FeatureHistory::append(history,evaluation.feature_results.back());
+                history=FeatureHistory::append(history,evaluation.feature_results.back(),Impl::history_charge(evaluation.feature_results.back()));
                 stage->history=history;stage->history_complete=topology_history_complete;
                 stage->volume=impl_->shapes.at(result_id).volume;
                 stage->tools=pattern_tools;stage->bodies=pattern_bodies;stage->bases=pattern_range_bases;
-                // Serialize the union once for admission accounting: unchanged
-                // TShapes and geometry shared by Body/tool checkpoints are not
-                // independent copies of the whole BREP. Keep the conservative
-                // native-memory allowance, applied to that deduplicated graph.
-                BRep_Builder retained_builder;TopoDS_Compound retained;retained_builder.MakeCompound(retained);
+                const auto accounting_begin=std::chrono::steady_clock::now();
+                // Reuse measured immutable roots, charging shared roots once
+                // per checkpoint. Per-root sums conservatively overcount shared
+                // descendants, rather than serializing a complete union again.
                 TopTools_IndexedMapOfShape retained_shapes;
-                const auto retain=[&](const TopoDS_Shape& shape){if(!shape.IsNull()&&!retained_shapes.Contains(shape)){retained_shapes.Add(shape);retained_builder.Add(retained,shape);}};
+                size_t retained_bytes=0;
+                const auto retain=[&](const TopoDS_Shape& shape){if(!shape.IsNull()&&!retained_shapes.Contains(shape)){
+                    retained_shapes.Add(shape);retained_bytes+=shape_charge(shape);
+                }};
                 retain(stage->shape);
-                for(const auto& entry:stage->bodies)retain(entry.second.shape);
-                for(const auto& entry:stage->tools)retain(entry.second.shape);
-                for(const auto& entry:stage->bases)retain(entry.second.shape);
-                stage->bytes=sizeof(Impl::Stage)+write_brep(retained).size()*16;
-                for(auto node=stage->history;node;node=node->previous)
-                    stage->bytes+=node->value.topology_history.lineage.size()*sizeof(TopologyLineage)+node->value.semantic_outputs.size()*sizeof(SemanticTopologyOutput);
+                const auto retain_tool=[&](ToolBuild& cached_tool){
+                    if(cached_tool.shape.IsNull()||retained_shapes.Contains(cached_tool.shape))return;
+                    if(!cached_tool.retained_charge||!cached_tool.shape.IsSame(cached_tool.retained_shape)){
+                        cached_tool.retained_charge=shape_charge(cached_tool.shape);cached_tool.retained_shape=cached_tool.shape;
+                    }
+                    retained_shapes.Add(cached_tool.shape);retained_bytes+=cached_tool.retained_charge;
+                };
+                for(auto& entry:stage->bodies)retain_tool(entry.second);
+                for(auto& entry:stage->tools)retain_tool(entry.second);
+                for(auto& entry:stage->bases)retain_tool(entry.second);
+                stage->bytes=sizeof(Impl::Stage)+retained_bytes+(stage->history?stage->history->bytes:0);
                 for(const auto& entry:stage->bodies) {
                     stage->bytes+=entry.second.named.size()*sizeof(NamedShape);
                 }
@@ -5442,11 +5467,11 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     stage->tools.clear();stage->bodies.clear();stage->bases.clear();
                     stage->pattern_context_complete=false;
                     stage->bytes=sizeof(Impl::Stage)+impl_->shapes.at(result_id).brep->capacity()*16;
-                    for(auto node=stage->history;node;node=node->previous)
-                        stage->bytes+=node->value.topology_history.lineage.size()*sizeof(TopologyLineage)+node->value.semantic_outputs.size()*sizeof(SemanticTopologyOutput);
+                    stage->bytes+=stage->history?stage->history->bytes:0;
                     stage->bytes+=stage->named.size()*sizeof(NamedShape);
                 }
                 stage->used=++impl_->clock;
+                impl_->accounting_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-accounting_begin).count();
                 check_admission();
                 if(stage->bytes<=impl_->stage_budget) {
                     impl_->trim_stages(stage->bytes);
@@ -5471,6 +5496,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         throw std::runtime_error("feature chain produced invalid B-Rep");
     evaluation.geometry_id = result_id.empty() ? impl_->store(result) : result_id;
     stats.stage_cache_bytes=impl_->stage_bytes;stats.stage_evictions=impl_->stage_evictions-evictions_before;
+    stats.cache_accounting_ms=impl_->accounting_ms-accounting_started;
+    stats.cache_accounting_serializations=impl_->accounting_serializations-accounting_serializations_started;
     return evaluation;
 }
 
@@ -5789,7 +5816,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             result.timings.computed_faces=face_map.Extent()-result.timings.reused_faces;
             const auto& admission=fresh_cancelled?fresh_cancelled:cancelled;
             if(admission&&admission())throw std::runtime_error("EVALUATION_CANCELLED");
-            if(!preserveBoundary)impl_->mesh_reuse.admit(source,copy);
+            if(!preserveBoundary)impl_->mesh_reuse.admit(source,copy,impl_->shapes.at(geometry_id).brep->capacity()*16);
             return result;
         };
         try {

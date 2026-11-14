@@ -1141,6 +1141,7 @@ type DocumentStructureNode struct {
 }
 
 type DocumentView struct {
+	SketchVisualization     *VisualizationManifest           `json:"sketchVisualization,omitempty"`
 	FeatureOrderDigest      string                           `json:"featureOrderDigest,omitempty"`
 	CommandPreview          *CommandPreview                  `json:"commandPreview,omitempty"`
 	BodyAppearances         map[string]ResolvedAppearance    `json:"bodyAppearances,omitempty"`

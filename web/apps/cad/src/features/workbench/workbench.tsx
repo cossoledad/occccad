@@ -718,6 +718,16 @@ export function Workbench() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, documentID, view?.document.versionId]);
   const selectedNamingIssue = selectionNamingIssue(store.selection, editingView, view);
+	// A deliberate Part face selection is a modeling intent. Prepare only that
+	// immutable support; hover/document opening never starts exact geometry work.
+	const selectedFace=store.selection?.kind==='face'?store.selection:undefined;
+	useEffect(()=>{
+	  if(isMockMode||store.activeSketchID||!selectedFace?.geometryKey||editingView?.document.type!=='PART'||selectedFace.documentId!==editingView.document.id||selectedFace.versionId!==editingView.document.versionId)return;
+	  const abort=new AbortController();
+	  const owner=editingView.document.id,geometryKey=selectedFace.geometryKey;
+	  const timer=setTimeout(()=>{void api.getTopologyProperties(owner,geometryKey,'FACE',selectedFace.topologyId,selectedFace.versionId,abort.signal,true).catch(()=>{});},200);
+	  return()=>{clearTimeout(timer);abort.abort()};
+	},[editingView?.document.id,editingView?.document.versionId,store.activeSketchID,selectedFace?.documentId,selectedFace?.geometryKey,selectedFace?.topologyId,selectedFace?.versionId]);
   const repairableImport = editingView?.part?.features.find((feature) => feature.type === "IMPORT_BODY" && !feature.importDefinitionId);
   const activeNamingIssue = Object.values(editingView?.artifacts??{}).find(a=>a.topology.faces>0 && a.naming && !a.naming.canBind)?.naming;
   const discardNewSketch = () => {
@@ -1032,7 +1042,7 @@ export function Workbench() {
     const issue=operations.flatMap(operation=>operation.type==="ADD_EXTERNAL_GEOMETRY"||operation.type==="RECONNECT_EXTERNAL_GEOMETRY"?[topologyNamingIssue(operation.geometryKey,owner,view)].filter(Boolean):[])[0];
     if(issue)throw new Error(issue.diagnostic);
     if(!operations.length)throw new Error("没有有效的草图编辑");
-    const updated=await command.mutateAsync(()=>api.command(owner.document.id,{...commandForView(owner,{}),...intent?.context,type:"EDIT_SKETCH",versionId:intent?.baseVersionId??owner.document.versionId,sketchId:featureID,operations,requestId:intent?.requestId??randomUUID()}));
+    const updated=await command.mutateAsync(()=>api.command(owner.document.id,{...commandForView(owner,{}),...intent?.context,type:"EDIT_SKETCH",previewId:intent?.previewId,versionId:intent?.baseVersionId??owner.document.versionId,sketchId:featureID,operations,requestId:intent?.requestId??randomUUID()}));
     if(newSketchSession.current?.sketchId===featureID)newSketchSession.current.edited=true;
     await refresh(updated);
     return updated;

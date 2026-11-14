@@ -239,9 +239,15 @@ func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, doc
 
 func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID, requestID string, model *PartModel) error {
 	// Validate real dependency cycles before evaluating any geometry prefix.
-	graph, _, err := buildPartEvaluation(*model, "", "", nil, nil)
-	if err != nil {
-		return err
+	var graph *modelcore.DependencyGraph
+	if plan := executionPlan(ctx); plan != nil {
+		graph = plan.graph
+	} else {
+		var err error
+		graph, _, err = buildPartEvaluation(*model, "", "", nil, nil)
+		if err != nil {
+			return err
+		}
 	}
 	if err := validateDatumFeatureOrder(*model, graph); err != nil {
 		return err
@@ -278,6 +284,9 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 		if retiredBlocked[node] {
 			continue
 		}
+		if !needsPartNode(ctx, string(node)) {
+			continue
+		}
 		if strings.HasPrefix(string(node), "datum:") {
 			if err := service.resolveDatumDefinitions(ctx, documentID, requestID, model, len(model.Features), strings.TrimPrefix(string(node), "datum:")); err != nil {
 				return err
@@ -307,6 +316,12 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 			continue
 		}
 		if feature.Suppressed {
+			continue
+		}
+		if reusableSketchInputs(ctx, *feature) {
+			if err := service.solveSketchFeature(ctx, requestID, model, index); err != nil {
+				return err
+			}
 			continue
 		}
 		if support.Type == "" || support.Type == "DATUM_PLANE" {

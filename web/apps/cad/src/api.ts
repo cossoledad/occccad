@@ -300,10 +300,11 @@ export const restApi = {
     }
     return result;
   },
-  getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string) => {
+  getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string, signal?:AbortSignal, speculative=false) => {
     const query = new URLSearchParams({ geometryKey, kind, localId: String(localId) });
     if (versionId) query.set("versionId", versionId);
-    return request<TopologyElementProperties>(`/api/documents/${id}/topology-properties?${query}`);
+    if(speculative)query.set('prepare','true');
+    return request<TopologyElementProperties>(`/api/documents/${id}/topology-properties?${query}`,{signal});
   },
   getHistory: async (id: string): Promise<HistoryEntry[]> =>
     (await request<{ workspace: string; history: HistoryEntry[] }>(`/api/documents/${id}/history`)).history,

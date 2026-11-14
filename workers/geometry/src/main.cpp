@@ -1,5 +1,6 @@
 #if defined(__linux__)
 #include <sys/resource.h>
+#include <unistd.h>
 #endif
 #include <Standard_Version.hxx>
 #include "naming_artifact.hpp"
@@ -687,6 +688,10 @@ public:
         response->set_worker_id(identity ? identity : "geometry-worker-local-1");
         response->set_occt_version(OCC_VERSION_COMPLETE);
         response->set_resident_geometry_count(resident_snapshot_.load(std::memory_order_relaxed));
+#if defined(__linux__)
+        std::ifstream memory("/proc/self/statm");uint64_t pages=0,resident=0;
+        if(memory>>pages>>resident)response->set_resident_memory_bytes(resident*static_cast<uint64_t>(sysconf(_SC_PAGESIZE)));
+#endif
         return grpc::Status::OK;
     }
 
@@ -1821,10 +1826,12 @@ public:
             if (specs.empty() && request->has_rectangular_pad()) {
                 append_spec(request->rectangular_pad());
             }
-            std::vector<uint8_t> base_brep(request->base_brep_data().begin(),
-                                           request->base_brep_data().end());
-            if (request->has_base_brep_artifact())
-                base_brep = input_artifact(request->base_brep_artifact());
+            const auto base_read_started=std::chrono::steady_clock::now();
+            const auto base_owner=request->has_base_brep_artifact()
+                ? read_shared_input(request->base_brep_artifact(),request->force_cold())
+                : std::make_shared<const std::vector<uint8_t>>(request->base_brep_data().begin(),request->base_brep_data().end());
+            const auto& base_brep=*base_owner;
+            input_io_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-base_read_started).count();
             std::vector<occccad::kernel::ProfilePadSpec> profile_specs;
             if (!request->profile_pads().empty() || request->has_import_seed() || request->has_geometry_feature()) {
                 const auto& policy = request->topology_policy();
@@ -2050,6 +2057,8 @@ public:
             stats->set_input_prepare_ms(std::chrono::duration<double,std::milli>(exact_started-acquired).count());
             stats->set_exact_ms(runtime_stats.exact_ms);
             stats->set_naming_ms(runtime_stats.naming_ms);
+            stats->set_cache_accounting_ms(runtime_stats.cache_accounting_ms);
+            stats->set_cache_accounting_serializations(runtime_stats.cache_accounting_serializations);
             stats->set_naming_kernel_ms(runtime_stats.naming_ms);
             stats->set_base_ms(runtime_stats.base_ms);stats->set_adjacency_ms(runtime_stats.adjacency_ms);
             stats->set_volume_integrations(runtime_stats.volume_integrations);
@@ -2354,6 +2363,20 @@ public:
         }
     }
 
+    grpc::Status UnloadGeometry(grpc::ServerContext* context,const worker_api::UnloadGeometryRequest* request,
+                                worker_api::UnloadGeometryResponse*) override {
+        if(request->geometry_id().empty())return {grpc::StatusCode::INVALID_ARGUMENT,"geometry_id is required"};
+        std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
+        while(!lock.try_lock()){
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"unload cancelled in queue"};
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"unload cancelled"};
+        kernel_.unload(request->geometry_id());
+        resident_snapshot_.store(static_cast<uint32_t>(kernel_.resident_count()),std::memory_order_relaxed);
+        return grpc::Status::OK;
+    }
+
     grpc::Status GetTopology(grpc::ServerContext* context,
                              const worker_api::GetTopologyRequest* request,
                              worker_api::GetTopologyResponse* response) override {
@@ -2363,7 +2386,15 @@ public:
         if (request->geometry_id().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "geometry_id is required"};
         }
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
+        if(request->speculative()&&!lock.try_lock())return {grpc::StatusCode::RESOURCE_EXHAUSTED,"support warmup deferred while geometry is busy"};
+        while(!lock.owns_lock()&&!lock.try_lock()){
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"topology query cancelled in queue"};
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"topology query cancelled"};
+        const auto acquired=std::chrono::steady_clock::now();
+        response->set_queue_ms(std::chrono::duration<double,std::milli>(acquired-started).count());
         try {
             std::string geometry_id = request->geometry_id();
             if (!kernel_.is_loaded(geometry_id)) {
@@ -2371,13 +2402,17 @@ public:
                     return {grpc::StatusCode::NOT_FOUND,
                             "geometry is not resident and no B-Rep artifact was supplied"};
                 }
-                std::vector<uint8_t> brep(request->brep_data().begin(), request->brep_data().end());
-                if (request->has_brep_artifact())
-                    brep = read_artifact(request->brep_artifact());
-                geometry_id = kernel_.loadBrepr(brep);
+                const auto brep=request->has_brep_artifact()?read_shared_input(request->brep_artifact(),false)
+                    :std::make_shared<const std::vector<uint8_t>>(request->brep_data().begin(), request->brep_data().end());
+                geometry_id = kernel_.loadBrepr(*brep);
+                response->set_load_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-acquired).count());
             }
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"topology query cancelled after loading"};
             bool topology_cache_hit=false;
+            const auto query_started=std::chrono::steady_clock::now();
             const auto& topology = kernel_.getTopologyProperties(geometry_id,request->topology_type(),request->local_id(),&topology_cache_hit);
+            response->set_query_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-query_started).count());
+            response->set_cache_hit(topology_cache_hit);
             response->set_face_count(topology.face_count);
             response->set_edge_count(topology.edge_count);
             response->set_vertex_count(topology.vertex_count);
@@ -2733,13 +2768,16 @@ private:
     struct NamingSnapshot {std::string geometry_id,bytes;size_t charge=0;uint64_t used=0;};
     size_t naming_bytes_=0;
     std::unordered_map<std::string,NamingSnapshot> naming_cache_;
-    struct InputArtifact {std::vector<uint8_t> bytes;uint64_t used=0;size_t charge=0;};
+    struct InputArtifact {std::shared_ptr<const std::vector<uint8_t>> bytes;uint64_t used=0;size_t charge=0;};
     size_t input_bytes_=0;
     std::unordered_map<std::string,InputArtifact> inputs_;
     std::vector<uint8_t> read_input(const worker_api::ArtifactReference& ref,bool cold) {
+        return *read_shared_input(ref,cold);
+    }
+    std::shared_ptr<const std::vector<uint8_t>> read_shared_input(const worker_api::ArtifactReference& ref,bool cold) {
         const auto key=ref.sha256()+"/"+std::to_string(ref.size_bytes());
         if(!cold){const auto hit=inputs_.find(key);if(hit!=inputs_.end()){hit->second.used=++cache_clock_;return hit->second.bytes;}}
-        auto data=read_artifact(ref);const size_t bytes=data.capacity()+key.capacity()+sizeof(InputArtifact);
+        auto data=std::make_shared<const std::vector<uint8_t>>(read_artifact(ref));const size_t bytes=data->capacity()+key.capacity()+sizeof(InputArtifact);
         if(!cold && bytes<=cache_budget_/2) {
             while(!inputs_.empty() && input_bytes_+bytes>cache_budget_/2) {
                 auto oldest=std::min_element(inputs_.begin(),inputs_.end(),[](const auto& a,const auto& b){return a.second.used<b.second.used;});

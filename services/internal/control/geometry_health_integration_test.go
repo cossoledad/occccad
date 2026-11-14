@@ -30,7 +30,9 @@ func TestGeometryWorkerRemainsHealthyDuringSTEPTransfer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
 	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	file, err := os.Open(sourcePath)
 	if err != nil {
 		t.Fatal(err)
@@ -119,6 +121,8 @@ transferred:
 	}
 	<-worker.process.done
 	pool.release(reserved, "crash-owner", false)
+	reserved.healthMu.Lock()
+	reserved.healthMu.Unlock()
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 	if len(pool.workers) != 1 || pool.workers[0] == worker || !pool.workers[0].process.Running() || pool.affinity["crash-owner"] != nil {

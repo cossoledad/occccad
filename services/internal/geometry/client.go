@@ -897,6 +897,7 @@ func (client *Client) GetTopology(
 	if err != nil {
 		return nil, "", fmt.Errorf("query B-Rep topology: %w", err)
 	}
+	recordTopologyTiming(ctx, response)
 	workerID := ""
 	if values := header.Get("x-occccad-worker-id"); len(values) > 0 {
 		workerID = values[0]
@@ -911,16 +912,23 @@ func (client *Client) GetTopologyFromArtifact(
 	defer cancel()
 	var header metadata.MD
 	response, err := client.worker.GetTopology(ctx, &workerv1.GetTopologyRequest{
-		GeometryId: geometryID, BrepArtifact: artifactProto(brep), TopologyType: topologyType, LocalId: localID,
+		GeometryId: geometryID, BrepArtifact: artifactProto(brep), TopologyType: topologyType, LocalId: localID, Speculative: PartRuntime(ctx).Speculative,
 	}, grpc.Header(&header))
 	if err != nil {
 		return nil, "", fmt.Errorf("query B-Rep topology: %w", err)
 	}
+	recordTopologyTiming(ctx, response)
 	workerID := ""
 	if values := header.Get("x-occccad-worker-id"); len(values) > 0 {
 		workerID = values[0]
 	}
 	return response, workerID, nil
+}
+
+func recordTopologyTiming(ctx context.Context, response *workerv1.GetTopologyResponse) {
+	perf.RecordDuration(ctx, "topology-queue", time.Duration(response.GetQueueMs()*float64(time.Millisecond)))
+	perf.RecordDuration(ctx, "topology-load", time.Duration(response.GetLoadMs()*float64(time.Millisecond)))
+	perf.RecordDuration(ctx, "topology-query", time.Duration(response.GetQueryMs()*float64(time.Millisecond)))
 }
 
 func (client *Client) rememberWorker(ctx context.Context, geometryKey string, header metadata.MD) {

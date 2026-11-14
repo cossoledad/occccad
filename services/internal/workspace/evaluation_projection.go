@@ -165,10 +165,12 @@ func ensureFeatureParameters(model *PartModel) {
 	filtered := model.Parameters[:0]
 	for _, parameter := range model.Parameters {
 		managed := false
-		for prefix := range managedPrefixes {
-			if strings.HasPrefix(parameter.ParameterID, prefix) {
-				managed = true
-				break
+		for i, c := range parameter.ParameterID {
+			if c == ':' {
+				if _, ok := managedPrefixes[parameter.ParameterID[:i+1]]; ok {
+					managed = true
+					break
+				}
 			}
 		}
 		if managed {
@@ -785,9 +787,9 @@ func validatePartStructure(model PartModel) error {
 	return validatePublicationDefinitions(model)
 }
 
-func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
+func buildPartGraph(model PartModel) (*modelcore.DependencyGraph, error) {
 	if err := validatePartStructure(model); err != nil {
-		return nil, modelcore.EvaluationManifest{}, err
+		return nil, err
 	}
 	nodes := []modelcore.DependencyNode{}
 	for _, o := range model.RetiredReferences {
@@ -909,6 +911,21 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	}
 	featureIDs := map[string]bool{}
 	for _, feature := range model.Features {
+		featureIDs[feature.ID] = true
+	}
+	parameterReaders := map[string][]string{}
+	for _, parameter := range model.Parameters {
+		if !strings.HasPrefix(parameter.ParameterID, "parameter:") {
+			continue
+		}
+		id := strings.TrimPrefix(parameter.ParameterID, "parameter:")
+		for i, c := range id {
+			if c == ':' && featureIDs[id[:i]] {
+				parameterReaders[id[:i]] = append(parameterReaders[id[:i]], parameter.ParameterID)
+			}
+		}
+	}
+	for _, feature := range model.Features {
 		if feature.Sketch != nil || feature.Type == "SKETCH_PATTERN" {
 			nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("profile:" + feature.ID), Phase: 2, Type: "PROFILE", CanonicalInput: []byte(`{}`)})
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.ID), Target: modelcore.DependencyKey("profile:" + feature.ID), Kind: modelcore.ReadGeometry})
@@ -918,11 +935,8 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		key := modelcore.DependencyKey("feature:" + feature.ID)
 		data, _ := json.Marshal(geometryFeatureDefinition(feature))
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: feature.Type, CanonicalInput: data})
-		prefix := "parameter:" + feature.ID + ":"
-		for _, parameter := range model.Parameters {
-			if strings.HasPrefix(parameter.ParameterID, prefix) {
-				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Target: key, Kind: modelcore.ReadValue})
-			}
+		for _, parameterID := range parameterReaders[feature.ID] {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("parameter:" + parameterID), Target: key, Kind: modelcore.ReadValue})
 		}
 		if feature.Suppressed {
 			continue
@@ -1215,17 +1229,26 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	edges = append(edges, measurementEdges...)
 	graph, err := modelcore.ScheduleEvaluationGraph(nodes, edges)
 	if err != nil {
+		return nil, err
+	}
+	return graph, nil
+}
+
+func partNodeOutput(node modelcore.DependencyNode, deps map[modelcore.DependencyKey]modelcore.NodeResult) (string, error) {
+	data, _ := json.Marshal(struct {
+		Node json.RawMessage
+		Deps map[modelcore.DependencyKey]modelcore.NodeResult
+	}{node.CanonicalInput, deps})
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
+	graph, err := buildPartGraph(model)
+	if err != nil {
 		return nil, modelcore.EvaluationManifest{}, err
 	}
-	evaluator := func(node modelcore.DependencyNode, deps map[modelcore.DependencyKey]modelcore.NodeResult) (string, error) {
-		data, _ := json.Marshal(struct {
-			Node json.RawMessage
-			Deps map[modelcore.DependencyKey]modelcore.NodeResult
-		}{node.CanonicalInput, deps})
-		sum := sha256.Sum256(data)
-		return hex.EncodeToString(sum[:]), nil
-	}
-	manifest, err := graph.Evaluate(revisionID, modelHash, evaluatorVersion, "units-mm-v1", seeds, prior, evaluator)
+	manifest, err := graph.Evaluate(revisionID, modelHash, evaluatorVersion, "units-mm-v1", seeds, prior, partNodeOutput)
 	for _, feature := range model.Features {
 		if feature.EvaluationStatus != "" {
 			key := modelcore.DependencyKey("feature:" + feature.ID)

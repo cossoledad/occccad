@@ -88,5 +88,15 @@ try {
   engine.visibilityResolver=visibilityResolverForView(view);engine.applyTreeVisibility();
   assert.equal(visible(point("first")),false,"hidden SketchEntity stays hidden when its Sketch is shown");
   assert.equal(engine.selectionIndex.pick(ray(2)),null,"hidden element leaves normal picking without changing geometry");
+  const instance=engine.instanceGroups.get('first'),body=instance.children.find(group=>group.userData.sketchBodyId==='a');
+  const solid=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial());body.add(solid);let disposed=0;solid.geometry.addEventListener('dispose',()=>disposed++);
+  const changedVisual={...artifacts['geometry-a'].visualization,primitives:artifacts['geometry-a'].visualization.primitives.map(p=>({...p,positions:[[5,3,0]]}))};
+  const next={...view,referenceDisplayScopes:[{documentId:'part',versionId:'next',instancePath:instancePath('first'),sketchVisualization:changedVisual}]};
+  engine.view=next;engine.reconcileOccurrenceSketches(next);
+  const updated=[...engine.selectable.entries()].find(([key])=>key.startsWith('visual:first:'))?.[1];
+  assert.equal(updated.geometry.attributes.position.getX(0),5,'accepted sketch projection replaces old GLB overlay');
+  assert.equal(body.children.includes(solid),true);assert.equal(disposed,0,'occurrence sketch updates retain Body geometry');
+  assert.equal(engine.instanceGroups.get('first'),instance,'unchanged occurrence retains its display container');
+  solid.geometry.dispose();solid.material.dispose();
   console.log("Product Sketch ownership, occurrence visibility, tree selection, and incremental display passed");
 } finally {await server.close();}

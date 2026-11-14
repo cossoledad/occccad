@@ -4,11 +4,11 @@ const server=await createServer({server:{middlewareMode:true},appType:'custom',l
 try{
  const {LineSketchTool}=await server.ssrLoadModule('/src/cad/tool/cad-tool.ts');
  const {ToolManager}=await server.ssrLoadModule('/src/cad/tool/tool-manager.ts');
- const requests=[],commits=[],displays=[];let state,revision='base',contextKey='root-version';
+ const requests=[],commits=[],intents=[],displays=[];let state,revision='base',contextKey='root-version';
  const port={hasActiveSketch:()=>true,currentLengthUnit:()=> 'mm',currentSketchIdentity:()=>({documentId:'part',sketchId:'sketch',versionId:revision,contextKey}),sketchPoint:(x,y)=>[x,y],sketchSnapReference:()=>undefined,projectSketchPoint:p=>p.map(v=>v*10),
   showPolylinePreview(){},showReferenceDimensions(){},clearToolPreview(){},setToolPrompt(){},setSketchCommandState:s=>state=s,finishToolUse(){},showSketchCreationCandidate:(ops,entities)=>displays.push({ops,entities}),
-  previewSketchOperations:(operations,signal)=>new Promise((resolve,reject)=>requests.push({operations:structuredClone(operations),signal,resolve:()=>resolve({entities:operations.flatMap(op=>op.entity?[op.entity]:[]),versionId:revision,featureId:'sketch'}),reject})),
-  commitSketchOperations:operations=>{commits.push(structuredClone(operations));return Promise.resolve()}};
+  previewSketchOperations:(operations,signal)=>new Promise((resolve,reject)=>requests.push({operations:structuredClone(operations),signal,resolve:()=>resolve({entities:operations.flatMap(op=>op.entity?[op.entity]:[]),versionId:revision,featureId:'sketch',previewId:'drawing-candidate'}),reject})),
+  commitSketchOperations:(operations,intent)=>{commits.push(structuredClone(operations));intents.push(intent);return Promise.resolve()}};
  const manager=new ToolManager({viewport:port});manager.register(new LineSketchTool());
  const pointer=(x,y)=>({x,y,pointerId:1,button:0,state:{buttons:{left:true,middle:false,right:false}}});
  const tick=()=>new Promise(resolve=>setImmediate(resolve)),debounce=()=>new Promise(resolve=>setTimeout(resolve,175));
@@ -19,6 +19,7 @@ try{
  requests[0].resolve();await tick();assert.equal(requests.length,2);assert.equal(displays.length,0,'superseded result is never drawn');
  manager.commandAction({type:'confirm'});manager.commandAction({type:'confirm'});assert.equal(state.phase,'committing');assert.equal(commits.length,0,'confirmation waits for its exact candidate');manager.commandAction({type:'cancel'});requests[1].resolve();await tick();assert.equal(commits.length,0);assert.equal(state,undefined,'cancel prevents a queued confirmation from committing');
  begin();move(40);manager.commandAction({type:'confirm'});await tick();assert.equal(requests.length,3,'confirmation flushes the debounce');requests[2].resolve();await tick();await tick();assert.equal(commits.length,1);assert.deepEqual(commits[0],requests[2].operations,'commit preserves the exact preview entity and constraint identities');
+ assert.equal(intents[0].previewId,'drawing-candidate');assert.equal(intents[0].baseVersionId,'base');assert.ok(intents[0].requestId,'candidate promotion retains a concrete idempotent commit identity');
  begin();move(50);manager.commandAction({type:'confirm'});await tick();revision='other';requests[3].resolve();await tick();assert.equal(commits.length,1,'a late result cannot commit into a changed Revision');assert.equal(state.phase,'failed');
  revision='other';begin();move(55);manager.commandAction({type:'confirm'});await tick();requests[4].reject(new Error('unknown parameter'));await tick();assert.equal(commits.length,1);assert.deepEqual(state.fields,[]);assert.equal(state.phase,'failed');manager.commandAction({type:'cancel'});
  begin();move(60);manager.commandAction({type:'confirm'});await tick();const last=requests.at(-1);contextKey='other-root-version';last.resolve();await tick();assert.equal(commits.length,1,'a changed root/variant invalidates a draft even when the Part Revision is unchanged');manager.commandAction({type:'cancel'});

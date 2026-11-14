@@ -1021,6 +1021,18 @@ export class CadViewportEngine {
   }
 
   private renderReady(view: DocumentView, editContext?: Omit<ViewportEditContext,"view"> & {view:DocumentView}): void {
+	// Accepted 2D edits retain the exact Body display, GPU attributes and BVH.
+	// Rebind the Revision and reconcile sketch objects before the next gesture.
+	const rootPartContext=(context?:ViewportEditContext)=>!context||!context.occurrencePath&&context.view.document.id===view.document.id;
+	if(this.view?.document.type==='PART'&&view.document.type==='PART'&&rootPartContext(this.editContext)&&rootPartContext(editContext)&&this.geometrySignature(this.view)===this.geometrySignature(view)){
+	  this.clearCommandPreview(false);
+	  this.editContext=editContext;
+	  this.updateDisplayProjection(view);
+	  this.pendingVisualSnapshot=false;
+	  this.renderGeometrySignature=this.geometrySignature(view,editContext);
+	  this.callbacks.documentViewReady?.(view.document.id,false);
+	  return;
+	}
     this.clearInsertPatternPreview();
     this.navigation.cancel();
     const previousDocumentID = this.view?.document.id;
@@ -1252,8 +1264,7 @@ export class CadViewportEngine {
 
   updateDisplayProjection(view: DocumentDescriptor): void {
     if (!this.view || this.view.document.id !== view.document.id) return;
-    this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,objectAppearances:view.objectAppearances,bodyAppearances:view.bodyAppearances,resultAppearances:view.resultAppearances,
-      contextVariants:view.contextVariants,constraintDisplayScopes:view.constraintDisplayScopes,referenceDisplayScopes:view.referenceDisplayScopes,resolvedInstances:view.resolvedInstances};
+    this.view = {...this.view,...view,artifact:this.view.artifact,artifacts:this.view.artifacts};
     this.selectionIndex.setSemanticProjection(selection=>this.view?refreshOccurrenceSelection(this.view,selection):selection);
     // Geometry reuse must not reuse the old semantic snapshot. Pick closures
     // share the binding context; update it without replacing GPU resources.
@@ -1283,6 +1294,8 @@ export class CadViewportEngine {
     this.setPropertyPreview(this.propertyPreview);
     this.visibilityResolver = visibilityResolverForView(view, this.editContext);
     this.addAssemblyConstraintMarkers(this.view);
+	if(view.document.type==='PART'&&(!this.editContext||!this.editContext.occurrencePath&&this.editContext.view.document.id===view.document.id))this.reconcilePartSketches(view);
+	if(view.document.type==='PRODUCT')this.reconcileOccurrenceSketches(view);
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
     this.invalidate();
@@ -2345,7 +2358,7 @@ export class CadViewportEngine {
       const bodyTreeNodeId = `${rootPath}/body:${body.id}`;
       const context: SolidContext = { bodyId:body.id, documentId:view.document.id,versionId:view.document.versionId,
         geometryKey:artifact.geometryKey,occurrencePath:"",treeNodeId:bodyTreeNodeId,displayStageFeatureId:artifact.displayStageFeatureId };
-      if (body.geometryKey) this.addVisualPrimitives(artifact.visualization, this.helpers, context, true,
+      if (body.geometryKey) this.addVisualPrimitives(view.sketchVisualization??artifact.visualization, this.helpers, context, true,
         new Set((view.part?.features??[]).filter(feature=>feature.type==="SKETCH_PATTERN"&&feature.bodyId===body.id&&!feature.suppressed).map(feature=>feature.id)));
       if (triangleCount(artifact.mesh)) {
         const solid=body.geometryKey ? this.makeSolid(artifact,CATIA_VISUAL_THEME.surface,context,view.bodyAppearances?.[body.id]) : this.makeFailedBody(artifact,body.visible,context);
@@ -2368,6 +2381,7 @@ export class CadViewportEngine {
         this.addSketch(feature, false, view, undefined, undefined, undefined, !consumedSketches.has(feature.id));
       }
     }
+	this.helpers.userData.partPatternSignature=this.partPatternSignature(view);
   }
 
   private renderProduct(view: DocumentView): void {
@@ -2419,9 +2433,12 @@ export class CadViewportEngine {
         };
         if (resolved.geometryKey && !referencedOccurrences.has(resolved.occurrencePath)) {
           const prefix=this.editContext?.historicalBoundary&&this.editContext.occurrencePath===resolved.occurrencePath?this.editContext.view.part:undefined;
-          this.addReferenceGeometry(prefix?{datumPoints:prefix.datumPoints,datumPlanes:prefix.datumPlanes,datumAxes:prefix.datumAxes??[],axisSystems:prefix.axisSystems}:artifact.visualization.referenceGeometry, resolvedGroup, visualContext); referencedOccurrences.add(resolved.occurrencePath);
+          this.addReferenceGeometry(prefix?{datumPoints:prefix.datumPoints,datumPlanes:prefix.datumPlanes,datumAxes:prefix.datumAxes??[],axisSystems:prefix.axisSystems}:(view.referenceDisplayScopes?.find(scope=>scope.instancePath.canonical===resolved.occurrencePath)?.referenceGeometry??artifact.visualization.referenceGeometry), resolvedGroup, visualContext); referencedOccurrences.add(resolved.occurrencePath);
         }
-        if (resolved.geometryKey) this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext, true,
+        const sketchDisplay=view.referenceDisplayScopes?.find(scope=>scope.instancePath.canonical===resolved.occurrencePath)?.sketchVisualization;
+		resolvedGroup.userData.sketchBodyId=resolved.bodyId;
+		resolvedGroup.userData.sketchDisplaySignature=JSON.stringify([sketchDisplay?.primitives,resolved.ownedSketchIds]);
+        if (resolved.geometryKey) this.addVisualPrimitives(sketchDisplay??artifact.visualization, resolvedGroup, visualContext, true,
           new Set(resolved.ownedSketchIds ?? []));
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
       }
@@ -3278,10 +3295,68 @@ export class CadViewportEngine {
         if (related) this.selectionIndex.associate(constraintSelection, related);
       }
     }
-    group.userData = { ...sketchSelection, sketchFeatureID: feature.id, sketchEditOverlay: true, visibleOutsideSketchEdit };
+    group.userData = { ...sketchSelection, sketchFeatureID: feature.id, sketchEditOverlay: true, visibleOutsideSketchEdit,
+	  sketchDisplaySignature:JSON.stringify([feature,sourceView?.sketchDerivedEntities?.[feature.id],visibleOutsideSketchEdit]) };
     this.helpers.add(group);
     this.selectable.set(`sketch:${feature.id}`, group);
     this.selectionIndex.register(sketchSelection, group);
+  }
+
+  private reconcilePartSketches(view:DocumentDescriptor):void {
+	const features=new Map((view.part?.features??[]).filter(f=>f.sketch).map(f=>[f.id,f]));
+	const consumed=new Set((view.part?.features??[]).flatMap(f=>f.profile?[f.profile]:[]));
+	let changed=false;
+	for(const group of [...this.helpers.children]){
+	  if(!(group instanceof THREE.Group)||!group.userData.sketchEditOverlay)continue;
+	  const id=group.userData.sketchFeatureID,feature=features.get(id);
+	  const signature=feature&&JSON.stringify([feature,view.sketchDerivedEntities?.[id],!consumed.has(id)]);
+	  if(signature===group.userData.sketchDisplaySignature){features.delete(id);group.userData.versionId=view.document.versionId;continue;}
+	  this.removeSketchDisplay(group);
+	  changed=true;
+	}
+	for(const feature of features.values()){this.addSketch(feature,false,this.view,undefined,undefined,undefined,!consumed.has(feature.id));changed=true;}
+	if(view.sketchVisualization&&this.helpers.userData.partPatternSignature!==this.partPatternSignature(view)){
+	  for(const group of [...this.helpers.children])if(group instanceof THREE.Group&&group.userData.visualizationPrimitive&&group.userData.sketchFeatureID)this.removeSketchDisplay(group);
+	  for(const body of view.part?.bodies??[]){
+	    const artifact=view.artifacts?.[body.geometryKey??''];if(!artifact||body.consumed)continue;
+	    this.addVisualPrimitives(view.sketchVisualization,this.helpers,{bodyId:body.id,documentId:view.document.id,versionId:view.document.versionId,geometryKey:artifact.geometryKey,occurrencePath:'',treeNodeId:`document:${view.document.id}/body:${body.id}`},true,
+	      new Set((view.part?.features??[]).filter(f=>f.type==='SKETCH_PATTERN'&&f.bodyId===body.id&&!f.suppressed).map(f=>f.id)));
+	  }
+	  this.helpers.userData.partPatternSignature=this.partPatternSignature(view);changed=true;
+	}
+	if(changed){this.overlayEpoch++;this.refreshInteractionHighlights();}
+  }
+
+  private partPatternSignature(view:DocumentDescriptor):string {
+	return JSON.stringify(view.sketchVisualization?.primitives?.filter(p=>p.patternId));
+  }
+
+  private removeSketchDisplay(group:THREE.Group):void {
+	this.selectionIndex.unregister(group.userData as SelectionItem,group);
+	const removed=new Set<THREE.Object3D>();group.traverse(object=>removed.add(object));
+	for(const [key,object] of this.selectable)if(removed.has(object))this.selectable.delete(key);
+	this.disposeGroup(group);group.removeFromParent();
+  }
+
+  private reconcileOccurrenceSketches(view:DocumentDescriptor):void {
+	const resolved=new Map((view.resolvedInstances??[]).map(r=>[JSON.stringify([r.occurrencePath,r.bodyId]),r]));
+	const scopes=new Map((view.referenceDisplayScopes??[]).map(s=>[s.instancePath.canonical,s]));
+	let changed=false;
+	for(const instance of this.instanceGroups.values())for(const parent of instance.children){
+	  if(!(parent instanceof THREE.Group)||!parent.userData.sketchBodyId)continue;
+	  const source=resolved.get(JSON.stringify([parent.userData.occurrencePath,parent.userData.sketchBodyId]));
+	  const visual=source&&scopes.get(source.occurrencePath)?.sketchVisualization;
+	  if(!source||!visual)continue;
+	  const signature=JSON.stringify([visual.primitives,source.ownedSketchIds]);
+	  if(parent.userData.sketchDisplaySignature===signature)continue;
+	  for(const group of [...parent.children])if(group instanceof THREE.Group&&group.userData.visualizationPrimitive&&group.userData.sketchFeatureID)this.removeSketchDisplay(group);
+	  const context:SolidContext={bodyId:source.bodyId,documentId:source.documentId,versionId:source.instancePath.segments.at(-1)?.resolvedVersionId,
+	    geometryKey:source.geometryKey,occurrencePath:source.occurrencePath,instancePath:source.instancePath,treeNodeId:source.bodyTreeNodeId,instanceId:source.instancePath.segments[0]?.instanceId,
+	    contextVariantKey:view.contextVariants?.find(v=>v.owningInstancePath.canonical===source.occurrencePath)?.variantKey};
+	  this.addVisualPrimitives(visual,parent,context,true,new Set(source.ownedSketchIds??[]));
+	  parent.userData.sketchDisplaySignature=signature;changed=true;
+	}
+	if(changed){this.overlayEpoch++;this.refreshInteractionHighlights();}
   }
 
   private makeFailedBody(artifact: Artifact, visible: boolean, context: SolidContext): THREE.Group {
@@ -4286,7 +4361,7 @@ export class CadViewportEngine {
         const preview=await this.callbacks.sketchPreview(featureId,operations,signal);
         const candidate=preview.sketchCandidates?.find(candidate=>candidate.featureId===featureId);
         if(preview.baseVersionId!==scope.versionId||!candidate)throw new Error("草图候选已失效或无法求值");
-        return {featureId,versionId:preview.baseVersionId,entities:candidate.entities};
+        return {featureId,versionId:preview.baseVersionId,previewId:preview.previewId,entities:candidate.entities};
       },
       currentSketchConstraints: () => this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID)?.sketch?.constraints ?? [],
       currentSketchDeletableEntities:()=>this.visibleSketchDeletionEntities(),

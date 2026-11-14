@@ -57,6 +57,12 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		if err = resolveRuntimeParameters(ctx, &model); err != nil {
 			return CommandPreview{}, err
 		}
+		if prepared.contextRootID == "" {
+			ctx, err = preparePartExecution(ctx, beforeModel, model, prepared.priorManifest, previewChanges.ImpactSeeds)
+			if err != nil {
+				return CommandPreview{}, err
+			}
+		}
 		diagnostic.stage("SKETCH_INPUTS")
 		finishSolve := perf.Start(ctx, "support-resolve-sketch-solve")
 		if err = service.resolveAndSolveSketches(ctx, documentID, "preview/"+prepared.requestID, &model); err != nil {
@@ -92,6 +98,28 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			return CommandPreview{}, err
 		}
 		modelHash := canonicalModelHash(nextJSON)
+		// Sketch drawing needs a solved sketch candidate, not a new Body mesh.
+		// Real consumers of an edited profile remain dirty and use normal preview.
+		if prepared.command.TypeURI == typeEditSketch && executionPlan(ctx) != nil {
+			geometryDirty := false
+			for _, body := range model.Bodies {
+				geometryDirty = geometryDirty || needsPartBody(ctx, body.ID)
+			}
+			for _, f := range model.Features {
+				if f.Type == "GEOMETRY" && needsPartNode(ctx, "feature:"+f.ID) {
+					geometryDirty = true
+				}
+			}
+			if !geometryDirty {
+				previewID := newID("preview")
+				service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
+					headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
+					payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
+					expiresAt: time.Now().Add(interactionCandidateTTL)})
+				return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: modelHash,
+					SketchCandidates: solvedSketchPreviewCandidates(prepared.command, model)}, nil
+			}
+		}
 		if _, broken := firstUnresolvedExternal(model); broken {
 			previewID := newID("preview")
 			service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,

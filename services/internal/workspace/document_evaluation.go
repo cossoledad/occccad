@@ -79,6 +79,13 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			if err := resolveRuntimeParameters(ctx, &model); err != nil {
 				return err
 			}
+			if prepared.contextRootID == "" {
+				var err error
+				ctx, err = preparePartExecution(ctx, beforeModel, model, prepared.priorManifest, changes.ImpactSeeds)
+				if err != nil {
+					return err
+				}
+			}
 			diagnostic.stage("SKETCH_INPUTS")
 			finishSolve := perf.Start(ctx, "support-resolve-sketch-solve")
 			if err := service.resolveAndSolveSketches(ctx, documentID, prepared.requestID, &model); err != nil {
@@ -90,6 +97,13 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 		if !metadataOnly {
 			if err := resolveRuntimeParameters(ctx, &model); err != nil {
 				return err
+			}
+			if promoted && prepared.contextRootID == "" {
+				var err error
+				ctx, err = preparePartExecution(ctx, beforeModel, model, prepared.priorManifest, changes.ImpactSeeds)
+				if err != nil {
+					return err
+				}
 			}
 		}
 		if err := rejectExplicitBrokenSupport(prepared.command, model); err != nil {
@@ -208,6 +222,9 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 				}
 				revisionState, evaluationStatus = "FAILED", "FAILED"
 			}
+		}
+		if partHasFailedFeature(model) {
+			revisionState, evaluationStatus = "FAILED", "FAILED"
 		}
 		retainFailedBodyDisplay(&model, beforeModel, prepared.headRevision)
 		if prepared.contextRootID != "" {

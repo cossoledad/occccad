@@ -26,6 +26,43 @@ async function ready(page:Page,dialog:ReturnType<Page["getByRole"]>){
  await expect(page.locator("[data-feature-preview]")).toHaveCount(1);
 }
 
+test('face sketch drawing retains accepted Body buffers and BVH',async({page},info)=>{
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Sketch display isolation acceptance');
+  v=await api.command(v.document.id,{type:'CREATE_SKETCH',plane:'XY'});const profile=v.part!.features.at(-1)!.id;
+  v=await api.command(v.document.id,{type:'EDIT_SKETCH',sketchId:profile,operations:[{type:'ADD_RECTANGLE',first:{x:-40,y:-30},second:{x:40,y:30}}]});
+  v=await api.command(v.document.id,{type:'CREATE_SOLID_FEATURE',sketchId:profile,generator:'LINEAR_EXTRUDE',operation:'ADD',length:20});
+  return {id:v.document.id,body:v.part!.activeBodyId,geometryKey:v.part!.bodies[0].geometryKey};
+ });
+ await page.goto(`/documents/${seed.id}`);await worldScreen(page,[10,8,20]);
+ await expect.poll(()=>page.evaluate(()=>!!(window as any).__cameraEngine?.solidBindings.size)).toBeTruthy();
+ await page.evaluate(()=>{const e=(window as any).__cameraEngine,b=[...e.solidBindings.values()][0] as any;
+  (window as any).__retainedPartDisplay={group:b.group,geometry:b.mesh.geometry,bvh:b.mesh.geometry.boundsTree,positions:b.mesh.geometry.attributes.position,disposals:0};
+  b.mesh.geometry.addEventListener('dispose',()=>{(window as any).__retainedPartDisplay.disposals++});
+  const ready=e.renderReady;e.__sketchRenderTransitions=[];e.renderReady=function(v:any,c:any){this.__sketchRenderTransitions.push({sameSignature:this.geometrySignature(this.view,this.editContext)===this.geometrySignature(v,c),previousContext:!!this.editContext,nextContext:!!c,previousPath:this.editContext?.occurrencePath,nextPath:c?.occurrencePath});return ready.call(this,v,c)};
+ });
+ await clickWorld(page,[10,8,20]);await expectViewport(viewportProbe(page,'viewport-selection')).toContainText('"face"');
+ await openCommand(page,'草图','sketch.start');
+ await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.activeSketchID)).toBeTruthy();
+ await openCommand(page,'直线','sketch.line');
+ await clickWorld(page,[-8,-6,20]);await clickWorld(page,[8,-6,20]);
+ await expect.poll(async()=>{const v=await current(page,seed.id);return v.part.features.at(-1).sketch.entities.length}).toBeGreaterThan(0);
+ await expect.poll(()=>page.evaluate(()=>{
+  const e=(window as any).__cameraEngine,b=[...e.solidBindings.values()][0] as any,s=(window as any).__retainedPartDisplay;
+  return {pending:Boolean(e.pendingVisualSnapshot),sameGroup:b?.group===s.group,sameGeometry:b?.mesh.geometry===s.geometry,sameBVH:b?.mesh.geometry.boundsTree===s.bvh,samePositions:b?.mesh.geometry.attributes.position===s.positions,disposals:s.disposals,transitions:e.__sketchRenderTransitions};
+ })).toMatchObject({pending:false,sameGroup:true,sameGeometry:true,sameBVH:true,samePositions:true,disposals:0});
+ const accepted=await current(page,seed.id);expect(accepted.part.bodies[0].geometryKey).toBe(seed.geometryKey);
+ const evidence=await page.evaluate(()=>{const e=(window as any).__cameraEngine,s=(window as any).__retainedPartDisplay;
+  const sketch=e.helpers.children.find((g:any)=>g.userData.sketchFeatureID===e.activeSketchID);
+  return {disposals:s.disposals,sketchObjects:sketch?.children.length??0,triangles:s.geometry.index.count/3,revision:e.view.document.versionId};
+ });
+ expect(evidence.sketchObjects).toBeGreaterThan(0);expect(evidence.revision).toBe(accepted.document.versionId);expect(errors).toEqual([]);
+ await info.attach('sketch-display-isolation',{body:JSON.stringify({seed,evidence,errors},null,2),contentType:'application/json'});
+ await info.attach('sketch-on-body',{body:await page.screenshot(),contentType:'image/png'});
+});
+
 test("Hole preview keeps one shaded result through picking and cancel",async({page},info)=>{
  page.setDefaultTimeout(15_000);
  const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));await login(page);
@@ -190,7 +227,7 @@ test("preselected chamfer edge, automatic preview, input-stage edit and toggle",
  await expect(edit.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await ready(page,edit);
  await expectViewport(viewportProbe(page,"viewport-feature-selection")).toHaveAttribute("data-overlays","1");
  await page.screenshot({path:"../../../build/acceptance/feature-form-chamfer-edit.png"});
- await clickWorld(page,[10,0,10]);await expect(edit.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("0 项",{exact:true})).toBeVisible();
+ await clickWorld(page,[10,0,10]);await expect(edit.getByRole('group',{name:'边集',exact:true}).getByRole('listitem')).toHaveCount(0);await expect(edit.getByRole('button',{name:confirmCommandName})).toBeDisabled();
  await clickWorld(page,[10,0,10]);await expect(edit.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await ready(page,edit);
  await edit.getByRole("button",{name:confirmCommandName}).click();await expect(edit).toHaveCount(0);
  const edited=await current(page,seed.id);expect(edited.part.features.at(-1).selections[0].sourceFeatureId).toBeTruthy();
@@ -1191,13 +1228,15 @@ test('unified patterns preserve mirrored cut tools and highlight each actual own
  v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});sketch=v.part!.features.at(-1)!.id;v=await api.command(id,{type:'EDIT_SKETCH',sketchId:sketch,operations:[{type:'ADD_ENTITY',entity:{id:crypto.randomUUID(),kind:'CIRCLE',role:'PROFILE',center:{x:10,y:10},radius:2}}]});v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId:sketch,generator:'LINEAR_EXTRUDE',operation:'REMOVE',length:5});const tool=v.part!.features.at(-1)!;const mirrors=[];
  for(const plane of ['datum-yz','datum-xz']){v=await api.command(id,{type:'CREATE_PATTERN',feature:{id:'',type:'SOLID_PATTERN',bodyId:tool.bodyId,operation:'ADD',pattern:{id:'',kind:'MIRROR',distribution:'FIXED_STEP',count:2,origin:[0,0,0],direction:[1,0,0],mirrorPlaneId:plane,sourceKind:'AUTO',source:{bodyId:tool.bodyId!,featureId:tool.id}}}});mirrors.push(v.part!.features.at(-1)!)}
  return {id,tool,mirrors,version:v.document.versionId};});
- await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,0,0]);await openCommand(page,'镜像');const d=page.getByRole('dialog',{name:'创建镜像',exact:true});await expect(d.getByText('生成特征 / 切削工具',{exact:true})).toHaveCount(0);
- const pick=await page.evaluate(target=>{const e=(window as any).__cameraEngine,canvas=e.renderer.domElement,r=canvas.getBoundingClientRect();for(let y=35;y<r.height-30;y+=5)for(let x=35;x<r.width-30;x+=5){if(document.elementFromPoint(r.x+x,r.y+y)!==canvas)continue;const hit=e.hitTest(x,y);if(hit?.kind==='face'&&hit.associatedFeatureIds?.includes(target))return {x:r.x+x,y:r.y+y}}},seed.mirrors[1].id);expect(pick).toBeTruthy();await page.mouse.click(pick!.x,pick!.y);await expect(d.getByRole('group',{name:'种子',exact:true})).toContainText('Mirror.2');await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,0,0]);const revealTree=treeNavigator(page);await openCommand(page,'镜像');const d=page.getByRole('dialog',{name:'创建镜像',exact:true});await expect(d.getByText('生成特征 / 切削工具',{exact:true})).toHaveCount(0);
+ const pick=await page.evaluate(target=>{const e=(window as any).__cameraEngine,canvas=e.renderer.domElement,r=canvas.getBoundingClientRect();for(let y=35;y<r.height-30;y+=5)for(let x=35;x<r.width-30;x+=5){if(document.elementFromPoint(r.x+x,r.y+y)!==canvas)continue;const hit=e.hitTest(x,y);if(hit?.kind==='face'&&hit.associatedFeatureIds?.includes(target))return {x:r.x+x,y:r.y+y}}},seed.mirrors[1].id);expect(pick).toBeTruthy();await page.mouse.click(pick!.x,pick!.y);await expect(d.getByRole('group',{name:'种子',exact:true})).toContainText('Mirror.2');
+ await expect(d.getByRole('button',{name:confirmCommandName})).toBeDisabled();await d.getByRole('button',{name:'选择镜像平面',exact:true}).click();await revealTree('YZ');await page.getByRole('treeitem').filter({has:page.getByText('YZ Plane',{exact:true})}).last().click();await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
  const saved=await current(page,seed.id),last=saved.part.features.at(-1),body=saved.part.bodies.find((b:any)=>b.id===last.bodyId),volume=saved.artifacts[body.geometryKey].volume;expect(last.operation).toBe('REMOVE');expect(last.pattern.sourceKind).toBe('GENERATOR_TOOL');expect(last.pattern.source.featureId).toBe(seed.mirrors[1].id);expect(volume).toBeCloseTo(18000-4*Math.PI*4*5,5);
- const revealTree=treeNavigator(page);
- for(const f of [...seed.mirrors,last]){await revealTree(f.name);await page.locator(`[role=treeitem][data-tree-key$="feature:${f.id}"]`).click();await expect.poll(()=>page.evaluate(id=>{const e=(window as any).__cameraEngine;const binding=[...e.solidBindings.values()][0] as any;const entries=binding.artifact.visualization.featureAssociations.elements.filter((a:any)=>a.kind==='FACE'&&a.primary.includes(id));return {count:entries.length,owners:[...new Set(entries.flatMap((a:any)=>a.primary))],overlays:e.selectedOverlays.filter((o:any)=>o.isMesh).length}},f.id)).toMatchObject({owners:[f.id],overlays:1});}
+ for(const f of [...seed.mirrors,last]){await revealTree(f.name);await page.locator(`[role=treeitem][data-tree-key$="feature:${f.id}"]`).click();await expect.poll(()=>page.evaluate(id=>{const e=(window as any).__cameraEngine;const binding=[...e.solidBindings.values()][0] as any;const entries=binding.artifact.visualization.featureAssociations.elements.filter((a:any)=>a.kind==='FACE'&&a.primary.includes(id));return {count:entries.length,owners:[...new Set(entries.flatMap((a:any)=>a.primary))],contours:e.selectedOverlays.filter((o:any)=>o.material?.isLineMaterial&&o.parent===binding.group).length,otherOverlays:e.selectedOverlays.filter((o:any)=>!o.material?.isLineMaterial).length}},f.id)).toMatchObject({owners:[f.id],contours:2,otherOverlays:0});}
  await page.screenshot({path:testInfo.outputPath('mirror-primary-contribution.png')});await revealTree('');await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.length).toBe(saved.part.features.length-1);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(last.id);
- await openCommand(page,'阵列');const array=page.getByRole('dialog',{name:'创建阵列',exact:true});await revealTree(seed.tool.name!);await page.locator(`[role=treeitem][data-tree-key$="pad:${seed.tool.id}"]`).click();await ready(page,array);await array.getByLabel('阵列方式').getByText('圆周',{exact:true}).click();await ready(page,array);const head=(await current(page,seed.id)).document.versionId;await array.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(head);
+ await openCommand(page,'阵列');const array=page.getByRole('dialog',{name:'创建阵列',exact:true});await revealTree(seed.tool.name!);await page.locator(`[role=treeitem][data-tree-key$="pad:${seed.tool.id}"]`).click();await expect(array.getByRole('button',{name:confirmCommandName})).toBeDisabled();
+ await array.getByRole('button',{name:'选择方向',exact:true}).click();await revealTree('X Axis');await page.getByRole('treeitem').filter({has:page.getByText('X Axis',{exact:true})}).last().click();await ready(page,array);
+ await array.getByLabel('阵列方式').getByText('圆周',{exact:true}).click();await expect(array.getByRole('button',{name:confirmCommandName})).toBeDisabled();await array.getByRole('button',{name:'选择轴',exact:true}).click();await revealTree('Z Axis');await page.getByRole('treeitem').filter({has:page.getByText('Z Axis',{exact:true})}).last().click();await ready(page,array);const head=(await current(page,seed.id)).document.versionId;await array.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(head);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();const reopened=await current(page,seed.id);expect(reopened.part.features.at(-1)).toEqual(last);expect(reopened.artifacts[reopened.part.bodies.find((b:any)=>b.id===last.bodyId).geometryKey].volume).toBeCloseTo(volume,8);expect(errors).toEqual([]);
 });
 

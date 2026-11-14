@@ -8,6 +8,7 @@ import (
 
 type PartRuntimeOptions struct {
 	ForceCold, ExactOnly bool
+	Speculative          bool
 	Affinity             string
 	BaseStage            *workerv1.PartBaseStage
 }

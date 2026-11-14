@@ -83,3 +83,48 @@
 根因是子集选择重复焊接整份网格、建立大型 JS Map、预留过量双精度边法向，并先输出全部曲面候选后再投影。现在邻接在解码阶段用紧凑数组一次准备；面到候选边索引支持局部查询，选择与投影合并，只缓存当前投影几何。整件与覆盖全部面的贡献共享投影，引用计数保护重复 occurrence 和 selection/hover 的寿命；缓存按字节约束全部相机投影。首次邻接仍为线性工作，大制品在可取消的 Worker 中准备，并未改变显示精度或 CAD 持久身份。
 
 此对照隔离交互算法，不是整个旧版本加载基准；原基线的整件预计算不在本夹具恢复范围，因此不比较其 Body 整件路径。单个串行样本不代表 P95、所有模型、GPU 帧率或用户观察到的另一模型的 500→1500 MB 堆峰值。
+
+## 草图隔离与长链（2026-11-14）
+
+本机同一 Release / OCCT 7.9.1、当前 `.env` 的 SQLite / LOCAL，串行经过正式 Workspace Service、生产 Router 和真实 Worker。新的[机器样本](../../tests/test.data/performance/part-sketch-performance.json)记录源码/Worker 指纹、输入摘要、计时边界和用例入口。本轮没有远端约 10 MB 的汽车 B 柱；下列生成 STEP 不能替代该模型，也不能与前两节的冻结导入件直接比较速度。
+
+20 个未被三维结果消费的草图（含面支撑）验证了预览与提升提交均为 **0 次 Body Worker 执行**，原 BREP/NAMING/VISUAL 引用保持；无关 Feature、Profile 和投影没有实际准备。已消费的上游草图修改仍更新实体，冷重建与 Undo/Redo 保持原门禁。浏览器另以实际选面、进入草图和画线验证 Body 对象、BufferGeometry、位置属性及 BVH 均保留，dispose 为 0；这个显示用例使用简单实体，不能作为复杂 STEP 的帧率或延迟验收。
+
+### 首次 STEP 操作
+
+生成 300×150×10 mm、450 个圆孔的机械板，真实导出 STEP 再导入：STEP 1,787,951 字节，BREP 355,183 字节，456/1362/908 个 Face/Edge/Vertex，127812 个三角形。显式卸载 Shape 后首次精确选面读取的 load 约 5.4 ms、query 约 1.0 ms。此前同 Worker 已完成源板生成和交换，制品/输入及其他缓存没有全局清空；这不是首次文件导入或新文件系统缓存的基准。
+
+在顶面绘制 2×2 mm 矩形，首次向下切除 10 mm，再将深度改为 9 mm，两个结果都实际执行一个新生成器，体积分别减少 40、36 mm³；候选提升提交不重复 Body 执行，冷 BREP/Naming 摘要相同。
+
+| 服务边界及 Worker 子阶段 | 首次切除 | 改深度 |
+|---|---:|---:|
+| PreviewCommand / ApplyCommand 返回 | 4.244 s | 4.112 s |
+| exact | 0.904 s | 0.865 s |
+| Naming | 0.273 s | 0.166 s |
+| display | 2.877 s | 2.880 s |
+| 其中 mesh | 2.684 s | 2.695 s |
+
+此服务计时不含 HTTP 和浏览器显示；mesh/encoding 已属于 display。改深度复用了 454 个面、计算 7 个面，但 mesh 仍约 2.7 s，因此复用面数不能代表耗时复用比例。按该夹具的拓扑推断，下一步应逐面录制带大量孔的裁剪平面，优先研究昂贵变化面的剖分，而不是仅扩大未变面缓存。精确 Boolean 也仍有约 0.9 s 成本，尚未消除首次操作延迟。
+
+### 固定拓扑的真实长链
+
+从长方体开始，用同一矩形草图连续削去底部材料，完成 100 次真实切除、共 103 个 Feature。每个接纳结果始终为 6 Face / 12 Edge / 8 Vertex；第 100 步和末端改深度都只执行 1 个生成器并复用 100 个前缀阶段，随后通过冷 BREP/Naming 对照。
+
+| 切除步数 | 本步服务返回 | Naming | 当前 Worker RSS |
+|---:|---:|---:|---:|
+| 1 | 66 ms | 2.3 ms | 36 MiB |
+| 20 | 97 ms | 10.3 ms | 88 MiB |
+| 50 | 157 ms | 21.2 ms | 224 MiB |
+| 100 | 289 ms | 47.5 ms | 401 MiB |
+
+末端改深度约 274 ms；这些是单次读数，不是 P95。精确运算仍约 6 ms，完整 Naming 打包、前缀展开和服务端模型/Revision 装配继续随历史增长。Stage 计量维持在约 128 MiB 预算内，但 RSS 仍增长；本轮没有证明长时间稳态内存。源板 STEP 用例的 peak RSS 还包含源板生成和前序操作，不能把它解释为一次切除的独立峰值。
+
+20/100/300/1000 个未消费草图另有规划微基准；1000 草图的局部规划调整前后约 42.2 → 31.0 ms，分配约 38.0 → 34.7 MB。每档仅 3 次迭代、一次运行，且只计规划，不执行 OCCT；不代表已经验收 1000 个实体 Feature。
+
+### 复验与限制
+
+真实 Router 入口为 `TestDenseSTEPFaceSketchAndFirstCutThroughRouter`、`TestLongPartChainWithFixedTopologyThroughRouter`、`TestPartSketchEditingIsolationThroughRouter` 和既有八次切除/上游编辑用例。扩大回归覆盖多 Body、持久选择、曲面关联、任意节点删除及恢复。连续撤销面支撑草图的回归也验证补偿求值使用相同依赖范围，不改写无关支撑快照或放宽历史摘要校验。
+
+全 scope 单元检查通过，历史修复后补跑 Workspace 单元与相关真实集成；两项可选缩略图/原生测量导出跳过。原始报告在 `build/agent-check/`，本轮测量 JSON 保留实际运行入口与报告位置。真实浏览器验收入口为 `solid-feature-live` 的 `face sketch drawing retains accepted Body buffers and BVH`，并结合曲面、支撑修复、属性生命周期和阵列用例；具体本次结果见机器样本。
+
+当前已去掉无关草图/Body 执行、整件显示重建及记账并集编码；首次复杂剖分、完整 Naming/Revision 数据装配和 OCCT 进程峰值仍是后续重点。Router RSS 软预算只约束扩容、推测预备和空闲额外副本回收；主颜色绘制仍提交可见场景，尚无通用逐面 GPU 更新或静态颜色合成层。后续工作继续归[CAD 核心主线](../../plans/cad-core-roadmap.md)，不据本轮有限样本承诺工业容量或 CATIA 等价延迟。

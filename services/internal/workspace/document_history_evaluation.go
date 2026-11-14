@@ -21,6 +21,21 @@ func evaluatePartHistory(ctx context.Context, service *Service, input historyCom
 			return err
 		}
 		normalizePartModel(&model)
+		var previous PartModel
+		var beforePartJSON, priorJSON []byte
+		if err = service.database.QueryRow(ctx, `SELECT model_json,evaluation_manifest FROM occccad.document_versions WHERE id=$1`, input.headRevision).Scan(&beforePartJSON, &priorJSON); err != nil {
+			return err
+		}
+		if err = json.Unmarshal(beforePartJSON, &previous); err != nil {
+			return err
+		}
+		normalizePartModel(&previous)
+		var prior *modelcore.EvaluationManifest
+		if len(priorJSON) > 0 {
+			if err = json.Unmarshal(priorJSON, &prior); err != nil {
+				return err
+			}
+		}
 		// Display compensation uses the same frozen geometry as a display command.
 		// No parameter/publication preparation or solid evaluation is necessary.
 		displayOnly := len(input.changes.Changes) > 0
@@ -37,6 +52,16 @@ func evaluatePartHistory(ctx context.Context, service *Service, input historyCom
 		if !displayOnly && !propertiesOnly {
 			if err = resolveRuntimeParameters(ctx, &model); err != nil {
 				return err
+			}
+			// Compensation has the same dependency boundary as a forward
+			// command. Re-resolving an unchanged support against a newly built
+			// display variant would rewrite sketch.model after its history
+			// digest was checked, making the next Undo conflict.
+			if len(model.ContextInputs) == 0 {
+				ctx, err = preparePartExecution(ctx, previous, model, prior, input.changes.ImpactSeeds)
+				if err != nil {
+					return err
+				}
 			}
 			if err = service.resolveAndSolveSketches(ctx, input.documentID, input.requestID, &model); err != nil {
 				return err
@@ -58,13 +83,8 @@ func evaluatePartHistory(ctx context.Context, service *Service, input historyCom
 			}
 		}
 		if err == nil {
-			var previous PartModel
-			var beforePartJSON []byte
-			if readErr := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, input.headRevision).Scan(&beforePartJSON); readErr != nil {
-				return readErr
-			}
-			if readErr := json.Unmarshal(beforePartJSON, &previous); readErr != nil {
-				return readErr
+			if partHasFailedFeature(model) {
+				revisionState, evaluationStatus = "FAILED", "FAILED"
 			}
 			retainFailedBodyDisplay(&model, previous, input.headRevision)
 			refreshPartMeasurementCurrency(&model)
@@ -78,7 +98,7 @@ func evaluatePartHistory(ctx context.Context, service *Service, input historyCom
 			clearMeasurementProjection(model.Measurements)
 			input.modelJSON, _ = json.Marshal(model)
 			modelHash = canonicalModelHash(input.modelJSON)
-			graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, nil)
+			graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, prior)
 			attachEvaluationRuntime(ctx, &manifest)
 		}
 		return err

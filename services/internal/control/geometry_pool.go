@@ -17,20 +17,23 @@ import (
 	"github.com/occccad/occccad/internal/geometryrpc"
 	"github.com/occccad/occccad/internal/monitoring"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type GeometryPoolConfig struct {
-	WorkerBinary     string
-	DataDirectory    string
-	LogDirectory     string
-	WorkerHost       string
-	FirstWorkerPort  int
-	MinimumWorkers   int
-	MaximumWorkers   int
-	GeometryCapacity int
-	IdleTimeout      time.Duration
+	WorkerBinary      string
+	DataDirectory     string
+	LogDirectory      string
+	WorkerHost        string
+	FirstWorkerPort   int
+	MinimumWorkers    int
+	MaximumWorkers    int
+	GeometryCapacity  int
+	IdleTimeout       time.Duration
+	MemoryBudgetBytes uint64
 }
 
 func (pool *GeometryPool) MonitoringProcesses() ([]monitoring.Process, monitoring.Geometry, string) {
@@ -56,17 +59,18 @@ func (pool *GeometryPool) MonitoringProcesses() ([]monitoring.Process, monitorin
 }
 
 type workerInstance struct {
-	healthMu     sync.Mutex
-	failedProbes int
-	id           string
-	address      string
-	process      *ManagedProcess
-	connection   *grpc.ClientConn
-	client       workerv1.GeometryWorkerClient
-	resident     int
-	inFlight     int
-	known        map[string]bool
-	lastUsed     time.Time
+	healthMu      sync.Mutex
+	failedProbes  int
+	id            string
+	address       string
+	process       *ManagedProcess
+	connection    *grpc.ClientConn
+	client        workerv1.GeometryWorkerClient
+	resident      int
+	residentBytes uint64
+	inFlight      int
+	known         map[string]bool
+	lastUsed      time.Time
 }
 
 type GeometryPool struct {
@@ -94,6 +98,9 @@ func NewGeometryPool(ctx context.Context, configuration GeometryPoolConfig) *Geo
 	}
 	if configuration.IdleTimeout <= 0 {
 		configuration.IdleTimeout = 5 * time.Minute
+	}
+	if configuration.MemoryBudgetBytes == 0 {
+		configuration.MemoryBudgetBytes = 4 * 1024 * 1024 * 1024
 	}
 	return &GeometryPool{ctx: ctx, config: configuration, nextPort: configuration.FirstWorkerPort,
 		affinity: map[string]*workerInstance{}}
@@ -245,7 +252,7 @@ func (pool *GeometryPool) stopWorker(worker *workerInstance) {
 	_ = worker.process.Stop(5 * time.Second)
 }
 
-func (pool *GeometryPool) selectClient(geometryKey string) (workerv1.GeometryWorkerClient, *workerInstance, error) {
+func (pool *GeometryPool) selectClient(geometryKey string, residentAliases ...string) (workerv1.GeometryWorkerClient, *workerInstance, error) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 	if pool.debugClient != nil {
@@ -264,6 +271,14 @@ func (pool *GeometryPool) selectClient(geometryKey string) (workerv1.GeometryWor
 		}
 	}
 	if selected == nil {
+		for _, alias := range residentAliases {
+			if owner := pool.affinity[alias]; owner != nil {
+				selected = owner
+				break
+			}
+		}
+	}
+	if selected == nil {
 		var available *workerInstance
 		for _, worker := range pool.workers {
 			if worker.resident+worker.inFlight < pool.config.GeometryCapacity &&
@@ -273,7 +288,7 @@ func (pool *GeometryPool) selectClient(geometryKey string) (workerv1.GeometryWor
 		}
 		// OCCT work is serialized inside each process. Cache capacity (e.g.
 		// 100 resident geometries) is not a concurrency budget of 100 RPCs.
-		if (available == nil || available.inFlight > 0) && len(pool.workers) < pool.config.MaximumWorkers {
+		if (available == nil || available.inFlight > 0) && len(pool.workers) < pool.config.MaximumWorkers && !pool.memoryPressureLocked() {
 			worker, err := pool.spawnLocked()
 			if err != nil {
 				return nil, nil, err
@@ -319,8 +334,18 @@ func (pool *GeometryPool) release(worker *workerInstance, geometryKey string, su
 	}
 	pool.mu.Unlock()
 	// Keep probe results ordered and refresh residency after the last completion.
-	worker.healthMu.Lock()
-	defer worker.healthMu.Unlock()
+	// Telemetry must not extend the completed user's RPC or accumulate one
+	// blocked health probe per sketch operation. At most one probe per Worker.
+	if !worker.healthMu.TryLock() {
+		return
+	}
+	go func() {
+		defer worker.healthMu.Unlock()
+		pool.refreshWorkerHealth(worker)
+	}()
+}
+
+func (pool *GeometryPool) refreshWorkerHealth(worker *workerInstance) {
 	ctx, cancel := context.WithTimeout(pool.ctx, time.Second)
 	response, err := worker.client.Ping(ctx, &workerv1.PingRequest{})
 	cancel()
@@ -331,6 +356,7 @@ func (pool *GeometryPool) release(worker *workerInstance, geometryKey string, su
 	}
 	if err == nil {
 		worker.resident = int(response.GetResidentGeometryCount())
+		worker.residentBytes = response.GetResidentMemoryBytes()
 		worker.failedProbes = 0
 		pool.mu.Unlock()
 		return
@@ -441,7 +467,7 @@ func (pool *GeometryPool) EvaluatePart(ctx context.Context, request *workerv1.Ev
 	if request.GetRuntimeAffinity() != "" {
 		affinity = request.GetRuntimeAffinity()
 	}
-	client, worker, err := pool.selectClient(affinity)
+	client, worker, err := pool.selectClient(affinity, request.GetBaseStage().GetGeometryId())
 	if err != nil {
 		return nil, err
 	}
@@ -635,7 +661,14 @@ func (pool *GeometryPool) UnloadGeometry(ctx context.Context, request *workerv1.
 	return response, err
 }
 func (pool *GeometryPool) GetTopology(ctx context.Context, request *workerv1.GetTopologyRequest) (*workerv1.GetTopologyResponse, error) {
-	client, worker, err := pool.selectClient(request.GetGeometryId())
+	var client workerv1.GeometryWorkerClient
+	var worker *workerInstance
+	var err error
+	if request.GetSpeculative() {
+		client, worker, err = pool.selectSupportWarmup(request.GetGeometryId())
+	} else {
+		client, worker, err = pool.selectClient(request.GetGeometryId())
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -699,10 +732,11 @@ func (pool *GeometryPool) scaleDown() {
 		return
 	}
 	var removed *workerInstance
+	pressure := pool.memoryPressureLocked()
 	for index := len(pool.workers) - 1; index >= pool.config.MinimumWorkers; index-- {
 		candidate := pool.workers[index]
-		if candidate.resident == 0 && candidate.inFlight == 0 &&
-			time.Since(candidate.lastUsed) >= pool.config.IdleTimeout {
+		if candidate.inFlight == 0 &&
+			(pressure || time.Since(candidate.lastUsed) >= pool.config.IdleTimeout) {
 			removed = candidate
 			pool.workers = append(pool.workers[:index], pool.workers[index+1:]...)
 			for identifier, owner := range pool.affinity {
@@ -718,4 +752,46 @@ func (pool *GeometryPool) scaleDown() {
 		pool.stopWorker(removed)
 		slog.Info("idle geometry worker removed", "worker", removed.id)
 	}
+}
+
+// Budget controls retained idle working sets and scale-up. One active native
+// operation may exceed it; this is not an OS-level RSS limit.
+func (pool *GeometryPool) memoryPressureLocked() bool {
+	if pool.config.MemoryBudgetBytes == 0 {
+		return false
+	}
+	var bytes uint64
+	for _, worker := range pool.workers {
+		bytes += worker.residentBytes
+	}
+	return bytes >= pool.config.MemoryBudgetBytes
+}
+
+// Speculation consumes spare existing capacity only. It neither queues behind
+// an authoritative operation nor spawns another copy of a large exact model.
+func (pool *GeometryPool) selectSupportWarmup(key string) (workerv1.GeometryWorkerClient, *workerInstance, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if pool.debugClient != nil {
+		return pool.debugClient, nil, nil
+	}
+	if pool.memoryPressureLocked() {
+		return nil, nil, status.Error(codes.ResourceExhausted, "support warmup deferred by memory budget")
+	}
+	owner := pool.affinity[key]
+	if owner == nil {
+		for _, worker := range pool.workers {
+			if worker.inFlight == 0 {
+				owner = worker
+				break
+			}
+		}
+	}
+	if owner == nil || owner.inFlight != 0 {
+		return nil, nil, status.Error(codes.ResourceExhausted, "support warmup deferred while geometry is busy")
+	}
+	owner.inFlight++
+	owner.lastUsed = time.Now()
+	pool.affinity[key] = owner
+	return owner.client, owner, nil
 }

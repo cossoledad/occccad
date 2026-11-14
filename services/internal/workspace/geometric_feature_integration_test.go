@@ -243,7 +243,9 @@ func TestGeometryAssociativeDirectionPointListsAndColdHistory(t *testing.T) {
 	sheet = v.Part.Features[len(v.Part.Features)-1]
 	definition, _ := featureDefinitionDigest(*v.Part, sheet.ID)
 	for _, p := range v.Part.Parameters {
-		if p.OwnerFeatureID == sheet.ID && p.PropertySlot != "geometry:distance" {
+		// The shared engineering tolerance is a formal parameter; an
+		// associative direction must not introduce scalar XYZ components.
+		if p.OwnerFeatureID == sheet.ID && p.PropertySlot != "geometry:distance" && p.PropertySlot != "geometry:tolerance" {
 			t.Fatal("direction reference created unrelated scalar slots", p)
 		}
 	}
@@ -324,10 +326,17 @@ func TestGeometryAssociativeDirectionPointListsAndColdHistory(t *testing.T) {
 		}
 	}
 	f.volume(v, 1600)
-	_, err = f.service.ApplyCommand(f.ctx, f.documentID, CommandRequest{Type: "DELETE_NODE", RequestID: uuid.NewString(), ActorID: f.actor, TargetKind: "REFERENCE_POINT", TargetID: b})
-	if err == nil {
-		t.Fatal("referenced point deletion accepted")
+	// Upstream deletion preserves dependents with explicit missing/blocked
+	// states; compensation must restore the same associative point identity.
+	v = f.command(CommandRequest{Type: "DELETE_NODE", TargetKind: "REFERENCE_POINT", TargetID: b})
+	if missing := lifecycleFeature(t, v, spline.ID); missing.EvaluationStatus != "FAILED" || missing.Result != nil {
+		t.Fatal("deleted point retained an accepted spline", missing)
 	}
+	v = f.command(CommandRequest{Type: "UNDO"})
+	if restored := lifecycleFeature(t, v, spline.ID); restored.EvaluationStatus != "" || restored.Result == nil {
+		t.Fatal("point compensation did not restore its spline", restored)
+	}
+	f.volume(v, 1600)
 }
 
 func TestGeometryAssociativePlaneAxisAndSketchPointThroughRouter(t *testing.T) {

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { colorNumber, palette } from "../../design/visual-tokens";
 import { sceneBackgroundIsLight, type SceneSettings } from "./scene-settings";
 import {SketchScenePresentation,type SketchEditScope} from './sketch-scene-presentation';
+import {forEachSketchRoot} from './scene-render-index';
 
 // Same semantic roles on both backgrounds; solver states never change meaning.
 const dark = {
@@ -50,7 +51,7 @@ export class SketchColorAdapter {
       }
       for(const child of object.children)visit(child,owner);
     };
-    visit(root);
+    if(!forEachSketchRoot(root,object=>visit(object)))visit(root);
   }
   applyObject(object:THREE.Object3D,colors:SketchColors):void {
     const material=(object as THREE.Mesh).material;

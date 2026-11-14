@@ -141,6 +141,9 @@ func ownedSketchIDs(m PartModel, bodyID string) []string {
 func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *PartModel) error {
 	normalizePartModel(m)
 	for i := range m.Features {
+		if !needsPartNode(ctx, "feature:"+m.Features[i].ID) {
+			continue
+		}
 		m.Features[i].EvaluationStatus = ""
 		if m.Features[i].Suppressed {
 			m.Features[i].EvaluationStatus = "SUPPRESSED"
@@ -211,6 +214,9 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 		if m.Features[i].Type != "GEOMETRY" {
 			continue
 		}
+		if !needsPartNode(ctx, "feature:"+m.Features[i].ID) {
+			continue
+		}
 		m.Features[i].Result = nil
 		if m.Features[i].Suppressed || m.Features[i].EvaluationStatus == "BLOCKED" || m.Features[i].EvaluationStatus == "FAILED" {
 			continue
@@ -236,6 +242,9 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 		order = measurementBodyOrder(*m, stageGraph)
 	}
 	for _, i := range order {
+		if !needsPartBody(ctx, m.Bodies[i].ID) {
+			continue
+		}
 		if stageGraph != nil {
 			if err := validateAndResolvePartParameters(m); err != nil {
 				return err

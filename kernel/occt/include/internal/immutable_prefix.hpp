@@ -10,9 +10,11 @@ template<class T> struct ImmutablePrefix {
     T value;
     std::shared_ptr<const ImmutablePrefix> previous;
     size_t size;
-    static std::shared_ptr<const ImmutablePrefix> append(std::shared_ptr<const ImmutablePrefix> prefix, const T& item) {
+    size_t bytes;
+    static std::shared_ptr<const ImmutablePrefix> append(std::shared_ptr<const ImmutablePrefix> prefix, const T& item, size_t charge = sizeof(T)) {
         const size_t count=prefix?prefix->size:0;
-        return std::make_shared<const ImmutablePrefix>(ImmutablePrefix{item,std::move(prefix),count+1});
+        const size_t total=(prefix?prefix->bytes:0)+charge;
+        return std::make_shared<const ImmutablePrefix>(ImmutablePrefix{item,std::move(prefix),count+1,total});
     }
     std::vector<T> materialize() const {
         std::vector<const T*> reverse; reverse.reserve(size);

@@ -1,8 +1,8 @@
 import type {SketchEntity,SketchOperation} from '../../types';
 import {LatestPreviewQueue} from '../../features/workbench/latest-preview-queue';
 
-type Result={entities:SketchEntity[]};
-type Candidate={key:string;status:'pending'|'ready'|'failed';operations?:SketchOperation[];entities?:SketchEntity[];error?:unknown;controller:AbortController;timer?:ReturnType<typeof setTimeout>;start:()=>Promise<void>;promise?:Promise<void>};
+type Result={entities:SketchEntity[];previewId?:string;versionId?:string};
+type Candidate={key:string;status:'pending'|'ready'|'failed';operations?:SketchOperation[];entities?:SketchEntity[];previewId?:string;versionId?:string;error?:unknown;controller:AbortController;timer?:ReturnType<typeof setTimeout>;start:()=>Promise<void>;promise?:Promise<void>};
 
 /** One immutable drawing candidate, one running solve and one replaceable
  * queued solve. Confirmation flushes the debounce and consumes these exact IDs. */
@@ -22,7 +22,7 @@ export class SketchCreationPreview {
     candidate.operations=operations();return run(candidate.operations,signal);
    },controller.signal).then(result=>{
     if(!accepted())throw new DOMException('Drawing preview superseded','AbortError');
-    candidate.entities=result.entities;candidate.status='ready';changed();
+    candidate.entities=result.entities;candidate.previewId=result.previewId;candidate.versionId=result.versionId;candidate.status='ready';changed();
    },error=>{if(accepted()){candidate.status='failed';candidate.error=error;changed();}throw error;});
    // The UI may only inspect the preview. A later confirm awaits the same promise.
    void candidate.promise.catch(()=>{});return candidate.promise;

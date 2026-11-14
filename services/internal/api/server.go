@@ -1003,7 +1003,13 @@ func (server *Server) topologyProperties(writer http.ResponseWriter, request *ht
 		writeError(writer, http.StatusBadRequest, "localId must be a positive integer")
 		return
 	}
-	result, err := server.workspace.GetTopologyElementPropertiesAtVersion(request.Context(), request.PathValue("documentID"),
+	ctx := request.Context()
+	if request.URL.Query().Get("prepare") == "true" {
+		options := geometry.PartRuntime(ctx)
+		options.Speculative = true
+		ctx = geometry.WithPartRuntime(ctx, options)
+	}
+	result, err := server.workspace.GetTopologyElementPropertiesAtVersion(ctx, request.PathValue("documentID"),
 		request.URL.Query().Get("versionId"), request.URL.Query().Get("geometryKey"), request.URL.Query().Get("kind"), localID)
 	if err != nil {
 		if errors.Is(err, workspace.ErrNotFound) {

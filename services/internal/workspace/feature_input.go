@@ -115,6 +115,21 @@ func (s *Service) featureStageAtVersion(ctx context.Context, documentID, version
 	if index < 0 {
 		return "", fmt.Errorf("%w: source feature stage missing", ErrValidation)
 	}
+	// The accepted immutable Body already certifies its tip. Historical stage
+	// readers still evaluate a prefix when the requested stage is earlier.
+	if !geometry.PartRuntime(ctx).ForceCold {
+		tip := index
+		for i, f := range model.Features {
+			if f.BodyID == bodyID && isBodyFeature(f.Type) && !f.Suppressed {
+				tip = i
+			}
+		}
+		if tip == index {
+			if b := bodyIndex(model, bodyID); b >= 0 && model.Bodies[b].GeometryKey != "" {
+				return model.Bodies[b].GeometryKey, nil
+			}
+		}
+	}
 	model.Features = append([]Feature(nil), model.Features[:index+1]...)
 	return s.evaluateBodyPrefix(ctx, "selection-source/"+versionID+"/"+stageID, model, bodyID, display...)
 }
@@ -372,6 +387,15 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 }
 
 func (s *Service) featureStageInModel(ctx context.Context, model PartModel, revision, stage, body string, display ...bool) (string, error) {
+	if plan := executionPlan(ctx); plan != nil && !geometry.PartRuntime(ctx).ForceCold && stage != "" && !plan.dirty[modelcore.DependencyKey("feature:"+stage)] {
+		if key := plan.acceptedStages[stage]; key != "" {
+			for _, f := range model.Features {
+				if f.ID == stage && !f.Suppressed && (f.BodyID == body || f.Type == "GEOMETRY" && body == "") {
+					return key, nil
+				}
+			}
+		}
+	}
 	for _, f := range model.Features {
 		if f.ID == stage && f.Type == "GEOMETRY" {
 			options := geometry.PartRuntime(ctx)

@@ -3,17 +3,14 @@
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
-#include <BRepTools.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Poly_PolygonOnTriangulation.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Compound.hxx>
 #include <TopTools_ShapeMapHasher.hxx>
 #include <algorithm>
 #include <iterator>
 #include <memory>
-#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -45,26 +42,30 @@ class MeshReuse {
         std::vector<Edge> edges;
         size_t bytes = 0;
     };
-    using Frame = std::unordered_map<TopoDS_Shape,std::shared_ptr<const Packet>,OrientedShapeHash,OrientedShapeEqual>;
+    struct Frame {
+        std::unordered_map<TopoDS_Shape,std::shared_ptr<const Packet>,OrientedShapeHash,OrientedShapeEqual> packets;
+        size_t source_charge = 0;
+    };
     std::vector<Frame> frames_;
     double linear_ = 0, angular_ = 0;
     size_t budget_ = 128 * 1024 * 1024;
 
     std::shared_ptr<const Packet> find(const TopoDS_Shape& face) const {
-        for (const auto& frame : frames_) { const auto it = frame.find(face); if (it != frame.end()) return it->second; }
+        for (const auto& frame : frames_) { const auto it = frame.packets.find(face); if (it != frame.packets.end()) return it->second; }
         return {};
     }
     size_t bytes() const {
-        BRep_Builder builder; TopoDS_Compound geometry; builder.MakeCompound(geometry);
         std::unordered_set<const Packet*> unique; size_t result = 0;
-        for (const auto& frame : frames_) for (const auto& entry : frame) if (unique.insert(entry.second.get()).second) {
-            builder.Add(geometry,entry.second->source); result += entry.second->bytes + sizeof(Packet);
+        for (const auto& frame : frames_) {
+            result += frame.source_charge;
+            for (const auto& entry : frame.packets) if (unique.insert(entry.second.get()).second) {
+                result += entry.second->bytes + sizeof(Packet);
+            }
         }
-        // Serialize the union: shared surfaces/curves are charged once, instead
-        // of charging a full copy of the imported model for every result.
-        std::ostringstream stream;
-        BRepTools::Write(geometry,stream,Standard_False,Standard_False,TopTools_FormatVersion_CURRENT);
-        return result + static_cast<size_t>(stream.tellp()) * 16;
+        // Root estimates reuse the frozen BREP already owned by the kernel.
+        // Across frames this conservatively overcharges shared native graphs;
+        // triangulations shared by packets are charged only once.
+        return result;
     }
 public:
     void clear() { frames_.clear(); }
@@ -89,13 +90,13 @@ public:
         }
         return count;
     }
-    void admit(const TopoDS_Shape& source, const BRepBuilderAPI_Copy& copy) {
-        Frame frame;
+    void admit(const TopoDS_Shape& source, const BRepBuilderAPI_Copy& copy, size_t source_charge) {
+        Frame frame;frame.source_charge=source_charge;
         for (TopExp_Explorer faces(source,TopAbs_FACE); faces.More(); faces.Next()) {
             const auto original = TopoDS::Face(faces.Current());
-            if (frame.find(original) != frame.end()) continue;
+            if (frame.packets.find(original) != frame.packets.end()) continue;
             const auto previous = find(original);
-            if (previous) { frame.emplace(original,previous); continue; }
+            if (previous) { frame.packets.emplace(original,previous); continue; }
             auto packet = std::make_shared<Packet>(); packet->source = original;
             const auto face = TopoDS::Face(copy.ModifiedShape(original));
             const auto triangulation = BRep_Tool::Triangulation(face,packet->location);
@@ -112,7 +113,7 @@ public:
                 auto& target = originalEdge.Orientation() == TopAbs_REVERSED ? existing->reverse : existing->forward;
                 target = polygon->Copy(); packet->bytes += polygon->NbNodes() * (sizeof(int)+sizeof(double));
             }
-            frame.emplace(original,std::move(packet));
+            frame.packets.emplace(original,std::move(packet));
         }
         frames_.insert(frames_.begin(),std::move(frame));
         while (!frames_.empty() && (frames_.size() > 2 || bytes() > budget_)) frames_.pop_back();

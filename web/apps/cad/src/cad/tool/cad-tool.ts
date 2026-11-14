@@ -41,7 +41,7 @@ export type ToolViewportPort = {
   showReferenceDimensions(geometry: readonly SketchReferenceGeometry[]): void;
   clearToolPreview(): void;
   commitSketchOperations(operations: SketchOperation[], intent?: SketchCommitIntent): Promise<SketchCommitResult> | void;
-  previewSketchOperations?(operations:SketchOperation[],signal?:AbortSignal):Promise<{featureId:string;versionId:string;entities:SketchEntity[]}>;
+  previewSketchOperations?(operations:SketchOperation[],signal?:AbortSignal):Promise<{featureId:string;versionId:string;previewId?:string;entities:SketchEntity[]}>;
   showSketchCreationCandidate?(operations:SketchOperation[],entities:SketchEntity[]):void;
   currentSketchReferenceEntities?():readonly SketchEntity[];
   showSketchEditCandidate?(candidate:import("../sketch/sketch-edit-preview").SketchEditCandidatePreview):void;
@@ -496,12 +496,12 @@ abstract class TwoClickSketchTool extends SketchCreationTool {
       this.inputError??="请选择不同的终点";
       this.updatePrompt(context);context.viewport.setToolPrompt(this.inputError);return false;
     }
-    const submit=(operations:SketchOperation[])=>{context.viewport.clearToolPreview();this.submitCreation(context,submission=>submission.viewport.commitSketchOperations(operations),()=>{
+    const submit=(operations:SketchOperation[],intent?:SketchCommitIntent)=>{context.viewport.clearToolPreview();this.submitCreation(context,submission=>submission.viewport.commitSketchOperations(operations,intent),()=>{
       this.authority.cancel();
       this.first=undefined;this.firstSnap=undefined;this.cursor=undefined;this.cursorSnap=undefined;this.inputError=undefined;context.viewport.setSketchCommandState?.(undefined);this.activate(context);
     });if(this.first)this.updatePrompt(context);};
     const candidate=this.prepareAuthority(resolved,context);
-    if(candidate){this.confirmingPreview=true;this.updatePrompt(context);void this.authority.resolve(candidate).then(operations=>{this.confirmingPreview=false;submit(operations);},cause=>{if(this.authority.current!==candidate)return;this.confirmingPreview=false;this.inputError=engineeringProblem(cause);this.updatePrompt(context);});}
+    if(candidate){this.confirmingPreview=true;this.updatePrompt(context);void this.authority.resolve(candidate).then(operations=>{this.confirmingPreview=false;submit(operations,candidate.previewId?{requestId:randomUUID(),previewId:candidate.previewId,baseVersionId:candidate.versionId}:undefined);},cause=>{if(this.authority.current!==candidate)return;this.confirmingPreview=false;this.inputError=engineeringProblem(cause);this.updatePrompt(context);});}
     else submit(this.creationOperations(this.first,resolved,context,snap));return true;
   }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {

@@ -100,14 +100,19 @@ func run() error {
 	serveFailures := make(chan error, 3)
 	workerBinary := value("OCCCCAD_GEOMETRY_WORKER_BIN", filepath.Join(root, "build", "cmake", "linux-gcc15-x86_64",
 		strings.ToLower(value("OCCCCAD_BUILD_TYPE", "Release")), "workers", "geometry", "occccad_geometry_worker"))
+	memoryBudgetMB := integer("OCCCCAD_GEOMETRY_MEMORY_BUDGET_MB", 4096)
+	if memoryBudgetMB < 1 || memoryBudgetMB > 1024*1024 {
+		return fmt.Errorf("OCCCCAD_GEOMETRY_MEMORY_BUDGET_MB must be between 1 and 1048576")
+	}
 	app.pool = control.NewGeometryPool(ctx, control.GeometryPoolConfig{
 		WorkerBinary: workerBinary, DataDirectory: dataDirectory, LogDirectory: logDirectory,
-		WorkerHost:       "127.0.0.1",
-		FirstWorkerPort:  integer("OCCCCAD_GEOMETRY_WORKER_FIRST_PORT", 51100),
-		MinimumWorkers:   integer("OCCCCAD_GEOMETRY_WORKER_MIN", 1),
-		MaximumWorkers:   integer("OCCCCAD_GEOMETRY_WORKER_MAX", 8),
-		GeometryCapacity: integer("OCCCCAD_GEOMETRY_PER_WORKER", 2),
-		IdleTimeout:      duration("OCCCCAD_GEOMETRY_WORKER_IDLE", 5*time.Minute),
+		WorkerHost:        "127.0.0.1",
+		FirstWorkerPort:   integer("OCCCCAD_GEOMETRY_WORKER_FIRST_PORT", 51100),
+		MinimumWorkers:    integer("OCCCCAD_GEOMETRY_WORKER_MIN", 1),
+		MaximumWorkers:    integer("OCCCCAD_GEOMETRY_WORKER_MAX", 8),
+		GeometryCapacity:  integer("OCCCCAD_GEOMETRY_PER_WORKER", 2),
+		IdleTimeout:       duration("OCCCCAD_GEOMETRY_WORKER_IDLE", 5*time.Minute),
+		MemoryBudgetBytes: uint64(memoryBudgetMB) * 1024 * 1024,
 	})
 	defer func() { stop(); app.pool.Close() }()
 	if err := app.pool.Start(); err != nil {

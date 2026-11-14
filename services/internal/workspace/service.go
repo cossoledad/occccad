@@ -25,6 +25,7 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/proto"
 )
 
 const evaluatorVersion = "part-solid-generators-v78-studio-balanced-surfaces"
@@ -1502,6 +1503,12 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 	return manifest
 }
 
+// Body representations carry immutable 3D display and Naming associations.
+// Revision-scoped sketches are projected independently from the parametric model.
+func bodyDisplayMetadata(model PartModel) VisualizationManifest {
+	return VisualizationManifest{SchemaVersion: 1, ReferenceGeometry: referenceGeometry(model), Primitives: []VisualPrimitive{}}
+}
+
 // ApplyCommand is the in-process convenience boundary for callers that also
 // need a full projection. Realtime returns a receipt and queries that projection
 // separately, so it does not construct and discard a second DocumentView.
@@ -1813,7 +1820,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 	baseKey := ""
 	var importSeed *workerv1.ImportTopologySeed
 	bodyTipFeatureID := ""
-	visualization := visualizationManifest(model)
+	visualization := bodyDisplayMetadata(model)
 	for _, feature := range model.Features {
 		if feature.Suppressed {
 			continue
@@ -2096,7 +2103,7 @@ func (service *Service) ensureArtifactVisualization(ctx context.Context, key str
 		return err
 	}
 	var current VisualizationManifest
-	expected := visualizationManifest(model)
+	expected := bodyDisplayMetadata(model)
 	expected.Primitives = nil
 	if err := json.Unmarshal(stored, &current); err != nil {
 		return err
@@ -2252,7 +2259,25 @@ func (service *Service) loadTopologyElementPropertiesFromArtifact(
 			return TopologyElementProperties{}, referenceErr
 		}
 		finishRPC := perf.Start(ctx, "topology-rpc")
-		response, servingWorkerID, err = service.worker.GetTopologyFromArtifact(ctx, geometryID, reference, kind, localID)
+		var wire []byte
+		wire, err = preparedResult(ctx, &service.prepared, "@topology-properties", struct {
+			GeometryID string
+			Reference  geometry.ArtifactReference
+			Kind       string
+			LocalID    uint64
+		}{geometryID, reference, kind, localID}, func() ([]byte, error) {
+			var e error
+			var result *workerv1.GetTopologyResponse
+			result, servingWorkerID, e = service.worker.GetTopologyFromArtifact(ctx, geometryID, reference, kind, localID)
+			if e != nil {
+				return nil, e
+			}
+			return proto.Marshal(result)
+		})
+		if err == nil {
+			response = &workerv1.GetTopologyResponse{}
+			err = proto.Unmarshal(wire, response)
+		}
 		finishRPC()
 	} else {
 		return TopologyElementProperties{}, fmt.Errorf("geometry requires ArtifactStore")

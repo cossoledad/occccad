@@ -1,4 +1,5 @@
 #include <internal/shell_history.hpp>
+#include <internal/immutable_prefix.hpp>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <internal/occt_kernel.hpp>
 #include <BRepAdaptor_Curve.hxx>
@@ -13,6 +14,19 @@
 
 #include <gtest/gtest.h>
 #include <atomic>
+
+TEST(GeometryIncrementalHistory, PrefixAccountingSharesAndAccumulates) {
+    using Prefix=occccad::kernel::detail::ImmutablePrefix<int>;
+    std::shared_ptr<const Prefix> history;
+    for(int i=0;i<1000;++i)history=Prefix::append(history,i,16);
+    const auto accepted=history;
+    history=Prefix::append(history,1000,32);
+    EXPECT_EQ(history->previous,accepted);
+    EXPECT_EQ(accepted->size,1000U);EXPECT_EQ(accepted->bytes,16000U);
+    EXPECT_EQ(history->size,1001U);EXPECT_EQ(history->bytes,16032U);
+    const auto flat=history->materialize();ASSERT_EQ(flat.size(),1001U);
+    for(int i=0;i<1001;++i)EXPECT_EQ(flat[i],i);
+}
 
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>

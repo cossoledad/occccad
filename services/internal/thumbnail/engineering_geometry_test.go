@@ -9,6 +9,24 @@ import (
 	"github.com/occccad/occccad/internal/workspace"
 )
 
+func TestRevisionSketchProjectionReplacesBodyDisplayAndHonorsEmptyVisibility(t *testing.T) {
+	old := workspace.VisualPrimitive{Kind: "POLYLINE", Semantic: "SKETCH_ENTITY", FeatureID: "sketch", Positions: []vec{{0, 0, 0}, {5, 0, 0}}}
+	current := old
+	current.Positions = []vec{{10, 0, 0}, {20, 0, 0}}
+	view := workspace.DocumentView{Document: workspace.DocumentSummary{Type: "PART"}, Part: &workspace.PartModel{Bodies: []workspace.PartBody{{ID: "body", Visible: true, GeometryKey: "frozen"}}},
+		Artifacts:           map[string]workspace.Artifact{"frozen": {GeometryKey: "frozen", Visualization: workspace.VisualizationManifest{Primitives: []workspace.VisualPrimitive{old}}}},
+		SketchVisualization: &workspace.VisualizationManifest{Primitives: []workspace.VisualPrimitive{current}}}
+	scene, err := collectScene(context.Background(), view)
+	if err != nil || len(scene.lines) != 1 || scene.lines[0].points[0][0] != 10 {
+		t.Fatal("thumbnail reused stale Body sketch", scene, err)
+	}
+	view.SketchVisualization.Primitives = nil
+	scene, err = collectScene(context.Background(), view)
+	if err != nil || len(scene.lines) != 0 {
+		t.Fatal("empty accepted display leaked hidden sketch", scene, err)
+	}
+}
+
 func TestEngineeringThumbnailIncludesWiresPointsAndInheritedVisibility(t *testing.T) {
 	hidden := false
 	view := workspace.DocumentView{Document: workspace.DocumentSummary{Type: "PART"}, Part: &workspace.PartModel{
