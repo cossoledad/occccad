@@ -1,0 +1,6 @@
+.cad-select-popup .ant-select-item-option-content,
+.cad-select-popup .ant-select-item-group {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}

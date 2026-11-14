@@ -1,8 +1,8 @@
+import {searchTool as tool} from './command-helpers';
 import {confirmCommandName} from "./command-labels";
 import {test,expect,type Page} from '@playwright/test';
 import {treeNavigator} from './tree-helpers';
 import {observeViewport} from './camera-helpers';
-async function tool(page:Page,name:string){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp(`^${name}$`)})}).click()}
 test('measured creation defaults and editable assembly parameters use displayed units',async({page},info)=>{
  test.setTimeout(240000);page.setDefaultTimeout(20000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}});await page.goto('/');

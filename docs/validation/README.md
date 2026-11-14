@@ -2,7 +2,7 @@
 
 可执行检查由[测试路由](../../tests/README.md)维护；当前功能及限制归[当前架构](../architecture/current/README.md)，下一步归 [CAD 核心主线](../../plans/cad-core-roadmap.md)。
 
-必要测量见[性能基线](performance-baseline.md)及其[机器样本](performance-baseline.json)、[草图与实体检验与测量](sketch-solid-workflow.md)、[复杂导入件的切除性能](part-feature-performance.md)。均注明日期、环境、输入与计时范围，不作为当前全量通过声明。自动化的定向证据边界与重建入口并入[所属主题](../architecture/current/automation.md#验证入口)。
+必要测量见[性能基线](performance-baseline.md)及其[机器样本](../../tests/test.data/performance/performance-baseline.json)、[草图与实体检验与测量](sketch-solid-workflow.md)、[复杂导入件的切除性能](part-feature-performance.md)。均注明日期、环境、输入与计时范围，不作为当前全量通过声明。自动化的定向证据边界与重建入口并入[所属主题](../architecture/current/automation.md#验证入口)。
 
 [自然边线](natural-edges.md)记录真实 OCCT 模型的三阶段 WebGL 对比、颜色/交互/稳定性检查、装配缓冲共享与实际导入链路；图片和原始报告按该页命令生成到 build。
 

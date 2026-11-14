@@ -1,3 +1,4 @@
+import {searchTool as clashCommand} from './command-helpers';
 import {treeNavigator} from "./tree-helpers";
 import {expect,test,type Page} from '@playwright/test';
 import {observeViewport} from './camera-helpers';
@@ -121,7 +122,6 @@ test('read-only remaining motion refresh freezes metadata Revision, cancels stal
  expect(errors).toEqual([]);await peer.close();
 });
 
-async function clashCommand(page:Page,name:string){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp('^'+name+'$')})}).click();}
 async function clashSeed(page:Page,motion=false){return page.evaluate(async motion=>{
  // @ts-ignore production Vite module
  const {restApi:api}=await import('/src/api.ts');let p=await api.createDocument('PART','Clash验收块');

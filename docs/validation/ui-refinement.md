@@ -6,7 +6,7 @@
 
 保留两排工具栏，检查不同桌面宽度下的滚动、分类底边、命令可达性及画布尺寸。文档中心检查缩略图单击打开、勾选独立、紧凑列表、目标文件夹逐层读取、正式复制与移动。管理抽屉检查返回后搜索保留，以及真实创建、修改、密码重置；没有叠加编辑 Modal。选项窗口靠边、按内容高度显示；实体表单隐藏无输入时的空计数 / 禁用编辑和全选，明确操作、单位和创建 / 保存动作，薄壁与起始偏移按需展开。
 
-新浏览器入口为 `ui-refinement-live.spec.ts`。真实 `.env` API、Router、Worker、数据库及 ArtifactStore 覆盖文件夹操作、树搜索 / 定义显隐、上下文菜单、悬停、账号保存和批量导入。一次双文件 BREP 导入经过 Vite `/api/realtime`，观察到 11 个任务事件、一条批次完成通知、一个共享 jobs 查询；逐项完成结果仍在任务中心。该事件数是本次样本，不是协议保证。
+新浏览器入口为 `ui-refinement-live.spec.ts`。真实 `.env` API、Router、Worker、数据库及 ArtifactStore 覆盖文件夹操作、树展开 / 定义显隐、上下文菜单、悬停、账号保存和批量导入。一次双文件 BREP 导入经过 Vite `/api/realtime`，观察到 11 个任务事件、一条批次完成通知、一个共享 jobs 查询；逐项完成结果仍在任务中心。该事件数是本次样本，不是协议保证。
 
 `visual-studio-live.spec.ts` 另覆盖真实圆角块 / 浅弧 / 鞍面导入、参数化带孔件、预览及八个不同姿态的装配实例。八实例检查私有几何包装、共享 CPU 数组 / GPU 属性、独立 occurrence 路径与移动后的显示。`workbench-layout-live.spec.ts` 覆盖两排布局和矩形变体临时默认值；孔的定向场景覆盖实际拾取、预览、取消、提交、撤销 / 重做与重开。
 
@@ -55,8 +55,30 @@ cd web/apps/cad
 pnpm exec playwright test --config playwright.live.config.ts ui-refinement-live.spec.ts visual-studio-live.spec.ts workbench-layout-live.spec.ts
 ```
 
-Node 场景覆盖共享资源寿命、私有面分组 / BVH、精确 triangle / material index、不可变索引、分支搜索身份、偏好和任务状态。真实测试清理自己的临时文档 / 文件夹，账号按现有接口禁用；不重置共享数据库、历史或 ArtifactStore。其他已有开发数据不属于本次清理范围。
+Node 场景覆盖共享资源寿命、私有面分组 / BVH、精确 triangle / material index、不可变索引、偏好和任务状态。真实测试清理自己的临时文档 / 文件夹，账号按现有接口禁用；不重置共享数据库、历史或 ArtifactStore。其他已有开发数据不属于本次清理范围。
 
-本轮执行：全仓 unit scope 通过，两个可选缩略图图库 / 测量用例因未设置其专用输出参数跳过；最终 Web scope 的 167 个场景及生产构建通过。定向真实浏览器共十项通过（含到平面范围、失效支撑修复与撤销 / 重做）；旧“基准面”创建场景未作为当前入口验收。额外 Mock 冒烟确认 API 模式为 Mock、无真实 `/api` 请求，视口与延迟建模面板正常。浏览器读取已挂载组件的引擎引用，不靠导入另一个 HMR 模块或移动相机来安装探针。
+## 细节与显示复核
 
-对照图入口为 `build/agent-work/ui-optimization/comparison.html`。普通删除清理本次遗留的 11 个临时文档并逐一读回 404；通过 UI 流程创建的账号已禁用，文件夹由各场景的 finally 按原 ID 删除。删除进入正常回收站，保留既有历史和制品，不等同于物理清空数据库或桶。
+2026-11-14，在 Chromium / SwiftShader 中复核短名称、无搜索结构树、轮播和选项弹层。`ui-details.spec.ts` 使用真实页面组件和显式 Mock 鉴权，验证三图循环、鼠标滚轮及惯性抑制、手动重置计时、暂停／恢复、减少动态效果，以及表单输入保持；它不证明服务端鉴权。`ui-refinement-live.spec.ts` 的文档导航场景和 `geometric-feature-live.spec.ts` 的 Geometry tabs 场景另经共享 `.env` 的真实 API / Router / Worker，覆盖短名称选择、几何创建与联动、撤销重做和重开；非完整浏览器矩阵。
+
+宽度宿主放置 1,000 个选项，最长项位于第 1,000 项，触发器宽 96 px，靠近右边界。两种视口均只渲染 10 个选项；键盘可到达并选取最长项，分组选项与自定义字段映射也能完整显示。
+
+| 视口宽度 | 弹层宽度 | 最长项内容宽度 | 文本高度 |
+|---|---:|---:|---:|
+| 1,440 px | 519 px | 487 px | 21 px，一行 |
+| 360 px | 336 px | 304 px | 42 px，两行 |
+
+最长项的 scrollWidth 与 clientWidth 相等。自动化打开及键盘选择墙钟时间约 120／133 ms，包含协议、调度和渲染，单次样本不能当成纯文本度量耗时或稳定延迟指标。Node 场景另核对 10,000 项的末项度量、200 次缓存命中、分组和字体失效。图片与原始结果在 `build/agent-work/ui-details/`。
+
+显示复核使用原生 OCCT 圆角块 `fillet-balanced.glb`，SHA-256 为 `60df6153acf184ec3b4269c6299c23c368ac83d3c2b31f01f7c51c3b53f4e2f1`；2,160 个显示顶点、3,348 个三角形，经生产 VisualRepository / Viewport。1280×900、DPR 1、Chromium / ANGLE SwiftShader，默认工作室设置但关闭网格；相同相机、几何、材质，预热三帧后执行七次显式相同重绘，无 HMR，无计时区内 finish / 像素读回。
+
+| 实例 | 场景对象 | 共享 position 属性数 | 总 draw / 每帧 | 深度 draw / 每帧 | 阴影贴图刷新 / 七帧 | CPU 帧回调中位数 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8 | 94 | 1 | 26 | 8 | 0 | 1.2 ms |
+| 32 | 262 | 1 | 98 | 32 | 0 | 1.6 ms |
+
+前后截图逐字节相等。深度阶段 CPU 中位数均为 0.3 ms；这些 CPU／提交墙钟数可包含驱动等待，未使用 GPU timer，不能称为独立 GPU 时间。宿主等待两次 RAF 的中位数 31.5／31.8 ms 也不是单帧时间或 FPS。小模型仅支持“阴影缓存生效、表面属性共用、深度仍按实例重复绘制”的结论；尚未验证大型真实装配、原生 GPU、触屏或长期运行。源码入口和后续候选见[显示限制](../architecture/current/visual-studio.md#后续显示优化候选)，原始采样与诊断脚本保存在 `build/agent-work/ui-details/render-profile.json` 和同目录 `profile-render.mjs`。
+
+## 仓库上下文整理
+
+大体积原始测量 JSON 统一到 `tests/test.data/performance/`，解释和链接保留在 validation。两份迁移样本逐字节与原版本相等，共 615,199 B；默认文档扫描减少这些机器数据，总仓库并未因此减少相同字节。重复的浏览器命令搜索步骤归 `browser/command-helpers.ts`，测试通过正式 Command ID 或当前分类区分短名称。删除了已移除的树搜索实现、样式和专用场景，并修正文档中已过期的树搜索和文件夹全量递归描述。有效回归、机器合同、几何语料及架构约定保留；未按文件大小机械拆分引擎或删除测试，也未清空共享开发库。文档字节和入口数只是上下文代理指标，未测量 Agent token 或理解时间收益。

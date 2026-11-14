@@ -1,8 +1,8 @@
+import {searchTool as command} from './command-helpers';
 import {confirmCommandName} from "./command-labels";
 import {treeNavigator} from "./tree-helpers";
 import {test,expect,type Page,type Locator} from '@playwright/test';
 import {worldScreen,observeViewport} from './camera-helpers';
-async function command(page:Page,name:string){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp(`^${name}$`)})}).click()}
 async function select(page:Page,label:string,text:string){await page.getByRole('combobox',{name:label,exact:true}).click();await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').getByText(text,{exact:true}).click()}
 async function current(page:Page,id:string){return (await page.request.get(`/api/documents/${id}`)).json()}
 async function bindingAction(page:Page,dialog:Locator,label:string,action:string){await dialog.getByRole('listitem').filter({hasText:label}).getByRole('button',{name:/操\s*作/}).click();await page.getByRole('menuitem',{name:action,exact:true}).click()}

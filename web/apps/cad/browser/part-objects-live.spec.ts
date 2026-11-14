@@ -1,3 +1,4 @@
+import {searchTool as tool} from './command-helpers';
 import {confirmCommandName} from "./command-labels";
 import {expect,test,type Page,type Locator} from '@playwright/test';
 import {treeNavigator} from './tree-helpers';
@@ -10,7 +11,6 @@ async function login(page:Page){
  expect(r.ok()).toBeTruthy();await page.goto('/');
 }
 async function current(page:Page,id:string){return (await page.request.get(`/api/documents/${id}`)).json()}
-async function tool(page:Page,name:string){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp(`^${name}$`)})}).click()}
 async function row(page:Page,id:string,name:string,kind='feature'){
  await treeNavigator(page)(name,`/${kind}:${id}`);
  return page.locator(`[role=treeitem][data-tree-key$="/${kind}:${id}"]`).getByText(name,{exact:true});
@@ -42,7 +42,7 @@ test('Part lifecycle: impact, missing input, repair and compensation in the work
  await del.getByRole('checkbox',{name:'同时删除依赖特征',exact:true}).check();await del.getByRole('tab',{name:/删除/}).click();await expect(del).toContainText(s.solid.name!);await del.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,s.id)).document.versionId).toBe(before.document.versionId);
  await (await row(page,s.input.id,s.input.name!)).click({button:'right'});await page.getByRole('menuitem',{name:/^删除/}).click();await save(del);
  let v=await current(page,s.id);expect(v.part.features.find((f:any)=>f.id===s.sheet.id).evaluationStatus).toBe('FAILED');expect(v.part.features.find((f:any)=>f.id===s.solid.id).evaluationStatus).toBe('BLOCKED');
- await (await row(page,s.sheet.id,s.sheet.name!)).dblclick();const edit=page.getByRole('dialog',{name:'编辑拉伸曲面',exact:true});await expect(edit).toContainText('已删除');await expect(edit.getByRole('button',{name:confirmCommandName})).toBeDisabled();
+ await (await row(page,s.sheet.id,s.sheet.name!)).dblclick();const edit=page.getByRole('dialog',{name:'编辑拉伸',exact:true});await expect(edit).toContainText('已删除');await expect(edit.getByRole('button',{name:confirmCommandName})).toBeDisabled();
  await choose(page,s.alternate.id,s.alternate.name!);await expect(edit).toContainText('Alternate input');await save(edit);
  v=await current(page,s.id);expect(v.part.features.find((f:any)=>f.id===s.solid.id).evaluationStatus).toBeFalsy();
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,s.id)).part.features.find((f:any)=>f.id===s.sheet.id).evaluationStatus).toBe('FAILED');
@@ -69,9 +69,9 @@ test('Multiple point preselection and associative surface revolution use compact
  await login(page);const s=await seed(page);await page.goto(`/documents/${s.id}`);await expect(page.locator('canvas')).toBeVisible();
  await choose(page,s.points[0].id,s.points[0].name,'point');await (await row(page,s.points[1].id,s.points[1].name,'point')).click({modifiers:['Control']});await tool(page,'样条');const spline=page.getByRole('dialog',{name:'样条',exact:true});await expect(spline.locator('.feature-pick-item')).toHaveCount(2);await expect(spline).toContainText('Point A');await expect(spline).toContainText('Point B');await save(spline);
  // The picked direction line supplies the rotation axis; angle stays scalar.
- await choose(page,s.generatrix.id,s.generatrix.name!);await tool(page,'旋转曲面');const revolve=page.getByRole('dialog',{name:'旋转曲面',exact:true});await expect(revolve).toContainText('Revolution profile');await expect(revolve.getByRole('button',{name:confirmCommandName})).toBeDisabled();await choose(page,s.axis.id,s.axis.name,'datum-axis');
+ await choose(page,s.generatrix.id,s.generatrix.name!);await tool(page,'旋转','geometry.surface-revolve');const revolve=page.getByRole('dialog',{name:'旋转',exact:true});await expect(revolve).toContainText('Revolution profile');await expect(revolve.getByRole('button',{name:confirmCommandName})).toBeDisabled();await choose(page,s.axis.id,s.axis.name,'datum-axis');
  await save(revolve);const revolved=(await current(page,s.id)).part.features.at(-1);expect(revolved.geometry.axis.datum.entityId).toBe(s.axis.id);expect(revolved.result.domain).toBe('SHEET_SET');
- await choose(page,s.circle.id,s.circle.name!);await tool(page,'填充曲面');const fill=page.getByRole('dialog',{name:'填充曲面',exact:true});await expect(fill).toContainText('Fill boundary');await save(fill);expect((await current(page,s.id)).part.features.at(-1).geometry.inputs[0].featureId).toBe(s.circle.id);
+ await choose(page,s.circle.id,s.circle.name!);await tool(page,'填充');const fill=page.getByRole('dialog',{name:'填充',exact:true});await expect(fill).toContainText('Fill boundary');await save(fill);expect((await current(page,s.id)).part.features.at(-1).geometry.inputs[0].featureId).toBe(s.circle.id);
  // Quality diagnostics are read only and dispose their transient overlay.
  await choose(page,s.sheet.id,s.sheet.name!);const before=(await current(page,s.id)).document.versionId;await tool(page,'曲率分析');const quality=page.getByRole('dialog',{name:'曲率分析',exact:true});await expect(quality.getByRole('region',{name:'曲率分析结果',exact:true})).toBeVisible();await quality.getByText('自由边',{exact:true}).click();await expect(quality).toContainText('4 条自由边');await observeViewport(page);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.curvatureOverlay.root.children.length)).toBeGreaterThan(0);await page.screenshot({path:info.outputPath('free-boundaries.png')});await quality.getByText('法向',{exact:true}).click();await page.screenshot({path:info.outputPath('surface-normals.png')});await quality.getByRole('button',{name:/完\s*成/}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.curvatureOverlay.root.children.length)).toBe(0);expect((await current(page,s.id)).document.versionId).toBe(before);
 });
@@ -85,7 +85,7 @@ test.describe('Compact engineering forms at DPR 2',()=>{
    for(const z of [0,10,20]){v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name:'Section '+z,geometry:{kind:'CIRCLE',curve:{points:[{id:'center',position:[0,0,z]}],normal:[0,0,1],xDirection:[1,0,0],radius:10+z/2},parameters:{direction:[0,0,0],origin:[0,0,0],distance:20,angle:0,start:0,end:0,tension:1}}}});sections.push(v.part!.features.at(-1)!)}
    return {id,sections,revision:v.document.versionId};
   });
-  await page.goto(`/documents/${s.id}`);await expect(page.locator('canvas')).toBeVisible();await choose(page,s.sections[0].id,s.sections[0].name!);await tool(page,'曲面放样');const loft=page.getByRole('dialog',{name:'曲面放样',exact:true});
+  await page.goto(`/documents/${s.id}`);await expect(page.locator('canvas')).toBeVisible();await choose(page,s.sections[0].id,s.sections[0].name!);await tool(page,'放样','geometry.surface-loft');const loft=page.getByRole('dialog',{name:'放样',exact:true});
   for(const section of s.sections.slice(1))await choose(page,section.id,section.name!);
   const confirm=loft.getByRole('button',{name:confirmCommandName}),list=loft.getByRole('listbox',{name:'截面设置',exact:true});await expect(confirm).toBeEnabled();await expect(list.getByRole('option')).toHaveCount(3);await list.getByRole('option').nth(2).click();await expect(list.getByRole('option').nth(2)).toHaveAttribute('aria-selected','true');
   await loft.getByRole('button',{name:'添加对应点',exact:true}).click();await expect(confirm).toBeDisabled();await expect(loft.getByRole('button',{name:'移除对应 1',exact:true})).toBeVisible();await loft.getByRole('button',{name:'移除对应 1',exact:true}).click();await expect(confirm).toBeEnabled();

@@ -1,6 +1,6 @@
 # 复杂导入件的切除性能
 
-2026-11-09 UTC，本机 Release / OCCT 7.9.1，AMD Ryzen 9 9950X / WSL2，正常配置的 SQLite、LOCAL ArtifactStore 和生产 Router。完整数值、冻结输入摘要、二进制/源码指纹及计时边界见[机器样本](part-feature-performance.json)。这是指定输入的串行小样本，不代表 P95、整车容量或与 CATIA 的统一基准。
+2026-11-09 UTC，本机 Release / OCCT 7.9.1，AMD Ryzen 9 9950X / WSL2，正常配置的 SQLite、LOCAL ArtifactStore 和生产 Router。完整数值、冻结输入摘要、二进制/源码指纹及计时边界见[机器样本](../../tests/test.data/performance/part-feature-performance.json)。这是指定输入的串行小样本，不代表 P95、整车容量或与 CATIA 的统一基准。
 
 ## 输入与操作
 

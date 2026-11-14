@@ -1,13 +1,9 @@
+import {searchTool as command} from './command-helpers';
 import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from '@playwright/test';
 import {mkdir} from 'node:fs/promises';
 
-async function command(page:Page,name:string){
- await page.getByRole('button',{name:'搜索工具',exact:true}).click();
- await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);
- await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp('^'+name+'$')})}).click();
-}
 test.beforeAll(async()=>{await mkdir('../../../build/acceptance',{recursive:true});});
 
 test('fixed create and edit share compact parameters and cancel closes on the first click',async({page})=>{

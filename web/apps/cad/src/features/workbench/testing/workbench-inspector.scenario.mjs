@@ -110,7 +110,7 @@ const resultSelection={...face,result:{featureId:'engineering-surface',resultId:
 const extrudedHTML=renderToStaticMarkup(React.createElement(Properties,{...props,selection:resultSelection,topology:{...surface,geometryType:'EXTRUSION_SURFACE'}}));
 assert(extrudedHTML.includes('拉伸曲面')&&extrudedHTML.includes('样条拉伸')&&!extrudedHTML.includes('曲面或曲线'),'exact topology family and independent owner are presented separately');
 const geometryHTML=render({kind:'feature',id:'engineering-surface',entityId:'engineering-surface'});
-assert(geometryHTML.includes('拉伸曲面')&&geometryHTML.includes('曲面集'),'Feature operation and result domain have concrete labels');
+assert(geometryHTML.includes('拉伸')&&geometryHTML.includes('曲面集'),'Feature operation and result domain have concrete labels');
 
 view.part.features.push({id:'fillet-input',type:'FILLET',name:'外边圆角',bodyId:'a',length:3.14159265});
 const filletHTML=render({kind:'feature',id:'fillet-input'});

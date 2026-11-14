@@ -4,6 +4,8 @@ import zhCN from "antd/locale/zh_CN";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, type PropsWithChildren } from "react";
 import { installNumericInputSelection } from "./numeric-input-selection";
+import { clearSelectMeasurements, selectPopupStyles } from "./select-popup";
+import "./select-popup.css";
 
 const queryClient = new QueryClient({ defaultOptions: {
   queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false },
@@ -12,8 +14,12 @@ const queryClient = new QueryClient({ defaultOptions: {
 
 export function AppProviders({ children }: PropsWithChildren) {
   useEffect(() => installNumericInputSelection(document), []);
+  useEffect(() => {
+    document.fonts?.addEventListener("loadingdone", clearSelectMeasurements);
+    return () => document.fonts?.removeEventListener("loadingdone", clearSelectMeasurements);
+  }, []);
   return <QueryClientProvider client={queryClient}>
-    <ConfigProvider locale={zhCN} theme={{
+    <ConfigProvider locale={zhCN} select={{classNames:{popup:{root:"cad-select-popup"}},styles:({props})=>selectPopupStyles(props)}} theme={{
       algorithm: theme.defaultAlgorithm,
       token: {
         colorPrimary: palette.primary, colorInfo: palette.primary, colorSuccess: palette.success,

@@ -15,9 +15,9 @@ docs/architecture/target/         仍成立的平台与领域约定
 docs/development/                 环境、Agent 工作流、文档维护
 docs/guides/                      操作合同、UI 组件、人工检查步骤
 docs/references/                  外部资料来源与适用边界
-docs/validation/                  必要性能测量与机器样本
+docs/validation/                  必要性能测量摘要、边界与样本链接
 plans/cad-core-roadmap.md         唯一 CAD 主线任务入口
-tests/test.data/                  静态输入、语料、截图、机器合同数据
+tests/test.data/                  静态输入、语料、截图、机器合同和测量数据
 build/                           生成报告、临时记录、日志和制品
 ```
 

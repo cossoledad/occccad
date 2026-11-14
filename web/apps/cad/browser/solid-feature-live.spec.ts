@@ -1,3 +1,4 @@
+import {searchTool as openCommand} from './command-helpers';
 import {confirmCommandName,quantityLabel,chooseExtent} from "./command-labels";
 import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
@@ -8,11 +9,6 @@ async function login(page:Page){
  if(!process.env.OCCCCAD_ADMIN_PASSWORD)throw new Error("Requires running application and configured login");
  const response=await page.request.post("/api/auth/login",{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??"admin@occccad.local",password:process.env.OCCCCAD_ADMIN_PASSWORD}});
  expect(response.ok()).toBeTruthy();await page.goto("/");
-}
-async function openCommand(page:Page,name:string){
- await page.getByRole("button",{name:"搜索工具",exact:true}).click();
- await page.getByRole("textbox",{name:"搜索工具名称或用途"}).fill(name);
- await page.locator(".workbench-command-result").filter({has:page.locator("strong",{hasText:new RegExp(`^${name}$`)})}).click();
 }
 
 async function clickWorld(page:Page,point:number[]){
@@ -807,7 +803,7 @@ test("to-plane extent picks datum and upstream face, cancels and repairs a lost 
  const create=async()=>{
   await revealTree("");await openCommand(page,"拉伸");const dialog=page.getByRole("dialog",{name:"创建 拉伸",exact:true});
   await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.featureSelection?.role)).toBe("profile-region");await revealTree("Sketch",`sketch:${seed.sketch}`);await page.locator(`[role=treeitem][data-tree-key$="sketch:${seed.sketch}"]`).click();await expect(dialog.locator(".feature-pick-field").filter({hasText:"轮廓"}).getByText("1 项",{exact:true})).toBeVisible();
-  await chooseExtent(dialog,'到平面');await expect(dialog.getByLabel(quantityLabel('长度','mm'),{exact:true})).toHaveCount(0);return dialog;
+  await chooseExtent(dialog,'平面');await expect(dialog.getByLabel(quantityLabel('长度','mm'),{exact:true})).toHaveCount(0);return dialog;
  };
  let dialog=await create();await datumPick();await ready(page,dialog);
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
@@ -865,7 +861,7 @@ test("to-plane cut selects a hole region and reverse datum termination",async({p
  });
  await page.goto(`/documents/${seed.id}`);await worldScreen(page,[0,0,0]);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.solidBindings.size)).toBeGreaterThan(0);await page.getByRole("button",{name:"顶视图",exact:true}).click();await worldScreen(page,[0,0,0]);await openCommand(page,"切除");
  const dialog=page.getByRole("dialog",{name:"创建 拉伸",exact:true});await clickWorld(page,[3,0,30]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"轮廓"}).getByText("1 项",{exact:true})).toBeVisible();
- await chooseExtent(dialog,'到平面');await treeNavigator(page)(seed.end.name,`plane:${seed.end.id}`);await page.locator(`[role=treeitem][data-tree-key$="plane:${seed.end.id}"]`).click();
+ await chooseExtent(dialog,'平面');await treeNavigator(page)(seed.end.name,`plane:${seed.end.id}`);await page.locator(`[role=treeitem][data-tree-key$="plane:${seed.end.id}"]`).click();
  const reversed=dialog.getByRole("switch",{name:"反向",exact:true});if(!await reversed.isChecked())await reversed.click();
  await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("to-plane-reverse-cut-hole.png")});
  await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
@@ -1529,7 +1525,7 @@ test('associated next termination edits signed offsets, cancels and commits one 
   const stock=await rect([-10,-10],[10,10]);v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId:stock,generator:'LINEAR_EXTRUDE',operation:'ADD',length:20});const profile=await rect([-1,-1],[1,1]);v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId:profile,generator:'LINEAR_EXTRUDE',operation:'REMOVE',length:5});return {id,feature:v.part!.features.at(-1)!,head:v.document.versionId};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();
- const configure=async()=>{await treeNavigator(page)(seed.feature.name!);await page.getByRole('treeitem').filter({hasText:seed.feature.name!}).first().dblclick();const d=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,d);await chooseExtent(d,'到下一面');await expect(d.getByLabel(quantityLabel('长度','mm'),{exact:true})).toHaveCount(0);await d.getByText('更多参数',{exact:true}).click();await d.getByLabel(quantityLabel('起始偏移','mm'),{exact:true}).fill('1 cm / 5');await d.getByLabel(quantityLabel('终止偏移','mm'),{exact:true}).fill('-3 mm');await ready(page,d);return d;};
+ const configure=async()=>{await treeNavigator(page)(seed.feature.name!);await page.getByRole('treeitem').filter({hasText:seed.feature.name!}).first().dblclick();const d=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,d);await chooseExtent(d,'下一面');await expect(d.getByLabel(quantityLabel('长度','mm'),{exact:true})).toHaveCount(0);await d.getByText('更多参数',{exact:true}).click();await d.getByLabel(quantityLabel('起始偏移','mm'),{exact:true}).fill('1 cm / 5');await d.getByLabel(quantityLabel('终止偏移','mm'),{exact:true}).fill('-3 mm');await ready(page,d);return d;};
  let d=await configure();expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await d.getByRole('button',{name:/取\s*消/}).click();await expect(d).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
  d=await configure();await page.screenshot({path:testInfo.outputPath('next-termination-offsets.png')});await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
  let final=await current(page,seed.id),feature=final.part.features.find((f:any)=>f.id===seed.feature.id);expect(feature).toMatchObject({extent:'TO_NEXT',startOffset:2,endOffset:-3});expect(final.artifacts[final.part.bodies[0].geometryKey].volume).toBeCloseTo(7940,5);
@@ -1547,7 +1543,7 @@ test('surface termination picks an upstream cylinder and edits its directed end 
   v=await api.command(id,{type:'CREATE_BODY'});const sketch=await rect([2,-2],[4,2]);v=await api.command(id,{type:'CREATE_DATUM_PLANE',name:'Start',origin:[0,0,-20],normal:[0,0,1],uDirection:[1,0,0]});v=await api.command(id,{type:'REASSIGN_SKETCH_SUPPORT',sketchId:sketch,datumPlaneId:v.part!.datumPlanes.at(-1)!.id,versionId:v.document.versionId});v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId:sketch,generator:'LINEAR_EXTRUDE',operation:'ADD',extent:'TO_SURFACE',terminationSurface:target});return {id,source,feature:v.part!.features.at(-1)!,head:v.document.versionId};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,0,0]);await treeNavigator(page)(seed.feature.name!);await page.getByRole('treeitem').filter({hasText:seed.feature.name!}).first().dblclick();const d=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,d);
- await chooseExtent(d,'长度');await ready(page,d);await chooseExtent(d,'到曲面');await expect(d.getByRole('button',{name:confirmCommandName})).toBeDisabled();
+ await chooseExtent(d,'长度');await ready(page,d);await chooseExtent(d,'曲面');await expect(d.getByRole('button',{name:confirmCommandName})).toBeDisabled();
  await expect(async()=>{await clickWorld(page,[12,0,10]);await expect(d.getByText('已选择上游实体曲面',{exact:true})).toBeVisible({timeout:1000});}).toPass({timeout:20000});await d.getByLabel(quantityLabel('终止偏移','mm'),{exact:true}).fill('2 mm');await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await page.screenshot({path:testInfo.outputPath('cylindrical-termination-pick.png')});
  await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const final=await current(page,seed.id),feature=final.part.features.find((f:any)=>f.id===seed.feature.id),volume=176-2*(2*Math.sqrt(96)+100*Math.asin(.2));expect(feature).toMatchObject({extent:'TO_SURFACE',endOffset:2});expect(feature.terminationSurface.selection.anchor.featureId).toBe(seed.source.id);expect(final.artifacts[final.part.bodies.find((b:any)=>b.id===feature.bodyId).geometryKey].volume).toBeCloseTo(volume,5);expect(errors).toEqual([]);
 });

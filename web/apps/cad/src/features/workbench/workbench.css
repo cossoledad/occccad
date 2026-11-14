@@ -96,10 +96,6 @@
 }
 .specification-tree-browser { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .specification-tree-browser .specification-tree { flex: 1; min-height: 0; height: auto; }
-.specification-tree-tools { display:flex;justify-content:flex-end;align-items:center;min-height:28px;padding:4px 40px 0 12px;pointer-events:none; }
-.specification-tree-tools > * { pointer-events:auto; }
-.specification-tree-tools > .ant-btn { color:var(--tree-muted); }
-.specification-tree-empty { padding:16px;color:var(--tree-muted);font-size:12px; }
 .specification-tree-visibility { margin-left:6px;border:0;background:transparent;padding:3px;color:inherit;opacity:0;cursor:pointer;line-height:1; }
 .specification-tree-row:hover .specification-tree-visibility,.specification-tree-row:focus-within .specification-tree-visibility,.display-hidden .specification-tree-visibility { opacity:.75; }
 .specification-tree-visibility:hover { opacity:1!important; }

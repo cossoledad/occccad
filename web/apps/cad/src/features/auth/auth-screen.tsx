@@ -5,21 +5,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, isMockMode } from "../../api/client";
 import { Brand } from "../../components/brand";
 import { queryKeys } from "../../app/query-keys";
+import { AuthShowcase } from "./auth-showcase";
 import "./auth.css";
 
 type LoginValues = { email: string; password: string };
 type RegisterValues = LoginValues & { displayName: string };
 
-const examples = [
-  { image: "impeller.png", name: "径流叶轮", features: "旋转 · 放样 · 圆周阵列" },
-  { image: "enclosure.png", name: "过渡壳体", features: "多截面放样 · 抽壳" },
-  { image: "assembly.png", name: "法兰联轴器", features: "多零件 · 装配约束" },
-];
-
 export function AuthScreen() {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [example, setExample] = useState(0);
-  const selected = examples[example];
   const client = useQueryClient();
   const [messageApi, context] = message.useMessage();
   const login = useMutation({ mutationFn: (values: LoginValues) => api.login(values.email, values.password),
@@ -29,19 +22,7 @@ export function AuthScreen() {
 
   return <main className="auth-page">
     {context}
-    <section className="auth-hero">
-      <Brand />
-      <figure className="auth-showcase">
-        <img key={selected.image} src={`${import.meta.env.BASE_URL}showcase/${selected.image}`}
-          alt={`在 occccad 中建模的${selected.name}`} fetchPriority="high" />
-        <figcaption><div><span className="showcase-kicker">MADE IN OCCCCAD</span><h2>{selected.name}</h2><p>{selected.features}</p></div>
-          <div className="showcase-pagination" role="group" aria-label="建模示例">
-            {examples.map((item, index) => <button key={item.image} type="button" aria-label={item.name}
-              aria-pressed={index === example} onClick={() => setExample(index)}><span /></button>)}
-          </div>
-        </figcaption>
-      </figure>
-    </section>
+    <AuthShowcase />
     <section className="auth-panel">
       <div className="auth-card">
         <Brand compact />

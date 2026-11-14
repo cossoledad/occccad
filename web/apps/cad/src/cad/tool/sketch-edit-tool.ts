@@ -17,7 +17,7 @@ export type SketchEditKind="delete"|"copy"|"move"|"mirror"|"split"|"trim"|"quick
 type SketchScope=NonNullable<ReturnType<NonNullable<ToolContext["viewport"]["currentSketchIdentity"]>>>;
 const scopeKey=(scope:SketchScope|undefined)=>scope&&`${scope.documentId}/${scope.sketchId}/${scope.versionId}/${scope.occurrencePath??""}/${scope.contextKey??""}`;
 const point=(value:Vec2):SketchPoint2=>({x:value[0],y:value[1]});
-const labels:Record<SketchEditKind,string>={delete:"删除",copy:"复制",move:"移动",mirror:"镜像",split:"分割",trim:"修剪保留范围",quick_trim:"快速修剪",fillet:"圆角",chamfer:"倒角",extend:"延伸",complement:"补弧",close:"闭合曲线",offset:"偏移",spline_insert:"样条插入拟合点/结点",spline_delete:"样条删除拟合点/结点",spline_close:"样条开/闭合",spline_control:"转为控制点样条",construction:"构造线"};
+const labels:Record<SketchEditKind,string>={delete:"删除",copy:"复制",move:"移动",mirror:"镜像",split:"分割",trim:"修剪保留范围",quick_trim:"快速修剪",fillet:"圆角",chamfer:"倒角",extend:"延伸",complement:"补弧",close:"闭合",offset:"偏移",spline_insert:"样条插入拟合点/结点",spline_delete:"样条删除拟合点/结点",spline_close:"样条开/闭合",spline_control:"转为控制点样条",construction:"构造线"};
 
 export function localSketchSelection(selections:readonly SelectionItem[],context:ToolContext,forDeletion=false):SketchEntity[]{
   const scope=context.viewport.currentSketchIdentity?.(),entities=(forDeletion?context.viewport.currentSketchDeletableEntities?.():undefined)??context.viewport.currentSketchEntities?.()??[];

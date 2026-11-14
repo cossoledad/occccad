@@ -102,7 +102,8 @@ export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, 
       <Input id="workbench-tool-search" aria-label="搜索工具名称或用途" prefix={<SearchOutlined />} allowClear
         placeholder="输入工具名称或用途…" value={query} onChange={(event) => setQuery(event.target.value)} />
       <div className="workbench-command-results">
-        {results.map((item) => <button key={item.commandId} className="workbench-command-result"
+        {results.map((item) => <button key={item.commandId} className="workbench-command-result" data-command-id={item.commandId}
+          data-current-context={groups.some(group=>group.items.some(command=>command.commandId===item.commandId))}
           disabled={!item.state.enabled && !uiHelp.active} title={item.helpText} onClick={() => {
             focusToolAfterSearch.current=!uiHelp.active&&declaration(item.commandId)?.implementation==="tool";
             setSearchOpen(false);

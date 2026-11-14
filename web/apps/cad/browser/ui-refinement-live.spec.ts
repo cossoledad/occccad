@@ -1,11 +1,12 @@
+import {searchTool as tool} from './command-helpers';
 import {expect,test,type Page} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {observeViewport} from './camera-helpers';
+import {treeNavigator} from './tree-helpers';
 
 const output=path.resolve('../../../build/agent-work/ui-optimization');
 async function login(page:Page){expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBe(true);await page.goto('/')}
-async function tool(page:Page,name:string){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp(`^${name}$`)})}).click()}
 
 test('library navigation, branch folder loading, scoped tree actions and hover storage',async({page})=>{
  test.setTimeout(300_000);fs.mkdirSync(output,{recursive:true});const errors:string[]=[],folderReads:string[]=[];page.on('pageerror',error=>errors.push(error.message));
@@ -44,18 +45,29 @@ test('library navigation, branch folder loading, scoped tree actions and hover s
   await page.locator('[aria-label="显示方式"]').getByTitle('列表',{exact:true}).click();await expect(card).toHaveClass(/compact/);await page.screenshot({path:path.join(output,'library-list.png')});
   await card.getByRole('button',{name:'打开 '+seed.name,exact:true}).click();await expect(page).toHaveURL(new RegExp('/documents/'+seed.id));await observeViewport(page);
   await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.solidBindings.size)).toBe(1);const canvas=await page.locator('canvas').first().boundingBox();
-  await page.getByRole('button',{name:'搜索结构树',exact:true}).click();const search=page.getByRole('textbox',{name:'搜索结构树',exact:true});await search.fill('Body.1');
+  await expect(page.getByRole('button',{name:'搜索结构树',exact:true})).toHaveCount(0);await expect(page.getByRole('textbox',{name:'搜索结构树',exact:true})).toHaveCount(0);
+  await treeNavigator(page)('Body.1',`/body:${seed.body}`);
   const body=page.locator(`[role=treeitem][data-tree-key$="/body:${seed.body}"]`);await expect(body).toBeVisible();await body.click();
   await body.getByRole('button',{name:/隐藏/}).click();await expect.poll(async()=>{const v=await(await page.request.get('/api/documents/'+seed.id)).json();return v.part.bodies.find((b:any)=>b.id===seed.body).visible}).toBe(false);
   await body.getByRole('button',{name:/显示/}).click();await expect.poll(async()=>{const v=await(await page.request.get('/api/documents/'+seed.id)).json();return v.part.bodies.find((b:any)=>b.id===seed.body).visible}).toBe(true);
-  await search.press('Escape');expect(await page.locator('canvas').first().boundingBox()).toEqual(canvas);
+  expect(await page.locator('canvas').first().boundingBox()).toEqual(canvas);
   await body.click({button:'right'});await expect(page.getByRole('menu')).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('menu')).not.toBeVisible();
   await page.evaluate(async()=>{const {useWorkbenchStore:store}=await import('/src/state/workbench-store.ts');const stats={pointerMoves:0,preselectionChanges:0,storageWrites:0};(window as any).hoverProbe=stats;store.getState().setSelections([]);store.subscribe((state,old)=>{if(state.preselection!==old.preselection)stats.preselectionChanges++});const set=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key==='occccad.workbench')stats.storageWrites++;return set.call(this,key,value)}});
   for(let y=0;y<9;y++)for(let x=0;x<9;x++){await page.mouse.move(460+x*70,300+y*55);await page.evaluate(()=>(window as any).hoverProbe.pointerMoves++)}
   const hover=await page.evaluate(()=>(window as any).hoverProbe);expect(hover.preselectionChanges).toBeGreaterThan(0);expect(hover.storageWrites).toBe(0);fs.writeFileSync(path.join(output,'hover-storage.json'),JSON.stringify(hover,null,2));
   await page.screenshot({path:path.join(output,'workbench.png')});await tool(page,'拉伸');const extrude=page.getByRole('dialog',{name:/创建.*拉伸/});await expect(extrude).toBeVisible();
   await expect(extrude.getByText('材料',{exact:true})).toHaveCount(0);await expect(extrude.getByText('操作',{exact:true})).toBeVisible();await expect(extrude.getByText('更多参数',{exact:true})).toBeVisible();await expect(extrude.getByText('起始偏移',{exact:true})).not.toBeVisible();
-  await page.screenshot({path:path.join(output,'extrude.png')});await extrude.getByRole('button',{name:/取\s*消/}).click();expect(errors).toEqual([]);
+  await extrude.getByText('切除',{exact:true}).click();await extrude.getByRole('combobox',{name:'范围',exact:true}).click();
+  const extent=page.locator('.ant-select-dropdown:visible');for(const label of ['平面','曲面','下一面','贯穿'])await expect(extent.getByText(label,{exact:true})).toBeVisible();
+  await expect(extent.getByText('到平面',{exact:true})).toHaveCount(0);await page.screenshot({path:path.join(output,'extent-options.png')});await extrude.getByRole('combobox',{name:'范围',exact:true}).press('Escape');
+  await page.screenshot({path:path.join(output,'extrude.png')});await extrude.getByRole('button',{name:/取\s*消/}).click();
+  await page.getByRole('tab',{name:'线框与曲面',exact:true}).click();
+  const toolbar=page.getByRole('toolbar',{name:'工作台命令',exact:true});await expect(toolbar).not.toContainText('拉伸曲面');await expect(toolbar).not.toContainText('延长曲面');
+  await tool(page,'拉伸','geometry.surface-extrude');const surface=page.getByRole('dialog',{name:'拉伸',exact:true});await expect(surface).toBeVisible();await surface.getByRole('button',{name:/取\s*消/}).click();
+  await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('拉伸');
+  const solidResult=page.locator('.workbench-command-result[data-command-id="part.pad"]'),surfaceResult=page.locator('.workbench-command-result[data-command-id="geometry.surface-extrude"]');
+  await expect(solidResult.locator('strong')).toHaveText('拉伸');await expect(surfaceResult.locator('strong')).toHaveText('拉伸');expect(await solidResult.locator('small').first().innerText()).not.toBe(await surfaceResult.locator('small').first().innerText());
+  await page.screenshot({path:path.join(output,'contextual-command-names.png')});await page.keyboard.press('Escape');expect(errors).toEqual([]);
  }finally{
   const csrf=(await page.context().cookies()).find(cookie=>cookie.name==='occccad_csrf')!.value;
   for(const id of [copyID,seed.id].filter(Boolean)){expect((await page.request.delete('/api/documents/'+id,{headers:{'X-CSRF-Token':csrf}})).ok()).toBe(true);expect((await page.request.get('/api/documents/'+id)).status()).toBe(404)}

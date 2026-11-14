@@ -1,14 +1,10 @@
+import {searchTool as tool} from './command-helpers';
 import {confirmCommandName} from "./command-labels";
 import {expect,test,type Page} from '@playwright/test';
 import {treeNavigator} from './tree-helpers';
 import {observeViewport,worldScreen} from './camera-helpers';
 
 async function current(page:Page,id:string){return (await page.request.get(`/api/documents/${id}`)).json()}
-async function tool(page:Page,name:string){
- await page.getByRole('button',{name:'搜索工具',exact:true}).click();
- await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);
- await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp(`^${name}$`)})}).click();
-}
 
 test('simplified workbench tree, shared quantity input and context replacement',async({page},info)=>{
  test.setTimeout(240_000);page.setDefaultTimeout(20_000);const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));

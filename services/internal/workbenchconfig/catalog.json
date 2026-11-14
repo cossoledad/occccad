@@ -2108,7 +2108,7 @@
     },
     {
       "id": "sketch.intersection",
-      "name": "创建交点",
+      "name": "交点",
       "helpText": "选择两条曲线和精确交点，创建点及支撑关系。",
       "iconKey": "point",
       "repeatable": true,
@@ -3720,7 +3720,7 @@
     },
     {
       "id": "sketch.edit.close",
-      "name": "闭合曲线",
+      "name": "闭合",
       "helpText": "圆弧/椭圆弧转完整周期曲线；原端点关系需显式解除。",
       "iconKey": "circle",
       "repeatable": false,
@@ -6701,7 +6701,7 @@
     },
     {
       "id": "geometry.composite",
-      "name": "复合曲线",
+      "name": "复合",
       "helpText": "复合曲线",
       "iconKey": "link",
       "repeatable": false,
@@ -6745,7 +6745,7 @@
     },
     {
       "id": "geometry.surface-extrude",
-      "name": "拉伸曲面",
+      "name": "拉伸",
       "helpText": "拉伸曲面",
       "iconKey": "pad",
       "repeatable": false,
@@ -6789,7 +6789,7 @@
     },
     {
       "id": "geometry.surface-revolve",
-      "name": "旋转曲面",
+      "name": "旋转",
       "helpText": "选择轮廓曲线和关联旋转轴，创建旋转曲面",
       "iconKey": "revolve",
       "repeatable": false,
@@ -7141,7 +7141,7 @@
     },
     {
       "id": "geometry.g1-connect",
-      "name": "连接曲线",
+      "name": "连接",
       "helpText": "连接曲线",
       "iconKey": "tangent",
       "repeatable": false,
@@ -7185,7 +7185,7 @@
     },
     {
       "id": "geometry.offset",
-      "name": "偏移曲线",
+      "name": "偏移",
       "helpText": "偏移曲线",
       "iconKey": "copy",
       "repeatable": false,
@@ -7317,7 +7317,7 @@
     },
     {
       "id": "geometry.surface-sweep",
-      "name": "曲面扫掠",
+      "name": "扫掠",
       "helpText": "曲面扫掠",
       "iconKey": "spline",
       "repeatable": false,
@@ -7361,7 +7361,7 @@
     },
     {
       "id": "geometry.surface-loft",
-      "name": "曲面放样",
+      "name": "放样",
       "helpText": "曲面放样",
       "iconKey": "reference",
       "repeatable": false,
@@ -7405,7 +7405,7 @@
     },
     {
       "id": "geometry.surface-boundary",
-      "name": "边界曲面",
+      "name": "边界",
       "helpText": "边界曲面",
       "iconKey": "datum-plane",
       "repeatable": false,
@@ -7449,7 +7449,7 @@
     },
     {
       "id": "geometry.surface-blend",
-      "name": "桥接曲面",
+      "name": "桥接",
       "helpText": "桥接曲面",
       "iconKey": "datum-plane",
       "repeatable": false,
@@ -7493,7 +7493,7 @@
     },
     {
       "id": "geometry.surface-fill",
-      "name": "填充曲面",
+      "name": "填充",
       "helpText": "填充曲面",
       "iconKey": "datum-plane",
       "repeatable": false,
@@ -7537,7 +7537,7 @@
     },
     {
       "id": "geometry.surface-trim",
-      "name": "裁剪曲面",
+      "name": "裁剪",
       "helpText": "裁剪曲面",
       "iconKey": "pocket",
       "repeatable": false,
@@ -7581,7 +7581,7 @@
     },
     {
       "id": "geometry.surface-mutual-trim",
-      "name": "互裁曲面",
+      "name": "互裁",
       "helpText": "两张曲面互相裁剪，分别选择保留点并连接结果",
       "iconKey": "pocket",
       "repeatable": false,
@@ -7625,7 +7625,7 @@
     },
     {
       "id": "geometry.surface-extend",
-      "name": "延长曲面",
+      "name": "延长",
       "helpText": "延长曲面",
       "iconKey": "length",
       "repeatable": false,
@@ -7669,7 +7669,7 @@
     },
     {
       "id": "geometry.surface-join",
-      "name": "连接曲面",
+      "name": "连接",
       "helpText": "连接曲面",
       "iconKey": "link",
       "repeatable": false,
@@ -7713,7 +7713,7 @@
     },
     {
       "id": "geometry.surface-sew",
-      "name": "缝合曲面",
+      "name": "缝合",
       "helpText": "缝合曲面",
       "iconKey": "coincident",
       "repeatable": false,
@@ -7757,7 +7757,7 @@
     },
     {
       "id": "geometry.surface-offset",
-      "name": "偏移曲面",
+      "name": "偏移",
       "helpText": "偏移曲面",
       "iconKey": "parallel",
       "repeatable": false,
@@ -7801,7 +7801,7 @@
     },
     {
       "id": "geometry.close-surface",
-      "name": "封闭曲面",
+      "name": "封闭",
       "helpText": "封闭曲面",
       "iconKey": "pad",
       "repeatable": false,

@@ -1,6 +1,6 @@
 # 测试数据
 
-本目录统一保存仓库内文件型测试输入、回归语料和截图；必要性能测量归[验证记录](../../docs/validation/README.md)，功能证据边界归所属当前主题，过程日志归 build/。测试实现、执行入口和生产能力合同仍留在所属模块；运行产生的日志、诊断归档及临时制品不作为静态 fixture 搬入这里。
+本目录统一保存仓库内文件型测试输入、回归语料、截图和机器测量样本；必要性能测量归[验证记录](../../docs/validation/README.md)，功能证据边界归所属当前主题，过程日志归 build/。测试实现、执行入口和生产能力合同仍留在所属模块；运行产生的日志、诊断归档及临时制品不作为静态 fixture 搬入这里。
 
 - 根目录五份 STEP：目标建模验证集与交换回归共用输入，配套[CAD 主线](../../plans/cad-core-roadmap.md)和 `analysis-assets/`。
 - `assembly-screenshots/`：原根目录 `images/` 中的五张装配实机截图。
@@ -12,4 +12,5 @@
 
 新增文件型测试输入放在本目录，按用途建立子目录，并同步所属测试的加载路径。验收报告引用这里的静态输入，区分已验证结论与未验证项，不代表完整产品验收。
 
-- `continuous-modeling-100-baseline.json`：最新第三轮 100 步完整测量；环境、三轮汇总和证据边界见[连续建模测量](../../docs/validation/performance-baseline.md#建模与几何)。其他性能样本归[统一数据](../../docs/validation/performance-baseline.json)，不要将其当作模型输入或固定性能门槛。
+- `performance/`：原 validation 目录中的大体积机器样本；解释、条件与结论仍由[验证记录](../../docs/validation/README.md)拥有，普通主题阅读无需加载原始 JSON。
+- `continuous-modeling-100-baseline.json`：最新第三轮 100 步完整测量；环境、三轮汇总和证据边界见[连续建模测量](../../docs/validation/performance-baseline.md#建模与几何)。其他性能样本归[统一数据](performance/performance-baseline.json)，不要将其当作模型输入或固定性能门槛。

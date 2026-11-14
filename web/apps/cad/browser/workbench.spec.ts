@@ -34,7 +34,7 @@ test("contextual commands, search, sketch tools and model tree", async ({ page }
   await page.getByRole("button", { name: "搜索工具", exact: true }).click();
   const search = page.getByRole("textbox", { name: "搜索工具名称或用途" });
   await search.fill("拉伸");
-  const extrude = page.locator(".workbench-command-result").filter({ has: page.locator("strong", { hasText: /^拉伸$/ }) });
+  const extrude = page.locator('.workbench-command-result[data-command-id="part.pad"]');
   await expect(extrude).toHaveCount(1);
   // The current solid editor can open before choosing its profile.
   await expect(extrude).toBeEnabled();
