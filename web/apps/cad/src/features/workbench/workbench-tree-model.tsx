@@ -32,12 +32,14 @@ export function findStructureOccurrenceEntity(root: DocumentStructureNode | unde
   return undefined;
 }
 
-function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editingView?: DocumentView): SpecificationTreeNode {
+function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editingView: DocumentView|undefined, features:Map<DocumentView,Map<string,Feature>>): SpecificationTreeNode {
   const ownerDocumentID = node.kind === "INSTANCE" ? node.instancePath?.segments.at(-1)?.ownerDocumentId : node.documentId;
   const nodeView = node.documentId === editingView?.document.id ? editingView : node.documentId === view.document.id ? view : undefined;
   const capabilityView = ownerDocumentID === editingView?.document.id ? editingView : ownerDocumentID === view.document.id ? view : nodeView;
   const canEdit = capabilityView?.document.permission === "OWNER" || capabilityView?.document.permission === "EDITOR";
-  const sketch=nodeView?.part?.features.find((feature)=>feature.id===node.ownerEntityId)?.sketch;
+  const ownerFeatures=nodeView?features.get(nodeView):undefined;
+  const sketch=ownerFeatures?.get(node.ownerEntityId??'')?.sketch;
+  const iconFeature=(!node.versionId||node.versionId===nodeView?.document.versionId)?ownerFeatures?.get(node.entityId??''):undefined;
   const conflictConstraints=new Set(sketch?.solve.conflictingConstraintIds??[]), conflictEntities=new Set<string>();
   let changed=true;while(changed){changed=false;for(const constraint of sketch?.constraints??[]){if(constraint.suppressed)continue;
     const ids=constraint.references.flatMap((reference)=>reference.entityId?[reference.entityId]:[]);
@@ -53,7 +55,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
   const contributionStatus=contribution==="NO_CURRENT_CONTRIBUTION"?"无当前几何贡献":contribution==="MAPPING_MISSING"?"拓扑关联缺失":undefined;
   const outputStatus = node.consumed ? "已用于布尔" : featureStatus??contributionStatus;
   return { key: node.id, title: displayName,
-    icon: treeNodeIcon(node,outputStatus), kind: node.kind,
+    icon: treeNodeIcon(node,outputStatus,iconFeature), kind: node.kind,
     axis:node.axis, parameterAlias:node.parameterAlias, entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,
     ownerDocumentId: node.ownerDocumentId, bodyId: node.bodyId, presentationRole: node.presentationRole,
     definitionVisible: node.localVisible, localVisible: node.localVisible, visibilityMode: node.visibilityMode,
@@ -65,13 +67,15 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
     plane: node.plane, ownerEntityId: node.ownerEntityId,
 	role: node.role, definitionDigest: node.definitionDigest, suppressed: node.suppressed, diagnostic: node.diagnostic??(node.kind==="SKETCH_ENTITY"&&node.entityId&&conflictEntities.has(node.entityId)?"CONFLICTING":component?.definitionStatus==="FULLY_CONSTRAINED"||component?.status==="SOLVED"?"FULLY_CONSTRAINED":undefined),
     capabilities: canEdit ? [...new Set([...(node.capabilities??[]), ...(node.kind==="SKETCH"&&node.presentationRole!=="INPUT_REFERENCE"?["EDIT" as const,"RECONNECT" as const]:[]), ...(["SKETCH","SKETCH_GEOMETRY_SET","SKETCH_CONSTRAINT_SET","SKETCH_LOGICAL_CONSTRAINT_SET","SKETCH_DIMENSION_SET"].includes(node.kind)?["SUPPRESS" as const]:[])])] : ['SPATIAL_ANALYSIS','MEASUREMENT'].includes(node.kind)?["EDIT"]:undefined,
-    selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view, editingView)) };
+    selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view, editingView, features)) };
 }
 
 export function treeData(view: DocumentView, editingView?: DocumentView): SpecificationTreeNode[] {
   const structure=documentRegistry.get(view.document.type).structure(view);
   if(!structure)return [];
- return [mapStructureNode(structure,view,editingView)];
+ const features=new Map<DocumentView,Map<string,Feature>>();
+ for(const owner of [view,editingView])if(owner)features.set(owner,new Map(owner.part?.features.map(feature=>[feature.id,feature])));
+ return [mapStructureNode(structure,view,editingView,features)];
 }
 
 export function selectedFeature(view: DocumentView, selection: Selection): Feature | undefined {

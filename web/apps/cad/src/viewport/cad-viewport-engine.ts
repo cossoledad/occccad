@@ -62,6 +62,7 @@ import { createStudioEnvironment } from "../cad/rendering/studio-environment";
 import { raycastDatumAxis,raycastDatumPoint } from "../cad/interaction/datum-axis-picking";
 import { applySolidDisplaySettings } from "../cad/rendering/solid-render-mode";
 import { updateScreenLines } from "../cad/rendering/screen-space-lines";
+import {SceneRenderIndex} from "../cad/rendering/scene-render-index";
 import { DEFAULT_SOLID_DISPLAY, DEFAULT_REFERENCE_VISIBILITY, referenceCategory, type ReferenceVisibility, type SolidDisplaySettings } from "../cad/rendering/display-settings";
 import { instancePatternOffsets, type InstancePatternPreview } from "../features/workbench/instance-pattern";
 import type { CadCamera } from "../cad/navigation/camera-rig";
@@ -310,7 +311,9 @@ export class CadViewportEngine {
       throw Object.assign(new Error("请先确认、重试或取消尚未保存的移动。"),{code:"ASSEMBLY_OPERATION_PENDING"});
   }
   private readonly scene = new THREE.Scene();
+  private readonly sceneObjects = new SceneRenderIndex(this.scene);
   private readonly analysisScene = new THREE.Scene();
+  private readonly analysisObjects = new SceneRenderIndex(this.analysisScene);
   private motionMarkers?:THREE.Group;
   private motionPresentation?:MotionPresentation;
   showRemainingMotion(motion?:MotionPresentation):void {
@@ -2252,6 +2255,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.sceneObjects.dispose();this.analysisObjects.dispose();
     this.snapshots.dispose();
     this.renderer.domElement.removeEventListener("webglcontextlost", this.cancelSnapshots);
     this.curvatureOverlay.dispose();
@@ -4579,7 +4583,7 @@ export class CadViewportEngine {
         this.scene.updateMatrixWorld(true);this.camera.updateMatrixWorld(true);
         this.scenePresentation.prepareShadows(this.camera);
         for(const root of [...this.selectedOverlays,...this.preselectedOverlays])root.traverse(object=>object.userData.cadUpdateContour?.(this.camera));
-        this.materials.surfaceDepth.render(this.renderer,this.scene,this.camera,this.sceneSettings.ambientOcclusion&&!this.sketchPlane&&this.solidDisplay.mode==='shaded',this.sceneSettings.aoIntensity);
+        this.materials.surfaceDepth.render(this.renderer,this.scene,this.camera,this.sceneSettings.ambientOcclusion&&!this.sketchPlane&&this.solidDisplay.mode==='shaded',this.sceneSettings.aoIntensity,true);
         const sketchView=this.sketchView();
         const sketchScope=this.sketchPlane&&this.activeSketchID?{featureId:this.activeSketchID,documentId:sketchView?.document.id,versionId:sketchView?.document.versionId,occurrencePath:this.editContext?.occurrencePath??''}:null;
         this.sketchColorAdapter.applyOwned(this.content,this.sketchColors,sketchScope);
@@ -4587,11 +4591,11 @@ export class CadViewportEngine {
         this.sketchColorAdapter.apply(this.sketchContext,this.sketchColors);
         if(this.sketchPreviewLayer)this.sketchColorAdapter.apply(this.sketchPreviewLayer,this.sketchColors);
         if(this.sketchPlane)for(const root of [this.preview,this.referencePreview,this.referenceHover,this.snapPreview,this.dimensionDefinitionPreview])if(root)this.sketchColorAdapter.apply(root,this.sketchColors);
-        this.scene.traverse((object)=>{
+        for(const object of this.sceneObjects.points){
           const material=(object as THREE.Points).material;
           if(material instanceof THREE.ShaderMaterial&&material.uniforms.uPointSize&&typeof material.userData.cssPointSize==="number")
             material.uniforms.uPointSize.value=material.userData.cssPointSize*metrics.devicePixelRatio;
-        });
+        }
         this.sketchGrid.object.visible = false;
         if (this.sketchPlane && this.gridVisibility.sketch) this.sketchGrid.update(this.camera, this.renderer.domElement.clientHeight, planeFrame(this.sketchPlane));
         this.renderer.clear(true, true, true);

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { LineSegments2 } from "three/addons/lines/LineSegments2.js";
+import {registerScreenUpdate, updateScreenObjects} from "./scene-render-index";
 
 /** Dash distances are projected CSS pixels, including occurrence transforms.
  * Changing line geometry or camera scale never changes the dash/gap cadence. */
@@ -33,14 +34,12 @@ export function screenSpaceEndpoint(anchor: THREE.Vector3, toward: THREE.Vector3
 
 
 // Keep dynamic geometry updates before GPU upload and before hit testing.
-// Weak ownership also permits normal scene disposal without a second registry.
 type ScreenUpdate = (camera: THREE.Camera, width: number, height: number) => void;
-const screenUpdates = new WeakMap<THREE.Object3D, ScreenUpdate>();
 export function registerScreenLineUpdate(object: THREE.Object3D, update: ScreenUpdate): void {
-  screenUpdates.set(object, update);
+  registerScreenUpdate(object, update);
 }
 export function updateScreenLines(root: THREE.Object3D, camera: THREE.Camera, width: number, height: number): void {
   camera.updateMatrixWorld();
   root.updateMatrixWorld(true);
-  root.traverse(object => screenUpdates.get(object)?.(camera, width, height));
+  updateScreenObjects(root, camera, width, height);
 }

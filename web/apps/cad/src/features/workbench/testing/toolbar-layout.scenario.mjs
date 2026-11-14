@@ -34,6 +34,10 @@ try {
   assert.equal(dense.groups[0].controls.at(-1).items[0].commandId, "spline");
   assert(!layoutToolbar(input, 1000).overflow);
   assert.deepEqual(layoutToolbar([], 500).groups, []);
+  const partial=layoutToolbar([{id:'operations',name:'构造',variants:Array.from({length:6},(_,i)=>({key:`operation-${i}`,label:'操作',items:[{commandId:`operation-${i}`,name:'操作'}]}))}],215);
+  assert(partial.groups[0].controls.some(control=>control.iconOnly));
+  assert(partial.groups[0].controls.some(control=>!control.iconOnly),'a small deficit does not erase every label in a large group');
+  assert(partial.groups[0].controls.slice(0,2).every(control=>!control.iconOnly),'the group retains a readable first column');
   assert.deepEqual(flatten(layoutToolbar(input, 0)), ["circle", "three-point", "spline"], "initial unmeasured rendering preserves accessibility");
   const rectangle = [{ id: "shapes", name: "轮廓", variants: [{ key: "rectangle", label: "矩形", items: [
     { commandId: "rectangle", name: "矩形" }, { commandId: "oriented", name: "定向矩形" }, { commandId: "center", name: "中心矩形" },

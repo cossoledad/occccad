@@ -1,4 +1,6 @@
 import builtinJSON from '../../../../../../services/internal/workbenchconfig/catalog.json';
+import iconJSON from '../../../../../../services/internal/workbenchconfig/icons.json';
+import {compileIconCatalog,type IconSource} from '../overlay/icon-catalog';
 import type { ToolbarCatalogEntry } from '../../types';
 
 export type CadWorkbenchID=string;
@@ -20,7 +22,7 @@ export type WorkbenchCatalog = {
  contexts:{id:string;when:Condition;tabs:string[]}[];
  placements:{tabId:string;groupId:string;order:number}[];
 };
-export const builtinCatalog = builtinJSON as unknown as WorkbenchCatalog;
+export const builtinCatalog = {...builtinJSON,icons:compileIconCatalog(iconJSON as unknown as IconSource)} as unknown as WorkbenchCatalog;
 
 export function matches(condition:Condition, facts:ContextFacts):boolean {
  return (!condition.fact || facts[condition.fact] === condition.equals)

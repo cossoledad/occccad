@@ -82,3 +82,30 @@ Node 场景覆盖共享资源寿命、私有面分组 / BVH、精确 triangle / 
 ## 仓库上下文整理
 
 大体积原始测量 JSON 统一到 `tests/test.data/performance/`，解释和链接保留在 validation。两份迁移样本逐字节与原版本相等，共 615,199 B；默认文档扫描减少这些机器数据，总仓库并未因此减少相同字节。重复的浏览器命令搜索步骤归 `browser/command-helpers.ts`，测试通过正式 Command ID 或当前分类区分短名称。删除了已移除的树搜索实现、样式和专用场景，并修正文档中已过期的树搜索和文件夹全量递归描述。有效回归、机器合同、几何语料及架构约定保留；未按文件大小机械拆分引擎或删除测试，也未清空共享开发库。文档字节和入口数只是上下文代理指标，未测量 Agent token 或理解时间收益。
+
+## 图标与深度缓存复核
+
+2026-11-14 UTC，图标以 16／20／24 px 对照，当前目录含 133 个图标，69 个命令改用更具体的图形。`icon-system.spec.ts` 检查全目录 SVG 几何边界、同类特征绑定及 light／dark／mono／disabled 截图；图形边界通过不代表识别速度经过用户研究。结构树独立的状态徽标和同 Revision Feature 元数据参与展示，命令／稳定键／Revision 语义不变。
+
+深度对照复用原生 OCCT 的 `fillet-balanced.glb`：2,160 顶点、3,348 三角形，经生产 VisualRepository／Viewport。Chromium／ANGLE SwiftShader，1280×900、DPR 1，默认工作室灯光和 `#98a8b8` 材质，关闭网格；同一相机、材质、灯光和实例姿态，预热三帧，各模式七次串行显式重绘。对照仅改变缓存开关，双方均使用对象索引，不把差值当作索引独立收益。
+
+| 实例 | 每帧 draw：不缓存／命中 | 每帧深度通道：不缓存／命中 | 画面对照 |
+|---:|---:|---:|---|
+| 8 | 26 / 18 | 1 / 0 | PNG 逐字节相同 |
+| 32 | 98 / 66 | 1 / 0 | PNG 逐字节相同 |
+
+两组各七个命中帧均未直接调用完整 scene 的 traverse／traverseVisible；计数不包含 Three.js 内部矩阵更新和渲染递归，也不表示没有对象或材质检查。CPU 回调与深度阶段墙钟原样保存在 JSON，可含驱动等待；没有独立 GPU timer 或稳定 P95／FPS 结论。少量顺序样本不用于宣称实际导航提速。
+
+同一真实渲染入口另逐项改变灯光、AO 强度、姿态、反射及非均匀缩放、祖先显隐、相机、投影、颜色、position 版本和剖切，分别与强制重画像素核对。颜色、灯光与 AO 强度单独变化命中，其余必要变化重新绘制。透明场景两张必要深度目标都可命中，调整尺寸及加载原生开放浅曲面后仍与强制重画一致；截图命令可在命中帧完成 PNG。Node 覆盖 position／index／drawRange／面组、材质、图层、清屏色、剖切、context restored 事件、异常状态恢复及子树增删／重挂／释放，另核对父标记晚注册时的同帧位置，以及索引路径下斜置约束标记的缩放间距。
+
+原始样本、源 GLB 摘要和 PNG 在 `build/agent-work/icon-depth/`，主要为 `depth-profile.json`、`icon-bounds.json`、`commands-light.png`、`commands-dark.png`。当前 API 与本地编译的图标一致性入口在 `ui-refinement-live.spec.ts`；原生 GPU、大型装配、完整上下文丢失恢复、长期 heap 和人工识别时间未作验收。
+
+```bash
+OCCCCAD_VISUAL_STUDIO_DIR="$PWD/build/agent-work/visual-studio/fixtures" mise run check --scope geometry --match SurfaceDisplay --jobs 4
+cd web/apps/cad
+pnpm exec playwright test icon-system.spec.ts
+pnpm exec playwright test --config playwright.studio.config.ts render-cache-render.spec.ts
+pnpm exec playwright test --config playwright.live.config.ts ui-refinement-live.spec.ts geometric-feature-live.spec.ts workbench-layout-live.spec.ts
+```
+
+原图标比较可额外设置 `OCCCCAD_ICON_REFERENCE` 指向已保存的旧 Catalog JSON；普通回归不依赖 Git 中某个历史提交或该可选输出。

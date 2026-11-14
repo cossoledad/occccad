@@ -9,7 +9,7 @@ export type ToolbarLayout = { rows: 2; groups: ToolbarLayoutGroup[]; overflowGro
 export const approximateToolbarTextWidth = (text: string): number => [...text].reduce((width, char) => width + (char.codePointAt(0)! > 255 ? 12 : 6.5), 0);
 
 /** Presentation only. Keep two comfortable rows and declared variant families.
- * Dense groups may use icon buttons without shrinking their hit targets. Only
+ * Dense columns may use icon buttons without shrinking their hit targets. Only
  * when those cannot fit do trailing groups move to the overflow menu. */
 export function layoutToolbar(input: ToolbarLayoutInput[], availableWidth: number,
   measure: (text: string) => number = approximateToolbarTextWidth): ToolbarLayout {
@@ -20,11 +20,12 @@ export function layoutToolbar(input: ToolbarLayoutInput[], availableWidth: numbe
   const build = (visible: ToolbarLayoutInput[], overflowGroups: ToolbarLayoutInput[] = []): ToolbarLayout => {
     const source = visible.map(group => {
       const controls = group.variants.map(family => {
-        const iconOnly = compact.has(group.id);
+        const key = `${group.id}/${family.key}`;
+        const iconOnly = compact.has(key);
         const item = family.items.find(item => item.commandId === family.displayCommandId) ?? family.items[0];
         const width = (iconOnly ? toolbarMetrics.iconWidth : Math.max(72, Math.ceil(textWidth(item.name)) + 44))
           + (family.items.length > 1 ? toolbarMetrics.arrowWidth : 0);
-        return { key: family.key, toolbarName: group.name, family, items: family.items, width, iconOnly };
+        return { key, toolbarName: group.name, family, items: family.items, width, iconOnly };
       });
       return { id: group.id, name: group.name, label: group.name, sourceIds: [group.id], controls, small: controls.length <= 2 };
     });
@@ -51,16 +52,22 @@ export function layoutToolbar(input: ToolbarLayoutInput[], availableWidth: numbe
   let plan = build(groups);
   if (availableWidth <= 0 || plan.width <= availableWidth) return plan;
   // Keep the rectangle family label visible so its temporary default is explicit.
-  const candidates = groups.filter(group => !group.variants.some(family => family.key === "rectangle"));
   while (plan.width > availableWidth) {
-    let best: string | undefined, saving = 0;
-    for (const group of candidates) {
-      if (compact.has(group.id)) continue;
-      compact.add(group.id); const candidate = build(groups); compact.delete(group.id);
-      if (plan.width - candidate.width > saving) { best = group.id; saving = plan.width - candidate.width; }
+    let best: string[] | undefined, score = 0;
+    for (const group of plan.groups) for(let offset=0;offset<group.controls.length;offset+=2){
+      const column=group.controls.slice(offset,offset+2);
+      const keys=column.filter(control=>!control.iconOnly&&control.family.key!=="rectangle").map(control=>control.key);
+      if(!keys.length)continue;
+      const next=Math.max(...column.map(control=>keys.includes(control.key)?toolbarMetrics.iconWidth+(control.family.items.length>1?toolbarMetrics.arrowWidth:0):control.width));
+      const floor=Math.ceil(textWidth(group.name)*11/12)+toolbarMetrics.groupPadding*2+1;
+      const saving=Math.min(group.columns[offset/2]-next,group.width-floor);
+      // Keep a readable anchor at the start of each group as long as room
+      // permits. This is a layout rule, not an assumed usage-frequency model.
+      const value=saving/(keys.length*(offset===0?4:1));
+      if(saving>0&&value>=score){best=keys;score=value;}
     }
     if (!best) break;
-    compact.add(best); plan = build(groups);
+    best.forEach(key=>compact.add(key)); plan = build(groups);
   }
   let visible = groups;
   while (plan.width > availableWidth && visible.length) {

@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'vite';
+const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+try{
+ const T=await server.ssrLoadModule('three');
+ const {SceneRenderIndex,forEachVisibleMesh}=await server.ssrLoadModule('/src/cad/rendering/scene-render-index.ts');
+ const {registerScreenLineUpdate,updateScreenLines}=await server.ssrLoadModule('/src/cad/rendering/screen-space-lines.ts');
+ const root=new T.Scene(),other=new T.Scene(),index=new SceneRenderIndex(root),second=new SceneRenderIndex(other),group=new T.Group();
+ const mesh=new T.Mesh(),point=new T.Points(),line=new T.Line();let updates=0;
+ registerScreenLineUpdate(line,()=>updates++);group.add(mesh,point,line);root.add(group);
+ for(let i=0;i<1000;i++)root.add(new T.Group());
+ assert.equal(index.size,1005);assert.equal(index.meshes.size,1);assert.equal(index.points.size,1);assert.equal(index.screenObjects.size,1);
+ root.traverse=()=>assert.fail('indexed screen updates must not traverse unrelated groups');root.traverseVisible=()=>assert.fail('indexed geometry/depth collection must not traverse unrelated groups');
+ const camera=new T.OrthographicCamera();updateScreenLines(root,camera,800,600);assert.equal(updates,1);
+ const meshes=[];forEachVisibleMesh(root,mesh=>meshes.push(mesh));assert.deepEqual(meshes,[mesh]);
+ group.visible=false;const hidden=[];forEachVisibleMesh(root,mesh=>hidden.push(mesh));assert.deepEqual(hidden,[],'ancestor visibility is read from the scene, not duplicated in the index');
+ group.visible=true;
+ registerScreenLineUpdate(point,()=>updates++);assert.equal(index.screenObjects.size,2,'late registration is indexed');
+ other.attach(group);assert.equal(index.meshes.size,0);assert.equal(index.screenObjects.size,0);assert.equal(second.meshes.size,1);assert.equal(second.screenObjects.size,2,'reparenting transfers membership');
+ updateScreenLines(root,camera,800,600);assert.equal(updates,1);updateScreenLines(other,camera,800,600);assert.equal(updates,3);
+ other.clear();assert.equal(second.meshes.size,0);assert.equal(second.points.size,0);assert.equal(second.screenObjects.size,0);
+ index.dispose();second.dispose();assert.equal(index.size,0);assert.equal(second.size,0);
+ root.add(group);assert.equal(index.meshes.size,0,'disposed indexes do not retain later objects');
+ const orderedRoot=new T.Scene(),orderedIndex=new SceneRenderIndex(orderedRoot),lateParent=new T.Group(),lateChild=new T.Group();let observed;
+ lateParent.add(lateChild);orderedRoot.add(lateParent);
+ registerScreenLineUpdate(lateChild,()=>{observed=lateChild.getWorldPosition(new T.Vector3()).x});
+ registerScreenLineUpdate(lateParent,()=>{lateParent.position.x=9});
+ updateScreenLines(orderedRoot,camera,800,600);assert.equal(observed,9,'late parent registration must still update before its child');
+ orderedIndex.dispose();lateParent.position.x=0;updateScreenLines(orderedRoot,camera,800,600);assert.equal(observed,9,'indexed and normal traversal respect the same ancestor dependency');
+ mesh.geometry.dispose();mesh.material.dispose();point.geometry.dispose();point.material.dispose();line.geometry.dispose();line.material.dispose();
+}finally{await server.close()}

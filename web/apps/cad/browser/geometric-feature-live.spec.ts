@@ -103,6 +103,7 @@ async function seedPoints(page:Page){return page.evaluate(async()=>{
 
 test('Geometry tabs: explicit picks, associative direction, history and reopen',async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await login(page);const seed=await seedPoints(page),id=seed.id;
+ try{
  await page.goto(`/documents/${id}`);await expect(page.locator('canvas')).toBeVisible();const initial=await document(page,id);
  await expect(page.getByRole('tab',{name:'实体',exact:true})).toBeVisible();await geometryTab(page);expect((await document(page,id)).document.versionId).toBe(initial.document.versionId);
  // A compatible preselection seeds the first role; no sample geometry is invented.
@@ -111,6 +112,7 @@ test('Geometry tabs: explicit picks, associative direction, history and reopen',
  await line.getByRole('button',{name:confirmCommandName}).click();await expect(line).toHaveCount(0);const curve=(await document(page,id)).part.features.at(-1);expect(curve.geometry.curve.points.every((p:any)=>p.reference)).toBeTruthy();
  await command(page,'拉伸','geometry.surface-extrude');const sheet=page.getByRole('dialog',{name:'拉伸',exact:true});await clickWorld(page,[17,3,0]);await expect(sheet.getByRole('button',{name:confirmCommandName})).toBeDisabled();await selectTree(page,seed.direction,'Direction line');await ready(page,sheet);await expect(sheet.getByRole('combobox',{name:'X',exact:true})).toHaveCount(0);await page.screenshot({path:info.outputPath('sheet-direction-reference.png')});
  await sheet.getByRole('button',{name:confirmCommandName}).click();await expect(sheet).toHaveCount(0);const surface=(await document(page,id)).part.features.at(-1);expect(surface.geometry.direction).toEqual({kind:'RESULT',featureId:seed.direction,resultId:'result'});
+ await treeNavigator(page)(surface.name,`/feature:${surface.id}`);await expect(page.locator(`[role=treeitem][data-tree-key$="/feature:${surface.id}"] .tree-type-icon [data-icon="surface-extrude"]`)).toBeVisible();
  await command(page,'加厚');const thick=page.getByRole('dialog',{name:'加厚',exact:true});await clickWorld(page,[17,3,10]);await ready(page,thick);await thick.getByRole('button',{name:confirmCommandName}).click();await expect(thick).toHaveCount(0);
  const volume=(v:any)=>Object.values(v.artifacts).reduce((n:number,a:any)=>n+(a.geometryDomain==='SOLID_SET'?a.volume:0),0);expect(volume(await document(page,id))).toBeCloseTo(1200,5);
  await selectTree(page,seed.points['Direction end'],'Direction end','point');await page.locator(`[role=treeitem][data-tree-key$="/point:${seed.points['Direction end']}"]`).getByText('Direction end',{exact:true}).dblclick();
@@ -120,6 +122,11 @@ test('Geometry tabs: explicit picks, associative direction, history and reopen',
  const edited=(await document(page,id)).part.features.find((f:any)=>f.id===surface.id);expect(edited.geometry).toEqual(surface.geometry);
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await bounds()).max[2]).toBeCloseTo(20,4);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await bounds()).max[1]).toBeCloseTo(23,4);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();await expect.poll(async()=>(await bounds()).max[1]).toBeCloseTo(23,4);await page.screenshot({path:info.outputPath('geometry-reopened.png')});expect(errors).toEqual([]);
+ }finally{
+  const csrf=(await page.context().cookies()).find(cookie=>cookie.name==='occccad_csrf')!.value;
+  expect((await page.request.delete('/api/documents/'+id,{headers:{'X-CSRF-Token':csrf}})).ok()).toBe(true);
+  expect((await page.request.get('/api/documents/'+id)).status()).toBe(404);
+ }
 });
 
 test('Spline starts empty and supports ordered point picks, insertion, replacement and cancel',async({page},info)=>{

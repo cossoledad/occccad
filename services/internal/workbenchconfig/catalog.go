@@ -15,6 +15,9 @@ import (
 //go:embed catalog.json
 var builtin []byte
 
+//go:embed icons.json
+var builtinIcons []byte
+
 type Condition struct {
 	Fact   string      `json:"fact,omitempty"`
 	Equals any         `json:"equals,omitempty"`
@@ -93,8 +96,28 @@ type Catalog struct {
 	Placements    []Placement     `json:"placements"`
 }
 
-func Read() (Catalog, error) { return Parse(builtin) }
+func Read() (Catalog, error) {
+	c, err := decodeCatalog(builtin)
+	if err != nil {
+		return c, err
+	}
+	if len(c.Icons) != 0 {
+		return Catalog{}, fmt.Errorf("builtin icons belong in icons.json")
+	}
+	c.Icons, err = compileIcons(builtinIcons)
+	if err != nil {
+		return Catalog{}, err
+	}
+	return c, c.Validate()
+}
 func Parse(data []byte) (Catalog, error) {
+	c, err := decodeCatalog(data)
+	if err != nil {
+		return c, err
+	}
+	return c, c.Validate()
+}
+func decodeCatalog(data []byte) (Catalog, error) {
 	var c Catalog
 	if err := validateJSONKeys(json.NewDecoder(bytes.NewReader(data)), 0); err != nil {
 		return c, err
@@ -107,9 +130,6 @@ func Parse(data []byte) (Catalog, error) {
 	var trailing any
 	if err := d.Decode(&trailing); err != io.EOF {
 		return Catalog{}, fmt.Errorf("catalog has trailing data")
-	}
-	if err := c.Validate(); err != nil {
-		return Catalog{}, err
 	}
 	return c, nil
 }

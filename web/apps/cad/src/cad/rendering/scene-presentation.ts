@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { SceneSettings } from "./scene-settings";
 import { CATIA_VISUAL_THEME } from "./cad-visual-theme";
+import {forEachVisibleMesh} from "./scene-render-index";
 
 /** Only geometry above the viewing plane can cast onto it. Cover its projection
  * along the light, with a filter guard and outward-rounded world-space edges.
@@ -32,6 +33,7 @@ export class ScenePresentation {
   private epoch=0;
   private readonly restoreShadow=()=>this.requestShadowUpdate();
   private readonly casters=new Map<THREE.Mesh,{epoch:number;geometry:THREE.BufferGeometry;position:unknown;index:unknown;positionVersion:number;indexVersion:number;drawRange:string;material:string;matrix:Float64Array}>();
+  private readonly surfaces:THREE.Mesh[]=[];
   constructor(private readonly scene:THREE.Scene,lights:THREE.Group,environment:THREE.Group,private readonly renderer:THREE.WebGLRenderer){
     this.hemisphere=lights.children[0] as THREE.HemisphereLight;
     [this.key,this.fill,this.rim]=lights.children.slice(1) as THREE.DirectionalLight[];
@@ -87,12 +89,14 @@ export class ScenePresentation {
    * visibility, previews and clipping without trusting every UI event to dirty
    * a shadow. The framebuffer and camera are deliberately absent from the key. */
   prepareShadows(camera:THREE.Camera):boolean {
+    this.surfaces.length=0;
     if(!this.settings?.shadows||this.editing){this.casters.clear();return false;}
     let changed=false;const epoch=++this.epoch;
-    this.scene.traverseVisible(object=>{
-      if(!(object instanceof THREE.Mesh)||!object.castShadow||!object.layers.test(camera.layers))return;
+    forEachVisibleMesh(this.scene,object=>{
       const materials:THREE.Material[]=Array.isArray(object.material)?object.material:[object.material];
       if(!materials.some(m=>m.visible&&m.opacity>0&&m.userData.cadMaterial==='surface'))return;
+      this.surfaces.push(object);
+      if(!object.castShadow||!object.layers.test(camera.layers))return;
       const geometry=object.geometry,position=geometry.getAttribute('position'),index=geometry.index;
       const positionVersion=position instanceof THREE.InterleavedBufferAttribute?position.data.version:position?.version??0;
       const indexVersion=index?.version??0,drawRange=`${geometry.drawRange.start}:${geometry.drawRange.count}`;
@@ -108,17 +112,14 @@ export class ScenePresentation {
     for(const [mesh,state] of this.casters)if(state.epoch!==epoch){this.casters.delete(mesh);changed=true;}
     if(changed){
       const bounds=new THREE.Box3(),box=new THREE.Box3();
-      this.scene.traverseVisible(object=>{
-        if(!(object instanceof THREE.Mesh))return;
-        const materials:THREE.Material[]=Array.isArray(object.material)?object.material:[object.material];
-        if(!materials.some(m=>m.visible&&m.opacity>0&&m.userData.cadMaterial==='surface'))return;
+      for(const object of this.surfaces){
         if(!object.geometry.boundingBox)object.geometry.computeBoundingBox();
         if(object.geometry.boundingBox)bounds.union(box.copy(object.geometry.boundingBox).applyMatrix4(object.matrixWorld));
-      });
+      }
       this.update(this.settings,bounds,this.height,this.editing);
     }
     if(changed||!this.cacheShadows)this.requestShadowUpdate();
     return this.renderer.shadowMap.enabled&&this.renderer.shadowMap.needsUpdate;
   }
-  dispose():void {this.renderer.domElement?.removeEventListener("webglcontextrestored",this.restoreShadow);this.casters.clear();this.key.shadow.dispose();this.scene.remove(this.key.target);}
+  dispose():void {this.renderer.domElement?.removeEventListener("webglcontextrestored",this.restoreShadow);this.casters.clear();this.surfaces.length=0;this.key.shadow.dispose();this.scene.remove(this.key.target);}
 }

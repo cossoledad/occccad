@@ -21,6 +21,8 @@
 
 `mise run web:dev` / `pnpm dev` 默认连接根配置的真实 API，与人工/Agent 共用数据。Mock 仅由显式隔离场景选择；它不证明真实后台链路。
 
+图标经 `CadIcon` 复用 `services/internal/workbenchconfig/icons.json` 的图形源；新增命令／树图标先读[图标指南](../../../docs/guides/cad-icons.md)，不在各入口复制 SVG。
+
 ## Validation
 
 - 列出场景：在本目录运行 `pnpm test -- --list [filter]`

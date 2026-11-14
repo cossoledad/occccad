@@ -178,8 +178,10 @@
 .workbench-structure .specification-tree-row:focus-visible { outline:1.5px solid var(--color-primary); outline-offset:-1px; }
 .workbench-structure .specification-tree-row.suppressed .specification-tree-label { color:var(--tree-muted); }
 .workbench-structure .cad-command-icon { color:inherit; stroke-width:1.5; }
-.tree-object-icon .tree-type-icon { opacity:.88; }
-.tree-object-icon .tree-status-badge { box-shadow:0 0 0 1px var(--wb-subtle); border-radius:50%; }
+.tree-object-icon { display:inline-flex;position:relative;align-items:center;justify-content:center;width:20px;height:20px;vertical-align:middle; }
+.tree-object-icon .tree-type-icon { display:inline-flex;align-items:center;justify-content:center;opacity:.92; }
+.tree-object-icon .tree-status-badge { position:absolute;right:-1px;bottom:-1px;display:grid;place-items:center;width:10px;height:10px;font-size:10px;line-height:1;background:var(--wb-subtle,var(--color-surface));box-shadow:0 0 0 1px var(--wb-subtle,var(--color-surface));border-radius:50%; }
+.tree-object-icon .tree-status-badge .anticon { display:block;font-size:10px;line-height:1; }
 
 .workbench-inspector > .ant-segmented { background:#f0f3f8; padding:3px; border-radius:7px; }
 .workbench-inspector .ant-segmented-item-selected { box-shadow:0 1px 2px #26354312; }

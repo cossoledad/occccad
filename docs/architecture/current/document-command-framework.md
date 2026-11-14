@@ -14,7 +14,7 @@
 
 ## 唯一呈现配置
 
-`services/internal/workbenchconfig/catalog.json` 是文档、Tab、命令组、命令名称/说明、图标与显示条件的唯一来源。后端嵌入并严格解析，通过 `GET /api/ui/toolbars` 返回配置与派生 Toolbar 投影；Mock 与本地 SVG fallback 引用同一文件。修改配置后需重新构建，不提供热替换。
+`services/internal/workbenchconfig/catalog.json` 拥有文档、Tab、命令组、命令名称/说明、图标 key 与显示条件；相邻 `icons.json` 唯一拥有图形及非递归复用部件。后端嵌入、编译并严格解析，通过 `GET /api/ui/toolbars` 返回原有平铺图标格式和派生 Toolbar 投影；Mock 与本地 SVG fallback 编译同一图形源，不另存一份路径。修改配置后需重新构建，不提供 API 热替换。绘图与新增流程见[图标指南](../../guides/cad-icons.md)。
 
 关系为 `documents → adapter`、`contexts.when → tabs`、`placements.tabId → groupId`、`groups.commands → commandId`。命令定义只存一次；下拉命令族名称由组的 `variants` 配置提供；命令在组内的位置、组在 Tab 内的位置各自拥有顺序。同一命令/组可以出现在多个位置。所有引用使用稳定 ID。配置校验拒绝重复 ID、缺失引用、未知条件、错误字段和不安全图标；前端在发布命令区前检查每个声明都有实际实现。
 

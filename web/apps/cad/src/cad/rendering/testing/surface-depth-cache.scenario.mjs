@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'vite';
+const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+try{
+ const T=await server.ssrLoadModule('three');
+ const {SurfaceDepthPass}=await server.ssrLoadModule('/src/cad/rendering/surface-depth-pass.ts');
+ const {SceneRenderIndex}=await server.ssrLoadModule('/src/cad/rendering/scene-render-index.ts');
+ const pass=new SurfaceDepthPass(),scene=new T.Scene(),index=new SceneRenderIndex(scene),parent=new T.Group();scene.add(parent);
+ const geometry=new T.BoxGeometry(),materials=Array.from({length:3},()=>{const m=new T.MeshStandardMaterial();m.userData.cadMaterial='surface';return m});
+ const meshes=materials.map(material=>new T.Mesh(geometry,material));parent.add(...meshes);
+ scene.traverseVisible=()=>assert.fail('indexed depth inputs must not walk unrelated scene nodes');
+ const camera=new T.OrthographicCamera(-10,10,10,-10,.1,100);camera.position.set(5,5,10);camera.lookAt(0,0,0);
+ let target={name:'caller target'},size=[800,600],renders=0,throwDraw=false,lastProxies=[];
+ const initial=target,domElement=new EventTarget(),viewport=new T.Vector4(11,12,700,500),scissor=new T.Vector4(13,14,400,300);let restoredViewport,restoredScissor,scissorTest=true;
+ const renderer={domElement,clippingPlanes:[],localClippingEnabled:true,getPixelRatio:()=>1,getDrawingBufferSize:v=>v.set(...size),getRenderTarget:()=>target,getViewport:v=>v.copy(viewport),getScissor:v=>v.copy(scissor),getScissorTest:()=>scissorTest,
+  setRenderTarget:value=>target=value,setViewport:value=>restoredViewport=value.clone(),setScissor:value=>restoredScissor=value.clone(),setScissorTest:value=>scissorTest=value,clear(){},render(proxies){renders++;if(throwDraw)throw Error('draw failed');lastProxies=proxies.children.map(mesh=>({layers:mesh.layers.mask,visible:(Array.isArray(mesh.material)?mesh.material:[mesh.material]).map(m=>m.visible)}))}};
+ const frame=()=>pass.render(renderer,scene,camera,true,.35);
+ const miss=(change)=>{const before=renders;change();frame();assert(renders>before,'changed depth inputs must redraw');assert.equal(target,initial)};
+ const hit=(change=()=>{})=>{const before=renders;change();frame();assert.equal(renders,before,'unchanged depth inputs must reuse their targets')};
+ frame();assert.equal(renders,1);for(let i=0;i<20;i++)hit();assert.equal(pass.statistics.hits,20);
+ hit(()=>{materials[0].color.set('#ff6633');materials[0].roughness=.1});
+ hit(()=>{const overlay=new T.Mesh(geometry,new T.MeshBasicMaterial());scene.add(overlay);scene.remove(overlay);overlay.material.dispose()});
+ miss(()=>parent.visible=false);miss(()=>parent.visible=true);
+ miss(()=>parent.scale.set(-2,.5,3));miss(()=>parent.rotation.x=.2);
+ miss(()=>geometry.attributes.position.needsUpdate=true);miss(()=>geometry.index.needsUpdate=true);
+ miss(()=>geometry.groups[0].count-=3);miss(()=>geometry.setDrawRange(3,18));
+ miss(()=>materials[0].visible=false);miss(()=>materials[0].visible=true);
+ miss(()=>materials[2].opacity=.3);assert.equal(pass.statistics.passes,renders);assert.deepEqual(lastProxies.map(p=>p.visible),[[true],[true],[false]],'opaque tie resolution excludes the glass in its second pass');
+ const beforeGlass=renders;hit();assert.equal(renders,beforeGlass);
+ miss(()=>materials[2].opacity=0);miss(()=>{materials[2].opacity=1;materials[2].transparent=false});
+ miss(()=>camera.position.x+=2);miss(()=>{camera.zoom=2;camera.updateProjectionMatrix()});miss(()=>{camera.near=.2;camera.updateProjectionMatrix()});
+ miss(()=>size=[1200,900]);
+ const clearColor=new T.Color(0);renderer.getClearColor=color=>color.copy(clearColor);renderer.getClearAlpha=()=>0;
+ miss(()=>clearColor.set('#abcdef'));
+ const plane=new T.Plane(new T.Vector3(1,0,0),0);miss(()=>pass.setSectionPlane(true,plane));miss(()=>plane.constant=1);miss(()=>pass.setSectionPlane(false,plane));
+ miss(()=>renderer.clippingPlanes=[plane]);miss(()=>plane.constant=2);miss(()=>renderer.clippingPlanes=[]);
+ miss(()=>{meshes[0].layers.set(2);camera.layers.enable(2)});assert(lastProxies.some(proxy=>proxy.layers===4),'proxy layers match source layers');
+ miss(()=>camera.layers.disable(2));assert.equal(lastProxies.length,2,'camera layers filter occluders');
+ miss(()=>scene.remove(parent));miss(()=>scene.add(parent));
+ miss(()=>domElement.dispatchEvent(new Event('webglcontextrestored')));
+ pass.invalidate();throwDraw=true;assert.throws(frame,/draw failed/);assert.equal(target,initial);assert.deepEqual(restoredViewport,viewport);assert.deepEqual(restoredScissor,scissor);assert.equal(scissorTest,true);
+ throwDraw=false;miss(()=>{});hit();
+ pass.setCaching(false);miss(()=>{});miss(()=>{});pass.setCaching(true);miss(()=>{});hit();
+ index.dispose();pass.dispose();geometry.dispose();materials.forEach(m=>m.dispose());
+}finally{await server.close()}

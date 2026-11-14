@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type {LineMaterial} from "three/addons/lines/LineMaterial.js";
 import {NATURAL_EDGE_VERTEX,NATURAL_EDGE_FRAGMENT,NATURAL_EDGE_DEFAULTS} from './natural-edges';
+import {forEachVisibleMesh} from './scene-render-index';
+import {SurfaceDepthInputs} from './surface-depth-inputs';
 
 type OpaqueDraw={groupOrder:number;renderOrder:number;object:THREE.Object3D;material:{id:number};z:number;id:number};
 /** Preserve explicit layers; CAD opaque ties use stable occurrence/Body keys.
@@ -63,6 +65,16 @@ export class SurfaceDepthPass {
   private readonly invisibleMaterial=new THREE.MeshDepthMaterial({visible:false});
   private readonly proxies=new WeakMap<THREE.Mesh,THREE.Mesh>();
   private opaqueTarget?:THREE.WebGLRenderTarget;
+  private readonly inputs = new SurfaceDepthInputs();
+  private valid = false;
+  private caching = true;
+  private renderer?: THREE.WebGLRenderer;
+  private readonly restore = () => this.invalidate();
+  private readonly meshes: THREE.Mesh[] = [];
+  private readonly size = new THREE.Vector2();
+  readonly statistics = { hits: 0, misses: 0, passes: 0, inspectedMeshes: 0 };
+  invalidate(): void { this.valid = false; }
+  setCaching(enabled: boolean): void { if (enabled !== this.caching) { this.caching = enabled; this.invalidate(); } }
   // Bounded raster-depth tie, not a model-space weld tolerance. Covers float
   // transform/interpolation differences between coincident tessellations.
   readonly opaqueUniforms={uCadOpaqueDepth:{value:this.target.depthTexture as THREE.DepthTexture|null},uCadOpaqueResolve:{value:false},uCadDepthEpsilon:{value:16/(2**24-1)}};
@@ -82,7 +94,8 @@ export class SurfaceDepthPass {
     this.visibleMaterial.customProgramCacheKey=()=>'cad-linear-view-depth-v2';
   }
   setSectionPlane(enabled:boolean,plane:THREE.Plane):void {
-    this.visibleMaterial.clippingPlanes=enabled?[plane]:null;this.visibleMaterial.needsUpdate=true;
+    const wasEnabled=!!this.visibleMaterial.clippingPlanes?.length;
+    this.visibleMaterial.clippingPlanes=enabled?[plane]:null;if(wasEnabled!==enabled)this.visibleMaterial.needsUpdate=true;
   }
   configureLine(material:LineMaterial):void {
     if(material.userData.cadContour||material.userData.cadEdgeAppearance){material.alphaToCoverage=true;material.toneMapped=false;}
@@ -140,15 +153,20 @@ export class SurfaceDepthPass {
     };
     material.customProgramCacheKey=()=>'cad-surface-ao-stable-depth-v3';
   }
-  render(renderer:THREE.WebGLRenderer,source:THREE.Scene,camera:THREE.Camera,ao=false,intensity=.35):void {
-    const meshes:THREE.Mesh[]=[];let transparent=false;
-    source.updateMatrixWorld(true);
-    source.traverseVisible(object=>{
-      if(!(object instanceof THREE.Mesh))return;
+  render(renderer:THREE.WebGLRenderer,source:THREE.Scene,camera:THREE.Camera,ao=false,intensity=.35,matricesCurrent=false):void {
+    if(this.renderer!==renderer){
+      this.renderer?.domElement?.removeEventListener('webglcontextrestored',this.restore);
+      this.renderer=renderer;renderer.domElement?.addEventListener('webglcontextrestored',this.restore);this.invalidate();
+    }
+    const meshes=this.meshes;meshes.length=0;let transparent=false;
+    if(!matricesCurrent){source.updateMatrixWorld(true);camera.updateMatrixWorld(true);}
+    forEachVisibleMesh(source,object=>{
+      if(!object.layers.test(camera.layers))return;
       const materials=Array.isArray(object.material)?object.material:[object.material];
       if(!materials.some(m=>m.visible&&m.userData.cadMaterial==="surface"&&m.opacity>0))return;
       meshes.push(object);transparent ||= materials.some(m=>m.visible&&m.opacity>0&&m.opacity<1);
     });
+    this.statistics.inspectedMeshes+=meshes.length;
     this.uniforms.uCadDepthEnabled.value=transparent;
     const opaque=(m:THREE.Material)=>m.visible&&m.opacity>=1&&!m.transparent;
     const resolve=meshes.filter(mesh=>(Array.isArray(mesh.material)?mesh.material:[mesh.material]).some(opaque)).length>1;
@@ -156,35 +174,40 @@ export class SurfaceDepthPass {
     this.aoUniforms.uCadAOEnabled.value=ao&&!transparent;
     this.visibleMaterial.colorWrite=ao&&!transparent;
     this.aoUniforms.uCadAOIntensity.value=intensity;
-    this.scene.clear();
-    if(!transparent&&!ao&&!resolve)return;
-    const size=renderer.getDrawingBufferSize(new THREE.Vector2());
+    if(!transparent&&!ao&&!resolve){this.invalidate();this.inputs.clear();this.scene.clear();return;}
+    const size=renderer.getDrawingBufferSize(this.size);
     if(!size.equals(this.uniforms.uCadDepthSize.value)){this.target.setSize(size.x,size.y);this.uniforms.uCadDepthSize.value.copy(size)}
     const c=camera as THREE.PerspectiveCamera|THREE.OrthographicCamera;
     this.aoUniforms.uCadAONearFar.value.set(c.near,c.far);
     this.aoUniforms.uCadAOPerspective.value=c instanceof THREE.PerspectiveCamera?1:0;
     this.aoUniforms.uCadAOScale.value=c instanceof THREE.PerspectiveCamera?2*Math.tan(THREE.MathUtils.degToRad(c.fov/2))/c.zoom/size.y:(c.top-c.bottom)/c.zoom/size.y;
     this.aoUniforms.uCadAOPixelRadius.value=12*renderer.getPixelRatio();
+    const changed=this.inputs.update(renderer,source,camera,meshes,size,ao&&!transparent,this.visibleMaterial.clippingPlanes??[]);
+    if(this.caching&&this.valid&&!changed){this.statistics.hits++;return;}
+    this.statistics.misses++;this.valid=false;
+    this.scene.clear();
     for(const mesh of meshes){
       let proxy=this.proxies.get(mesh);
       if(!proxy){proxy=new THREE.Mesh();proxy.matrixAutoUpdate=false;proxy.frustumCulled=false;this.proxies.set(mesh,proxy)}
       proxy.geometry=mesh.geometry;
+      proxy.layers.mask=mesh.layers.mask;proxy.renderOrder=mesh.renderOrder;
       const depth=(m:THREE.Material)=>m.visible&&m.opacity>0?this.visibleMaterial:this.invisibleMaterial;
       proxy.material=Array.isArray(mesh.material)?mesh.material.map(depth):depth(mesh.material);
       proxy.matrix.copy(mesh.matrixWorld);this.scene.add(proxy);
     }
     const target=renderer.getRenderTarget(),viewport=renderer.getViewport(new THREE.Vector4()),scissor=renderer.getScissor(new THREE.Vector4()),scissorTest=renderer.getScissorTest();
     try {
-      renderer.setRenderTarget(this.target);renderer.setScissorTest(false);renderer.clear(true,true,false);renderer.render(this.scene,camera);
+      renderer.setRenderTarget(this.target);renderer.setScissorTest(false);renderer.clear(true,true,false);renderer.render(this.scene,camera);this.statistics.passes++;
       this.opaqueUniforms.uCadOpaqueDepth.value=this.target.depthTexture;
       if(resolve&&transparent){
         if(!this.opaqueTarget){this.opaqueTarget=new THREE.WebGLRenderTarget(1,1,{minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,depthBuffer:true});this.opaqueTarget.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);}
         if(this.opaqueTarget.width!==size.x||this.opaqueTarget.height!==size.y)this.opaqueTarget.setSize(size.x,size.y);
         for(const mesh of meshes){const proxy=this.proxies.get(mesh)!;const depth=(m:THREE.Material)=>opaque(m)?this.visibleMaterial:this.invisibleMaterial;proxy.material=Array.isArray(mesh.material)?mesh.material.map(depth):depth(mesh.material);}
-        this.visibleMaterial.colorWrite=false;renderer.setRenderTarget(this.opaqueTarget);renderer.clear(true,true,false);renderer.render(this.scene,camera);this.opaqueUniforms.uCadOpaqueDepth.value=this.opaqueTarget.depthTexture;
+        this.visibleMaterial.colorWrite=false;renderer.setRenderTarget(this.opaqueTarget);renderer.clear(true,true,false);renderer.render(this.scene,camera);this.statistics.passes++;this.opaqueUniforms.uCadOpaqueDepth.value=this.opaqueTarget.depthTexture;
       }
+      this.valid=true;
     }
     finally {renderer.setRenderTarget(target);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(scissorTest)}
   }
-  dispose():void {this.scene.clear();this.target.dispose();this.target.depthTexture?.dispose();this.opaqueTarget?.dispose();this.opaqueTarget?.depthTexture?.dispose();this.visibleMaterial.dispose();this.invisibleMaterial.dispose()}
+  dispose():void {this.renderer?.domElement?.removeEventListener('webglcontextrestored',this.restore);this.inputs.clear();this.meshes.length=0;this.scene.clear();this.target.dispose();this.target.depthTexture?.dispose();this.opaqueTarget?.dispose();this.opaqueTarget?.depthTexture?.dispose();this.visibleMaterial.dispose();this.invisibleMaterial.dispose()}
 }

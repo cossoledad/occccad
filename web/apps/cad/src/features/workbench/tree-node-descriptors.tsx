@@ -1,66 +1,94 @@
-import {
-  PauseCircleOutlined,InfoCircleOutlined,AimOutlined, ApartmentOutlined, BuildOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  CloudUploadOutlined, DatabaseOutlined, ExclamationCircleOutlined, GatewayOutlined,
-  InsertRowAboveOutlined, NodeIndexOutlined, SyncOutlined,
-} from "@ant-design/icons";
+import {PauseCircleOutlined,InfoCircleOutlined,CheckCircleOutlined,CloseCircleOutlined,ExclamationCircleOutlined,SyncOutlined} from "@ant-design/icons";
 import {CadIcon} from "../../cad/overlay/cad-icons";
-import type { ReactNode } from "react";
-import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusFromDiagnostic } from "../../cad/assembly/assembly-constraint-ux";
-import type { DocumentStructureNode } from "../../types";
+import {builtinCatalog} from "../../cad/command/workbench-catalog";
+import type {ReactNode} from "react";
+import {ASSEMBLY_CONSTRAINT_STATUS,assemblyStatusFromDiagnostic} from "../../cad/assembly/assembly-constraint-ux";
+import type {DocumentStructureNode,Feature} from "../../types";
 
-type Kind = DocumentStructureNode["kind"];
-type Descriptor = { icon: ReactNode; visibility?: true };
-
-const descriptors: Partial<Record<Kind, Descriptor>> = {
- MEASUREMENT_GROUP:{icon:<ApartmentOutlined/>,visibility:true},MEASUREMENT:{icon:<CadIcon name="distance"/>,visibility:true},
- SPATIAL_ANALYSIS_GROUP:{icon:<ApartmentOutlined/>},SPATIAL_ANALYSIS:{icon:<CadIcon name="distance"/>},
- KINEMATICS_GROUP:{icon:<ApartmentOutlined/>},MECHANISM_REFERENCE:{icon:<GatewayOutlined/>},APPLICATIONS:{icon:<ApartmentOutlined/>},MECHANISM:{icon:<GatewayOutlined/>},MECHANISM_JOINT:{icon:<NodeIndexOutlined/>},MOTION_DRIVER:{icon:<AimOutlined/>},MOTION_STUDY:{icon:<SyncOutlined/>},INTERFERENCE_ANALYSIS:{icon:<ExclamationCircleOutlined/>},JOINT_SUPPORT:{icon:<AimOutlined/>},JOINT_EXPANSION:{icon:<NodeIndexOutlined/>},JOINT_SOURCE:{icon:<GatewayOutlined/>},MOTION_ASSOCIATION:{icon:<GatewayOutlined/>},
-  ASSEMBLY_CONSTRAINT:{icon:<GatewayOutlined />,visibility:true},
-  ASSEMBLY_GROUP_MEMBER_REFERENCE:{icon:<GatewayOutlined />},
-  ASSEMBLY_CONSTRAINT_SET:{icon:<GatewayOutlined />,visibility:true},
-  PRODUCT: { icon: <ApartmentOutlined /> }, PART: { icon: <BuildOutlined /> },
-  INSTANCE: { icon: <BuildOutlined />, visibility: true },
-  ORIGIN: { icon: <GatewayOutlined />, visibility:true },
-  PLANE: { icon: <CadIcon name="datum-plane"/>, visibility: true },
-  DATUM_POINT: {icon:<AimOutlined />,visibility:true},
-  REFERENCE_POINT: {icon:<AimOutlined />,visibility:true},
-  GEOMETRICAL_SET: {icon:<ApartmentOutlined />,visibility:true},
-  AXIS_SYSTEM: { icon: <AimOutlined />, visibility: true },
-  AXIS: { icon: <CadIcon name="datum-axis"/>, visibility: true },
-  DATUM_AXIS: { icon: <CadIcon name="datum-axis"/>, visibility: true },
-  BODY: { icon: <DatabaseOutlined />, visibility: true },
-  SKETCH: { icon: <CadIcon name="sketch"/>, visibility: true },
-  DATUM_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
-  FEATURE_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
-  SKETCH_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
-  SKETCH_OFFSET_DEFINITION: {icon:<NodeIndexOutlined />},
-  SKETCH_OFFSET_ENTITY: {icon:<NodeIndexOutlined />},
-  SKETCH_PATTERN_DEFINITION: {icon:<NodeIndexOutlined />},
-  SKETCH_PATTERN_MEMBER: {icon:<NodeIndexOutlined />},
-  SKETCH_PATTERN_ENTITY: {icon:<NodeIndexOutlined />},
-  SKETCH_ENTITY: { icon: <NodeIndexOutlined />, visibility: true },
-  SKETCH_CONSTRAINT: { icon: <GatewayOutlined /> },
-  SKETCH_GEOMETRY_SET: { icon: <DatabaseOutlined /> },
-  SKETCH_EXTERNAL_GEOMETRY_SET:{icon:<DatabaseOutlined/>},SKETCH_EXTERNAL_GEOMETRY:{icon:<GatewayOutlined/>,visibility:true},SKETCH_LOGICAL_CONSTRAINT_SET:{icon:<DatabaseOutlined/>},SKETCH_DIMENSION_SET:{icon:<DatabaseOutlined/>},REFERENCE_CYCLE:{icon:<GatewayOutlined/>},FEATURE:{icon:<BuildOutlined/>},
-  SKETCH_CONSTRAINT_SET: { icon: <DatabaseOutlined /> },
-  PARAMETER_GROUP: {icon:<DatabaseOutlined />},
-  PARAMETER_SET: { icon: <DatabaseOutlined /> },
-  PARAMETER: { icon: <NodeIndexOutlined /> },
-  PAD: { icon: <InsertRowAboveOutlined /> },
-  REVOLVE: { icon: <InsertRowAboveOutlined /> },
-  IMPORT: { icon: <CloudUploadOutlined /> },
-  PUBLICATION_SET: { icon: <GatewayOutlined /> }, PUBLICATION: { icon: <GatewayOutlined /> },
-  PRODUCT_PUBLICATION_SET: { icon: <GatewayOutlined /> }, PRODUCT_PUBLICATION: { icon: <GatewayOutlined /> },
-  CONTEXT_REFERENCE_SET: { icon: <GatewayOutlined /> }, CONTEXT_REFERENCE: { icon: <GatewayOutlined /> },
-  CONTEXT_INPUT_SET: { icon: <GatewayOutlined /> }, CONTEXT_INPUT: { icon: <GatewayOutlined /> },
-  CONTEXT_BINDING_SET: { icon: <GatewayOutlined /> }, CONTEXT_BINDING: { icon: <GatewayOutlined /> },
+type Kind=DocumentStructureNode["kind"];
+const objectIcons:Partial<Record<Kind,string>>={
+ "MEASUREMENT_GROUP": "group",
+ "MEASUREMENT": "measurement",
+ "SPATIAL_ANALYSIS_GROUP": "group",
+ "SPATIAL_ANALYSIS": "measurement",
+ "KINEMATICS_GROUP": "group",
+ "MECHANISM_REFERENCE": "link",
+ "APPLICATIONS": "group",
+ "MECHANISM": "mechanism",
+ "MECHANISM_JOINT": "joint-revolute",
+ "MOTION_DRIVER": "motion-driver",
+ "MOTION_STUDY": "motion-study",
+ "INTERFERENCE_ANALYSIS": "interference",
+ "JOINT_SUPPORT": "reference-point",
+ "JOINT_EXPANSION": "reference",
+ "JOINT_SOURCE": "link",
+ "MOTION_ASSOCIATION": "link",
+ "ASSEMBLY_CONSTRAINT": "coincident",
+ "ASSEMBLY_GROUP_MEMBER_REFERENCE": "link",
+ "ASSEMBLY_CONSTRAINT_SET": "group",
+ "PRODUCT": "product",
+ "PART": "part",
+ "INSTANCE": "instance",
+ "ORIGIN": "axis-system",
+ "PLANE": "datum-plane",
+ "DATUM_POINT": "reference-point",
+ "REFERENCE_POINT": "reference-point",
+ "GEOMETRICAL_SET": "geometrical-set",
+ "AXIS_SYSTEM": "axis-system",
+ "AXIS": "datum-axis",
+ "DATUM_AXIS": "datum-axis",
+ "BODY": "body",
+ "SKETCH": "sketch",
+ "DATUM_INPUT_REFERENCE": "link",
+ "FEATURE_INPUT_REFERENCE": "link",
+ "SKETCH_INPUT_REFERENCE": "link",
+ "SKETCH_OFFSET_DEFINITION": "curve-offset",
+ "SKETCH_OFFSET_ENTITY": "curve-offset",
+ "SKETCH_PATTERN_DEFINITION": "pattern",
+ "SKETCH_PATTERN_MEMBER": "pattern",
+ "SKETCH_PATTERN_ENTITY": "pattern",
+ "SKETCH_ENTITY": "line",
+ "SKETCH_CONSTRAINT": "coincident",
+ "SKETCH_GEOMETRY_SET": "geometrical-set",
+ "SKETCH_EXTERNAL_GEOMETRY_SET": "group",
+ "SKETCH_EXTERNAL_GEOMETRY": "link",
+ "SKETCH_LOGICAL_CONSTRAINT_SET": "group",
+ "SKETCH_DIMENSION_SET": "group",
+ "REFERENCE_CYCLE": "link",
+ "FEATURE": "body",
+ "SKETCH_CONSTRAINT_SET": "group",
+ "PARAMETER_GROUP": "parameter-set",
+ "PARAMETER_SET": "parameter-set",
+ "PARAMETER": "parameter",
+ "PAD": "pad",
+ "REVOLVE": "revolve",
+ "IMPORT": "import",
+ "PUBLICATION_SET": "group",
+ "PUBLICATION": "publication",
+ "PRODUCT_PUBLICATION_SET": "group",
+ "PRODUCT_PUBLICATION": "publication",
+ "CONTEXT_REFERENCE_SET": "group",
+ "CONTEXT_REFERENCE": "link",
+ "CONTEXT_INPUT_SET": "group",
+ "CONTEXT_INPUT": "link",
+ "CONTEXT_BINDING_SET": "group",
+ "CONTEXT_BINDING": "link"
 };
+const visibleKinds=new Set<string>(["MEASUREMENT_GROUP", "MEASUREMENT", "ASSEMBLY_CONSTRAINT", "ASSEMBLY_CONSTRAINT_SET", "INSTANCE", "ORIGIN", "PLANE", "DATUM_POINT", "REFERENCE_POINT", "GEOMETRICAL_SET", "AXIS_SYSTEM", "AXIS", "DATUM_AXIS", "BODY", "SKETCH", "SKETCH_ENTITY", "SKETCH_EXTERNAL_GEOMETRY"]);
+const commandIcons=new Map(builtinCatalog.commands.map(command=>[command.id,command.iconKey]));
+const featureCommands:Record<string,string>={PAD:'part.pad',LINEAR_EXTRUDE:'part.pad',REVOLVE:'part.revolve',FILLET:'part.fillet',CHAMFER:'part.chamfer',DRAFT:'part.draft',SHELL:'part.shell',SWEEP:'part.sweep',LOFT:'part.loft',HOLE:'part.hole',BOOLEAN:'part.boolean',THICKEN:'geometry.thicken',CLOSE_SURFACE:'geometry.close-surface'};
+const geometryKinds=new Set('LINE CIRCLE ARC SPLINE POINT_ON_CURVE EXTRACT BOUNDARY COMPOSITE SURFACE_EXTRUDE SURFACE_REVOLVE TRANSLATE ROTATE MIRROR SPLIT TRIM EXTEND G1_CONNECT OFFSET PROJECT INTERSECTION SURFACE_SWEEP SURFACE_LOFT SURFACE_BOUNDARY SURFACE_BLEND SURFACE_FILL SURFACE_TRIM SURFACE_MUTUAL_TRIM SURFACE_EXTEND SURFACE_JOIN SURFACE_SEW SURFACE_OFFSET'.split(' '));
+const geometryKind=(type:string)=>geometryKinds.has(type)?'geometry.'+type.toLowerCase().replaceAll('_','-'):undefined;
+const glyphs:Record<string,string>={GROUND:'ground',REVOLUTE:'joint-revolute',PRISMATIC:'joint-prismatic',CYLINDRICAL:'joint-cylindrical',PLANAR:'joint-planar',RIGID:'joint-rigid',SPHERICAL:'joint-spherical',ELLIPSE:'ellipse',ELLIPTICAL_ARC:'elliptical-arc',CONCENTRIC:'concentric',COLLINEAR:'parallel',MIDPOINT:'midpoint',POINT_ON_OBJECT:'point-on-object',MAJOR_RADIUS:'radius',MINOR_RADIUS:'radius',POINT:'point',SKETCH:'sketch',SOLID_PATTERN:'pattern',SKETCH_PATTERN:'pattern',COINCIDENT:'coincident',PARALLEL:'parallel',PERPENDICULAR:'perpendicular',TANGENT:'tangent',FIXED:'fixed',EQUAL:'equal',HORIZONTAL:'horizontal',VERTICAL:'vertical',ANGLE:'angle',RADIUS:'radius',DIAMETER:'diameter',DISTANCE:'distance',LENGTH:'length',SYMMETRY:'symmetry',IMPORT_BODY:'import',IMPORTED:'import'};
 
-export function treeNodeIcon(node:Pick<DocumentStructureNode,'kind'|'diagnostic'|'evaluationStatus'|'operation'|'entityType'|'suppressed'|'connectionStatus'|'currencyStatus'>,hint?:string):ReactNode {
+export function treeNodeIcon(node:Pick<DocumentStructureNode,'kind'|'diagnostic'|'evaluationStatus'|'operation'|'entityType'|'suppressed'|'connectionStatus'|'currencyStatus'>,hint?:string,feature?:Pick<Feature,'geometry'>):ReactNode {
+ const type=feature?.geometry?.kind??node.entityType??node.kind;
+ const command=featureCommands[type]??geometryKind(type);
+ const glyph=(command?commandIcons.get(command):undefined)??glyphs[type]??objectIcons[node.kind]??'reference';
  const assembly=node.kind==='ASSEMBLY_CONSTRAINT'||node.kind==='JOINT_EXPANSION';
- const glyph=({GROUND:'fixed',REVOLUTE:'rotate',PRISMATIC:'move',CYLINDRICAL:'rotate',PLANAR:'datum-plane',RIGID:'link',SPHERICAL:'rotate',ELLIPSE:'circle',ELLIPTICAL_ARC:'arc',CONCENTRIC:'concentric',COLLINEAR:'parallel',MIDPOINT:'midpoint',POINT_ON_OBJECT:'point-on-object',MAJOR_RADIUS:'radius',MINOR_RADIUS:'radius',POINT:'point',LINE:'line',CIRCLE:'circle',ARC:'arc',SPLINE:'spline',SKETCH:'sketch',PAD:'pad',LINEAR_EXTRUDE:'pad',REVOLVE:'revolve',FILLET:'radius',CHAMFER:'angle',DRAFT:'angle',SHELL:'pocket',SWEEP:'pad',LOFT:'pad',BOOLEAN:'link',SOLID_PATTERN:'pattern',SKETCH_PATTERN:'pattern',COINCIDENT:'coincident',PARALLEL:'parallel',PERPENDICULAR:'perpendicular',TANGENT:'tangent',FIXED:'fixed',EQUAL:'equal',HORIZONTAL:'horizontal',VERTICAL:'vertical',ANGLE:'angle',RADIUS:'radius',DIAMETER:'diameter',DISTANCE:'distance',LENGTH:'length',SYMMETRY:'symmetry'} as Record<string,string>)[node.entityType??node.kind];
- const assemblyGlyph=({FIX:'fixed',FIX_TOGETHER:'link',DISTANCE:'distance',ANGLE:'angle',COINCIDENT:'coincident',CONCENTRIC:'concentric',PARALLEL:'parallel',PERPENDICULAR:'perpendicular',CONTACT:'coincident'} as Record<string,string>)[node.entityType??'']??'coincident';
- const typeIcon=node.kind==='SPATIAL_ANALYSIS'?<CadIcon name={node.entityType==='SECTION'?'datum-plane':'distance'}/>:assembly?<CadIcon name={assemblyGlyph}/>:['PAD','LINEAR_EXTRUDE'].includes(node.entityType??node.kind)&&node.operation==='REMOVE'?<CadIcon name="pocket"/>:glyph?<CadIcon name={glyph}/>:node.entityType==='HOLE'?<AimOutlined/>:descriptors[node.kind]?.icon??<NodeIndexOutlined/>;
+ const assemblyGlyph=({FIX:'fixed',FIX_TOGETHER:'link',DISTANCE:'distance',ANGLE:'angle',COINCIDENT:'coincident',CONCENTRIC:'concentric',PARALLEL:'parallel',PERPENDICULAR:'perpendicular',CONTACT:'tangent'} as Record<string,string>)[type]??glyph;
+ const name=node.kind==='SPATIAL_ANALYSIS'?(type==='SECTION'?'section':type==='STATIC_INTERFERENCE'?'interference':'measurement'):assembly?assemblyGlyph:['PAD','LINEAR_EXTRUDE'].includes(type)&&node.operation==='REMOVE'?'pocket':glyph;
+ const typeIcon=<CadIcon name={name}/>;
  let label='',color='',badge:ReactNode;
  if(node.kind==='SPATIAL_ANALYSIS'||node.kind==='MEASUREMENT'){const status=node.currencyStatus??node.evaluationStatus;label=status==='CURRENT'?'已更新':status==='BROKEN'?'来源不可用':status==='UNKNOWN'?'状态暂不可用':status==='MISSING'?'尚无结果':'待更新';color=status==='CURRENT'?'var(--color-success)':status==='BROKEN'?'var(--color-danger)':'var(--color-warning)';badge=status==='CURRENT'?<CheckCircleOutlined/>:status==='BROKEN'?<CloseCircleOutlined/>:<SyncOutlined/>}
  else if(node.suppressed){label='已抑制';color='var(--color-text-secondary)';badge=<PauseCircleOutlined/>}
@@ -76,5 +104,5 @@ export function treeNodeIcon(node:Pick<DocumentStructureNode,'kind'|'diagnostic'
 }
 
 export function canToggleNodeVisibility(kind: string | undefined): boolean {
-  return Boolean(kind && descriptors[kind as Kind]?.visibility);
+  return Boolean(kind && visibleKinds.has(kind));
 }

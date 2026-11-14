@@ -8,6 +8,13 @@ import {treeNavigator} from './tree-helpers';
 const output=path.resolve('../../../build/agent-work/ui-optimization');
 async function login(page:Page){expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBe(true);await page.goto('/')}
 
+test('icon catalog exposes the same flattened artwork as the browser authoring source',async({page})=>{
+ await login(page);const response=await page.request.get('/api/ui/toolbars');expect(response.ok()).toBe(true);const catalog=await response.json();
+ const local=await page.evaluate(async()=>(await import('/src/cad/command/workbench-catalog.ts')).builtinCatalog.icons);
+ expect(catalog.icons).toEqual(local);expect(catalog).not.toHaveProperty('symbols');
+ for(const icon of Object.values(catalog.icons))expect(icon).not.toHaveProperty('parts');
+});
+
 test('library navigation, branch folder loading, scoped tree actions and hover storage',async({page})=>{
  test.setTimeout(300_000);fs.mkdirSync(output,{recursive:true});const errors:string[]=[],folderReads:string[]=[];page.on('pageerror',error=>errors.push(error.message));
  await login(page);

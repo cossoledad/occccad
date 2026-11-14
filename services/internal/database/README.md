@@ -36,7 +36,7 @@ SQLite 每进程一个物理连接、一个执行名额；每次连接启用 WAL
 
 ## 迁移
 
-PostgreSQL 使用 `postgres_migrations/0001_baseline.sql`，SQLite 使用 `sqlite_migrations/0001_baseline.sql`；两边各一个完整当前基线，直接建立领域表、约束、索引及管理员种子，不包含历史工具栏种子、版本回填或废弃结构。工具栏和命令呈现配置由 `internal/workbenchconfig/catalog.json` 提供。
+PostgreSQL 使用 `postgres_migrations/0001_baseline.sql`，SQLite 使用 `sqlite_migrations/0001_baseline.sql`；两边各一个完整当前基线，直接建立领域表、约束、索引及管理员种子，不包含历史工具栏种子、版本回填或废弃结构。工具栏和命令呈现配置由 `internal/workbenchconfig/catalog.json` 与相邻 `icons.json` 提供。
 
 公共迁移目录检查要求两边文件数量、文件名和连续编号一致；SQL 内容与 SHA-256 校验值按后端分别记录。后续结构变更同时增加同名、同编号的两种方言文件。PostgreSQL 使用连接级 advisory lock，SQLite 使用 BEGIN IMMEDIATE；结构变更与对应迁移记录在事务中提交。已应用文件校验失败、未知旧文件或迁移记录缺号时拒绝继续，不自动补写 checksum 或替换旧记录。
 

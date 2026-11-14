@@ -39,11 +39,13 @@ try{
  [opaqueA,opaqueB,clear].forEach(m=>m.dispose());
  const {makeSketchConstraintRenderable}=await server.ssrLoadModule("/src/cad/rendering/sketch-constraint-renderer.ts");
  const {updateScreenLines}=await server.ssrLoadModule("/src/cad/rendering/screen-space-lines.ts");
+ const {SceneRenderIndex}=await server.ssrLoadModule("/src/cad/rendering/scene-render-index.ts");
  const {buildSketchConstraintLayout}=await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-layout.ts");
  const entities=[{id:"line",kind:"LINE",start:{x:.4,y:.8},end:{x:1.6,y:.8}}];
  const constraint={id:"parallel",kind:"PARALLEL",references:[{target:"ENTITY",entityId:"line",subElement:"WHOLE"}]};
  const frame=p=>new T.Vector3(2-p[1]/Math.sqrt(2),p[1]/Math.sqrt(2),p[0]);
  const renderable=makeSketchConstraintRenderable(constraint,entities,frame,factory,{width:800,height:600});
+ const screenIndex=new SceneRenderIndex(renderable);
  const anchor=frame(buildSketchConstraintLayout(constraint,entities).anchors[0]);
  renderable.position.set(10,20,30);renderable.rotation.z=.4;
  camera.position.set(40,40,80);camera.lookAt(10,20,30);
@@ -53,5 +55,5 @@ try{
   const origin=anchor.clone().applyMatrix4(renderable.matrixWorld).project(camera);
   assert.ok(Math.abs((point.x-origin.x)*400-12)<1e-3);assert.ok(Math.abs((point.y-origin.y)*300-12)<1e-3,"symbol clearance stays 12 CSS pixels on an oblique placed sketch");
  }
- pass.dispose();geometry.dispose();glass.dispose();invisible.dispose();
+ screenIndex.dispose();pass.dispose();geometry.dispose();glass.dispose();invisible.dispose();
 }finally{await server.close()}

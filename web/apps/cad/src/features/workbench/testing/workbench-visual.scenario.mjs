@@ -11,7 +11,7 @@ try {
  assert.deepEqual(commandPanelWidths,{S:380,M:520,L:960});assert.equal(uiTokens.splitWidth,uiTokens.toolWidth+uiTokens.arrowWidth);
  const {treeNodeIcon}=await server.ssrLoadModule('/src/features/workbench/tree-node-descriptors.tsx');
  const typeName=node=>treeNodeIcon(node).props.children[0].props.children.props.name;
- assert.equal(typeName({kind:'SKETCH'}),'sketch');assert.equal(typeName({kind:'FEATURE',entityType:'FILLET',evaluationStatus:'FAILED'}),'radius');
+ assert.equal(typeName({kind:'SKETCH'}),'sketch');assert.equal(typeName({kind:'FEATURE',entityType:'FILLET',evaluationStatus:'FAILED'}),'fillet');
  assert.equal(typeName({kind:'ASSEMBLY_CONSTRAINT',entityType:'PARALLEL',evaluationStatus:'BROKEN'}),'parallel');
  assert.equal(treeNodeIcon({kind:'SKETCH_CONSTRAINT',entityType:'COINCIDENT',diagnostic:'CONFLICTING'}).props.children[1].props.title,'约束冲突');
  const calls=[],callbacks=new Map();let timer=0;const originalSet=globalThis.setTimeout,originalClear=globalThis.clearTimeout;

@@ -88,14 +88,21 @@ body { color:var(--color-text); background:var(--color-canvas); }
 .brand-symbol img { width: 100%; height: 100%; display: block; }
 .global-header .brand-symbol { width: 32px; height: 32px; }
 .global-header .brand-lockup strong { font-weight: 650; letter-spacing: 1px; }
-.cad-command-icon.family-solid { color: #476ec2; }
-.cad-command-icon.family-sketch { color: #287c83; }
-.cad-command-icon.family-constraint { color: #8964aa; }
-.cad-command-icon.family-assembly { color: #487b99; }
-.cad-command-icon.family-view { color: #5b7089; }
-.cad-command-icon .icon-face { fill: currentColor; fill-opacity: .12; stroke: none; }
-.cad-tool-button.active .cad-command-icon { color: var(--color-primary); }
-.cad-tool-button:disabled .cad-command-icon { color: inherit; }
+.cad-command-icon { color:inherit;--cad-icon-accent:#627b96; }
+.cad-command-icon.family-solid { --cad-icon-accent:#4d75ba; }
+.cad-command-icon.family-surface { --cad-icon-accent:#24888d; }
+.cad-command-icon.family-curve,.cad-command-icon.family-sketch { --cad-icon-accent:#357f87; }
+.cad-command-icon.family-constraint { --cad-icon-accent:#8b65a7; }
+.cad-command-icon.family-assembly { --cad-icon-accent:#4a7da1; }
+.cad-command-icon.family-reference { --cad-icon-accent:#aa7c36; }
+.cad-command-icon .icon-face { fill:currentColor;fill-opacity:.10;stroke:none; }
+.cad-command-icon .icon-operation { stroke:var(--cad-icon-accent,currentColor);stroke-width:1.7; }
+.cad-command-icon .icon-node { fill:var(--cad-icon-accent,currentColor);stroke:none; }
+.cad-command-icon .icon-guide { opacity:.48;stroke-dasharray:2 2; }
+.cad-tool-button.active .cad-command-icon { color:var(--color-primary);--cad-icon-accent:currentColor; }
+.ant-btn:disabled .cad-command-icon,[aria-disabled="true"] .cad-command-icon { color:inherit;--cad-icon-accent:currentColor; }
+.specification-tree-row.selected .cad-command-icon { --cad-icon-accent:currentColor; }
+.workbench-content:not(.light-scene) .workbench-structure .cad-command-icon { --cad-icon-accent:currentColor; }
 .shortcut-list { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; margin: 16px 0; }
 kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--color-border); border-bottom-width: 2px; background: var(--color-subtle); padding: 3px 7px; border-radius: 4px; color: var(--color-muted); }
 @media (prefers-reduced-motion: reduce) { .ant-btn, .document-card { transition: none !important; } }

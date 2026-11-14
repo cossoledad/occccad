@@ -16,6 +16,7 @@
 | 自然边线与同条件对比 | [数据与渲染设计](../../../docs/architecture/current/natural-edges.md)、[原生夹具与浏览器验收](../../../docs/validation/natural-edges.md) |
 | 服务端/短期状态 | TanStack Query / `src/state/` Zustand；`src/api/` 适配 |
 | 视觉系统 | `src/design/visual-tokens.ts`、`design-system.css` |
+| 图标设计与扩展 | [设计语言](../../../docs/guides/cad-icons.md)；`services/internal/workbenchconfig/icons.json`、`src/cad/overlay/icon-catalog.ts` |
 | 登录展示与视口截图 | [建模配方和操作](../../../docs/guides/model-showcase.md)；`scripts/generate-showcase.mjs`、`src/viewport/viewport-snapshot.ts` |
 
 先读 [AGENTS](AGENTS.md)，按命中区间展开，不默认整读 `workbench.tsx`、Viewport Engine 或 Mock API。依赖版本以本目录 `package.json` 和 workspace 锁文件为准。
