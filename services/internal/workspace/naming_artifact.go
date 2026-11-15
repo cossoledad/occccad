@@ -16,6 +16,8 @@ type topologyManifest struct {
 	FeatureResults []*workerv1.FeatureResult
 	Tips           map[string]*workerv1.FeatureResult
 	Results        map[modelcore.GeometryResultReference]*workerv1.FeatureResult
+	search         *namingSearchIndex
+	encodedBytes   int
 }
 
 type namingLocator struct {

@@ -178,124 +178,6 @@ void fill_vec3(const occccad::kernel::Vec3& source, worker_api::Vec3* target) {
     target->set_z(source.z);
 }
 
-void fill_semantic_ref(const occccad::kernel::SemanticTopologyRef& source,
-                       worker_api::SemanticTopologyRef* target) {
-    target->set_feature_id(source.feature_id);
-    target->set_output_slot(source.output_slot);
-    for (const auto& id : source.source_ids)
-        target->add_source_ids(id);
-}
-
-worker_api::TopologyLineageKind lineage_kind(const occccad::kernel::TopologyLineageKind kind) {
-    using Source = occccad::kernel::TopologyLineageKind;
-    switch (kind) {
-        case Source::generated:
-            return worker_api::TOPOLOGY_LINEAGE_GENERATED;
-        case Source::modified:
-            return worker_api::TOPOLOGY_LINEAGE_MODIFIED;
-        case Source::split:
-            return worker_api::TOPOLOGY_LINEAGE_SPLIT;
-        case Source::merged:
-            return worker_api::TOPOLOGY_LINEAGE_MERGED;
-        case Source::unchanged:
-            return worker_api::TOPOLOGY_LINEAGE_UNCHANGED;
-        default:
-            return worker_api::TOPOLOGY_LINEAGE_UNSPECIFIED;
-    }
-}
-
-worker_api::PersistentTopologyType persistent_topology_type(
-    const occccad::kernel::PersistentTopologyType type) {
-    using Source = occccad::kernel::PersistentTopologyType;
-    switch (type) {
-        case Source::face:
-            return worker_api::PERSISTENT_TOPOLOGY_TYPE_FACE;
-        case Source::edge:
-            return worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE;
-        case Source::vertex:
-            return worker_api::PERSISTENT_TOPOLOGY_TYPE_VERTEX;
-        default:
-            return worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED;
-    }
-}
-
-void fill_selection_evidence(const occccad::kernel::SelectionEvidence& source,
-                             worker_api::SelectionEvidence* target) {
-    target->set_geometry_type(source.geometry_type);
-    if (source.radius_mm) target->set_radius_mm(*source.radius_mm);
-    if (source.minor_radius_mm) target->set_minor_radius_mm(*source.minor_radius_mm);
-    if (source.half_angle_radians) target->set_half_angle_radians(*source.half_angle_radians);
-    if (source.cone_leaf) target->set_cone_leaf(*source.cone_leaf);
-    if (source.material_side) target->set_material_side(*source.material_side);
-    if (source.x_direction) fill_vec3(*source.x_direction, target->mutable_x_direction());
-    if (source.measure_si)
-        target->set_measure_si(*source.measure_si);
-    target->set_measure_dimension(source.measure_dimension);
-    if (source.parameter_start)
-        target->set_parameter_start(*source.parameter_start);
-    if (source.parameter_end)
-        target->set_parameter_end(*source.parameter_end);
-    target->set_endpoint_role(source.endpoint_role);
-    fill_vec3(source.centroid, target->mutable_centroid());
-    fill_vec3(source.origin, target->mutable_origin());
-    fill_vec3(source.direction, target->mutable_direction());
-    for (const auto& adjacent : source.adjacent)
-        fill_semantic_ref(adjacent, target->add_adjacent());
-    target->set_evidence_digest(source.evidence_digest);
-}
-
-void fill_feature_result(const occccad::kernel::FeatureResult& source,
-                         worker_api::FeatureResult* target) {
-    target->set_feature_id(source.feature_id);
-    target->set_body_id(source.body_id);
-    target->set_input_feature_id(source.input_feature_id);
-    target->set_profile_feature_id(source.profile_feature_id);
-    target->set_result_geometry_id(source.result_geometry_id);
-    target->set_topology_history_complete(source.topology_history_complete);
-    if(!source.result_id.empty()) {
-        target->mutable_result()->set_feature_id(source.feature_id);
-        target->mutable_result()->set_result_id(source.result_id);
-    }
-    for (const auto& output : source.semantic_outputs) {
-        auto* value = target->add_semantic_outputs();
-        fill_semantic_ref(output.semantic_ref, value->mutable_semantic_ref());
-        value->set_topology_type(persistent_topology_type(output.topology_type));
-        value->set_local_id(output.local_id);
-        fill_selection_evidence(output.evidence, value->mutable_evidence());
-    }
-    const auto& history = source.topology_history;
-    auto* target_history = target->mutable_topology_history();
-    target_history->set_schema_version(history.schema_version);
-    target_history->set_feature_id(history.feature_id);
-    target_history->set_input_geometry_id(history.input_geometry_id);
-    target_history->set_result_geometry_id(history.result_geometry_id);
-    target_history->set_evidence_digest(history.evidence_digest);
-    target_history->set_policy_digest(history.policy_digest);
-    for (const auto& lineage : history.lineage) {
-        auto* value = target_history->add_lineage();
-        for (const auto& ref : lineage.sources)
-            fill_semantic_ref(ref, value->add_sources());
-        fill_semantic_ref(lineage.result, value->mutable_result());
-        value->set_kind(lineage_kind(lineage.kind));
-        fill_selection_evidence(lineage.evidence, value->mutable_evidence());
-    }
-    for (const auto& deleted : history.deleted) {
-        auto* value = target_history->add_deleted();
-        fill_semantic_ref(deleted.source, value->mutable_source());
-        value->set_reason(deleted.reason);
-        fill_selection_evidence(deleted.evidence, value->mutable_evidence());
-    }
-    for (const auto& ambiguous : history.ambiguous) {
-        auto* value = target_history->add_ambiguous();
-        for (const auto& ref : ambiguous.sources)
-            fill_semantic_ref(ref, value->add_sources());
-        for (const auto& ref : ambiguous.candidates)
-            fill_semantic_ref(ref, value->add_candidates());
-        value->set_diagnostic_code(ambiguous.diagnostic_code);
-    }
-    for (const auto& diagnostic : source.diagnostics)
-        target->add_diagnostics(diagnostic);
-}
 
 std::string exchange_format(std::string value) {
     for (char& character : value)
@@ -2117,16 +1999,9 @@ public:
                 topology_manifest.set_evaluator_version(
                     request->topology_policy().evaluator_version());
                 topology_manifest.set_policy_digest(request->topology_policy().policy_digest());
-                worker_api::FeatureResult working_result;
-                size_t working_index=std::numeric_limits<size_t>::max();
                 occccad::worker::pack_naming(profile_evaluation.feature_results.size(),
-                    [&](size_t index)->const worker_api::FeatureResult&{
-                        if(index!=working_index){
-                            working_result.Clear();
-                            fill_feature_result(profile_evaluation.feature_results[index],&working_result);
-                            working_index=index;
-                        }
-                        return working_result;
+                    [&](size_t index)->const occccad::kernel::FeatureResult&{
+                        return profile_evaluation.feature_results[index];
                     },topology_manifest);
                 topology_manifest.set_geometry_id(geometry_id);
                 topology_manifest.set_brep_sha256(response->brep_artifact().sha256());

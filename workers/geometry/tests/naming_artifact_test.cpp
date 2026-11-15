@@ -9,6 +9,68 @@
 
 namespace api = occccad::worker::v1;
 
+TEST(NamingArtifact, NativeImmutableRecordsRetainExactWireInterningAndOwners) {
+    namespace native = occccad::kernel;
+    namespace detail = occccad::worker::naming_detail;
+    native::FeatureResult first;
+    first.feature_id="first";first.body_id="body";first.result_geometry_id="geometry-first";
+    first.topology_history_complete=true;first.diagnostics={"diagnostic"};
+    first.topology_history.input_geometry_id="input";first.topology_history.evidence_digest="history";
+    native::SelectionEvidence seed;
+    seed.geometry_type="LINE";seed.evidence_digest="same-digest";seed.origin={1,2,3};seed.direction={0,0,1};
+    seed.centroid={4,5,6};seed.parameter_start=-0.0;seed.parameter_end=2.75;seed.radius_mm=3;
+    seed.minor_radius_mm=2;seed.half_angle_radians=.3;seed.cone_leaf=-1;seed.material_side=-1;
+    seed.x_direction=native::Vec3{1,0,0};seed.measure_si=.001;seed.measure_dimension="LENGTH";seed.endpoint_role="START";
+    seed.adjacent={{"adjacent","edge",{"a/b","a\nb"}}};
+    std::vector<native::SelectionEvidence> variants(12,seed);
+    // Same digest is insufficient for equality. Optional presence, bitwise
+    // doubles, ordered adjacency and every geometry family remain significant.
+    variants[2].parameter_start=0.0;variants[3].radius_mm.reset();
+    variants[4].adjacent[0].source_ids={"a","b\na/b"};variants[5].geometry_type="POINT";
+    variants[6]=variants[5];variants[6].direction={9,8,7}; // ignored by compact POINT: wire fallback must still intern
+    variants[7].geometry_type="PLANE";variants[8]=variants[7];variants[8].parameter_start=42;
+    variants[9].geometry_type="CYLINDER";variants[10].geometry_type="BSPLINE";variants[11].geometry_type="TORUS";
+    for(size_t i=0;i<variants.size();++i){
+        native::SemanticTopologyOutput output;
+        output.semantic_ref={first.feature_id,"face/"+std::to_string(i),{"a/b","a\nb"}};
+        output.local_id=i+1;output.topology_type=native::PersistentTopologyType::face;output.evidence=variants[i];
+        first.semantic_outputs.push_back(output);
+        first.topology_history.lineage.push_back({{},output.semantic_ref,native::TopologyLineageKind::generated,output.evidence});
+    }
+    auto last=first;last.feature_id="last";last.input_feature_id=first.feature_id;last.profile_feature_id="profile";
+    last.result_geometry_id="geometry-last";
+    for(auto& lineage:last.topology_history.lineage){lineage.sources={lineage.result};lineage.kind=native::TopologyLineageKind::unchanged;}
+    last.topology_history.deleted.push_back({first.semantic_outputs[0].semantic_ref,"removed",seed});
+    last.topology_history.ambiguous.push_back({{first.semantic_outputs[1].semantic_ref},{first.semantic_outputs[2].semantic_ref},"ambiguous"});
+    for(bool geometric:{false,true}){
+        if(geometric){first.body_id.clear();last.body_id.clear();first.result_id="result";last.result_id="result";last.feature_id=first.feature_id;}
+        native::ImmutableSequence<native::FeatureResult> records;records.push_back(first);records.push_back(last);
+        std::vector<api::FeatureResult> converted;
+        for(const auto& source:records){
+            auto& target=converted.emplace_back();target.set_feature_id(source.feature_id);target.set_body_id(source.body_id);
+            if(geometric){target.mutable_result()->set_feature_id(source.feature_id);target.mutable_result()->set_result_id(source.result_id);}
+            target.set_input_feature_id(source.input_feature_id);target.set_profile_feature_id(source.profile_feature_id);
+            target.set_result_geometry_id(source.result_geometry_id);target.set_topology_history_complete(source.topology_history_complete);
+            for(const auto& diagnostic:source.diagnostics)target.add_diagnostics(diagnostic);
+            auto* history=target.mutable_topology_history();history->set_input_geometry_id(source.topology_history.input_geometry_id);history->set_evidence_digest(source.topology_history.evidence_digest);
+            for(const auto& lineage:source.topology_history.lineage){
+                auto* row=history->add_lineage();for(const auto& ref:lineage.sources)detail::encode_ref(ref,row->add_sources());
+                detail::encode_ref(lineage.result,row->mutable_result());row->set_kind(detail::encoded_kind(lineage.kind));detail::encode_evidence(lineage.evidence,row->mutable_evidence());
+            }
+            for(const auto& deleted:source.topology_history.deleted){auto* row=history->add_deleted();detail::encode_ref(deleted.source,row->mutable_source());row->set_reason(deleted.reason);detail::encode_evidence(deleted.evidence,row->mutable_evidence());}
+            for(const auto& ambiguous:source.topology_history.ambiguous){auto* row=history->add_ambiguous();for(const auto& ref:ambiguous.sources)detail::encode_ref(ref,row->add_sources());for(const auto& ref:ambiguous.candidates)detail::encode_ref(ref,row->add_candidates());row->set_diagnostic_code(ambiguous.diagnostic_code);}
+            for(const auto& output:source.semantic_outputs){auto* row=target.add_semantic_outputs();row->set_local_id(output.local_id);row->set_topology_type(detail::encoded_type(output.topology_type));detail::encode_ref(output.semantic_ref,row->mutable_semantic_ref());detail::encode_evidence(output.evidence,row->mutable_evidence());}
+        }
+        api::PartTopologyManifest expected,actual;
+        occccad::worker::pack_naming(converted,expected);
+        occccad::worker::pack_naming(records.size(),[&](size_t i)->const native::FeatureResult&{return records[i];},actual);
+        EXPECT_EQ(actual.SerializeAsString(),expected.SerializeAsString());
+        EXPECT_LT(actual.evidence_size(),variants.size());
+        if(geometric){EXPECT_EQ(actual.bodies_size(),0);ASSERT_EQ(actual.results_size(),1);}
+        else {ASSERT_EQ(actual.bodies_size(),1);EXPECT_EQ(actual.results_size(),0);}
+    }
+}
+
 TEST(NamingArtifact, StoredLayoutRetainsTypedEvidenceAndFirstOccurrenceOrder) {
     const std::vector<std::string> kinds{"PLANE", "CYLINDER", "POINT", "LINE", "CIRCLE", "BSPLINE", "BEZIER", "ELLIPSE", "TORUS"};
     std::vector<api::FeatureResult> features(3);

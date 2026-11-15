@@ -76,7 +76,7 @@ Changes spanning Proto/Worker/Router/Product require `mise run check --scope all
 
 > 返回[当前架构目录](README.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
-服务端已实现 PersistentSelection bind/resolver。bind 只接受 source Revision 指定 Body Tip 或几何 FeatureResult 的 local pick，固化互斥的 `sourceBodyId` / `sourceResult={featureId,resultId}`、semantic anchor 与 creation evidence；resolver 固定校验 source/target Revision、document/owner、expected type、creation evidence、manifest digest 和 policy digest，沿 lineage 返回唯一解析、缺失、歧义、类型不符或当前 tip 外等状态，绝不以相同 local ID 或最近几何自动选面。解析缓存以 selection、target Revision、manifest/evidence/policy digest 为身份，并可从不可变 topology artifact 冷重建。右侧属性面板现在展示 semantic anchor、selection recipe、supporting-element 状态和 evidence digest。
+服务端已实现 PersistentSelection bind/resolver。bind 只接受 source Revision 指定 Body Tip 或几何 FeatureResult 的 local pick，固化互斥的 `sourceBodyId` / `sourceResult={featureId,resultId}`、semantic anchor 与 creation evidence；resolver 固定校验 source/target Revision、document/owner、expected type、creation evidence、manifest digest 和 policy digest，沿 lineage 返回唯一解析、缺失、歧义、类型不符或当前 tip 外等状态，绝不以相同 local ID 或最近几何自动选面。不可变 topology artifact 可冷重建解析索引；缓存不取代每次来源及目标 Revision 资格校验。右侧属性面板展示 semantic anchor、selection recipe、supporting-element 状态和 evidence digest。
 
 拓扑 endpoint 持久化 occurrence、source Part Revision 和 PersistentSelection，并保存固定 target Revision、topology manifest/policy digest 与 resolution result；`geometryKey + localId` 只作为创建或 Reconnect 时的瞬时 pick evidence。默认实例使用 `FOLLOW_HEAD`；Part Head 更新后 Product Update Plan 投影 NotUpdated/UpdateAvailable，Web 自动批量推进 Revision、重新解析 endpoint 并求解，用户可用 `PINNED` 显式截断自动跟随。Supporting Element 的 Connected/NotConnected 与 Constraint 的 NotUpdated/Broken/Impossible/Verified 是两个独立状态域：解析失败的约束不会进入 Solver，其余 connected component 仍经正式 Router 的静态层级求解路径求解。结构树和属性面板显示状态与 provenance，持久 ChangeSet 支持刷新及补偿式历史。
 
@@ -123,10 +123,20 @@ EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named 
 
 ## 阵列复制与选择延续
 
-`LINEAGE_DESCENDANT` 跟踪所选拓扑的实际延续，沿 Modified/Unchanged/Split/Merged 解析；`GENERATED` 表达构造来源，不是原拓扑身份的延续。因此抽壳内壁、圆角生成面和 `MEMBER/slot/seed-digest` 刚体副本不会成为原面／边选择的候选，原拓扑消失时也不能跳到新生成拓扑。显式选中的内壁或 MEMBER 以自身语义引用为锚点，继续跟踪后续延续；真实分裂仍保留 Ambiguous。引用解析缓存包含解析策略版本，不修改既有 Naming/BREP 制品或持久引用格式。
+`LINEAGE_DESCENDANT` 跟踪所选拓扑的实际延续，沿 Modified/Unchanged/Split/Merged 解析；`GENERATED` 表达构造来源，不是原拓扑身份的延续。因此抽壳内壁、圆角生成面和 `MEMBER/slot/seed-digest` 刚体副本不会成为原面／边选择的候选，原拓扑消失时也不能跳到新生成拓扑。显式选中的内壁或 MEMBER 以自身语义引用为锚点，继续跟踪后续延续；真实分裂仍保留 Ambiguous。解析索引仅在当前进程按冻结制品构造，不修改既有 Naming/BREP 制品或持久引用格式。
 
 Feature 的当前贡献与树／视图联动使用 `featureAssociations.primary`，只突出其实际拥有的结果；`origins` 保留复制来源链用于溯源，不能把祖先链当作当前归属而连带选中其他副本。成员槽位及持久拓扑选择合同保持不变，不按坐标挑选候选。回归见 `TestResolveManifestGeneratedBoundaryIsNotSourceContinuation` 和 `TestSketchOnShellOuterFaceThroughRouter`：外面与内面独立绑定、外面支撑的草图／拉伸、壁厚更新、历史及冷重建；视图区流程见 `solid-feature-live.spec.ts`。
 
 解析直线样条的 evidence 与类型查询共用完整裁剪区间控制点证明；origin/direction 和 parameterStart/End 表达毫米直线区间，底层 BREP 原生参数仍在属性查询中报告。该识别不产生新拓扑身份或几何替换，详见[实体 Feature](solid-features.md)。
 
 拔模的实际角度面使用 `DRAFTED_FROM` 输出归属拔模，来源仍为原面的 `Modified` 延续；显示主归属采用该正式角色，溯源保留原生成步骤。相邻未变拓扑和一般裁剪面的主归属不随之改变。范围复制只消费[精确净新增材料](feature-replication.md#参数化阵列)，不把拔模声明为独立工具。
+
+## 有界解析视图与按需查询
+
+`workspace/naming_search.go` 为校验后的不可变 manifest 一次构造派生索引：完整 semantic ref 值表、互斥 Body/FeatureResult owner、历史存在性、按 source 排序的事件列表和当前 tip 的 ref/type 输出索引。整数符号及事件位置只用于本次内存查询，不成为持久身份。`GENERATED` 支撑不加入延续关系，同引用 UNCHANGED 不创建无作用事件；原制品中的这些记录仍保留。
+
+查询从锚点调度相关事件，用最小堆保留原 transition/lineage/ambiguity/delete 顺序。每个 source 的未来事件只调度一次；删除后重新出现也不重放过去事件。不能改成无序可达闭包，否则可能复活已删除拓扑或追踪在来源出现之前发生的规则。当前 tip 只检查活跃引用对应的候选，再按原 recipe、类型及顺序返回结果。首次建索引仍扫描全部历史；复用查询的工作量取决于相关事件和候选，歧义传播很大时仍可访问大量历史。
+
+`workspace/naming_view_cache.go` 以 object ID、预期 SHA-256、policy digest 为键，共享通过完整校验的解析视图，采用 **128 MiB** LRU 计费预算；计费为编码大小 ×16 加 metadata，是接纳估算，不是实测 decoded-size 上界或 RSS 上限。过大视图可共享正在进行的读取，但不留在缓存。读者租借在淘汰后仍有效；失败/取消不接纳，等待者独立取消，加载者取消后其他等待者可重试。inline 内容始终重新校验，`ForceCold` 绕过共享视图。
+
+已移除无界的逐选择结果缓存。每次操作仍校验访问资格、source/target Revision、owner、完整创建证据和 manifest/policy digest，索引只加速其后的语义查询。对外证据复制可变 optional 值和来源列表，避免调用者污染共享视图。回归入口为 `naming_search_test.go`、`naming_search_reference_test.go`、`naming_view_cache_test.go` 和 `topology_naming_diagnostics_test.go`；冻结旧扫描器检验有序语义，真实 Router 另验证长链旧面引用及错误目标摘要。存储增长及尚未交付的增量持久化归[Part 求值](part-feature-evaluation.md#通用特征性能与增长边界)。

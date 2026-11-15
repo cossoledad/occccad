@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -170,6 +172,174 @@ func TestDenseSTEPFaceSketchAndFirstCutThroughRouter(t *testing.T) {
 }
 
 func mustRuntimeJSON(value any) string { data, _ := json.Marshal(value); return string(data) }
+
+// Distinct rectangle/circle bosses continuously add faces, edges and vertices.
+// This is not a fixed-topology cut chain or a single pattern Feature.
+func TestGrowingTopologyPartFeaturesAndNamingThroughRouter(t *testing.T) {
+	count := 120
+	if value := os.Getenv("OCCCCAD_TEST_NAMING_STEPS"); value != "" {
+		var err error
+		count, err = strconv.Atoi(value)
+		if err != nil || count < 1 || count > 200 {
+			t.Fatal("invalid naming growth step count", value)
+		}
+	}
+	service, _, db, _, _ := featureAssociationRuntimeService(t)
+	ctx := t.Context()
+	view, err := service.CreateDocument(ctx, workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Growing topology and naming"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequence := 0
+	apply := func(request workspace.CommandRequest) time.Duration {
+		t.Helper()
+		sequence++
+		request.ActorID = p6Actor
+		request.VersionID = view.Document.VersionID
+		request.RequestID = fmt.Sprintf("%s-growing-%d", view.Document.ID, sequence)
+		start := time.Now()
+		view, err = service.ApplyCommand(ctx, view.Document.ID, request)
+		if err != nil {
+			t.Fatal(request.Type, err)
+		}
+		return time.Since(start)
+	}
+	readRun := func() *workerv1.PartRuntimeStats {
+		t.Helper()
+		var raw []byte
+		if err := db.QueryRow(ctx, `SELECT evaluation_manifest FROM occccad.document_versions WHERE id=$1`, view.Document.VersionID).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var manifest struct {
+			Runtime workspace.EvaluationRuntime `json:"runtime"`
+		}
+		if err := json.Unmarshal(raw, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if len(manifest.Runtime.WorkerRuns) != 1 {
+			t.Fatal("expected one Body run", mustRuntimeJSON(manifest.Runtime))
+		}
+		return manifest.Runtime.WorkerRuns[0]
+	}
+	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	baseProfile := view.Part.Features[0].ID
+	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: baseProfile, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{}, Second: &workspace.SketchPoint2{X: 56, Y: 72}}}})
+	apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: baseProfile, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 3})
+	sourceVersion := view.Document.VersionID
+	var picks []p7TopologyPick
+	for _, axis := range []int{0, 1, 2} {
+		picks = append(picks, findP7TopologyPick(t, service, view, "FACE", func(p workspace.TopologyElementProperties, _ modelcore.PersistentSelection) bool {
+			n, ok := p.Properties["normal"].([3]float64)
+			return ok && n[axis] > .99
+		}))
+	}
+	expectedVolume := float64(56 * 72 * 3)
+	lastArea := 0.0
+	for step := 1; step <= count; step++ {
+		apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+		profile := view.Part.Features[len(view.Part.Features)-1].ID
+		x, y := float64(2+(step%12)*4), float64(2+(step/12)*4)
+		operations := []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: x, Y: y}, Second: &workspace.SketchPoint2{X: x + 1, Y: y + 1}}}
+		lastArea = 1
+		if step%2 == 1 {
+			operations = []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: fmt.Sprintf("circle-%d", step), Kind: "CIRCLE", Role: "PROFILE", Center: &workspace.SketchPoint2{X: x + .5, Y: y + .5}, Radius: .45}}}
+			lastArea = math.Pi * .45 * .45
+		}
+		apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: profile, Operations: operations})
+		length := 7 + float64(step%9)*.1
+		expectedVolume += lastArea * (length - 3)
+		elapsed := apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: profile, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: length})
+		artifact := activeBodyArtifact(t, view)
+		run := readRun()
+		if math.Abs(artifact.Volume-expectedVolume) > 1e-5 || !artifact.Naming.CanBind || p6TopologyCount(t, artifact.Topology, "faces") < uint64(6+step*2) {
+			t.Fatalf("growing solid %d invalid: %+v", step, artifact)
+		}
+		if run.StagesExecuted != 1 || run.StagesReused < uint32(step) {
+			t.Fatal("growing feature repeated the prefix", step, mustRuntimeJSON(run))
+		}
+		if step == 20 || step == 50 || step == 100 || step == count {
+			t.Logf("growing-router steps=%d features=%d elapsed_ms=%.3f naming_bytes=%d topology=%v worker=%s", step, len(view.Part.Features), float64(elapsed)/float64(time.Millisecond), artifact.Representations["NAMING"].Size, artifact.Topology, mustRuntimeJSON(run))
+		}
+	}
+	tip := view.Part.Features[len(view.Part.Features)-1]
+	tip.Length += .25
+	elapsed := apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: tip.ID, Feature: &tip, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, tip.ID)})
+	run := readRun()
+	if run.StagesExecuted != 1 || run.StagesReused < uint32(count) {
+		t.Fatal("tip edit lost its predecessor", mustRuntimeJSON(run))
+	}
+	t.Logf("growing-router tip-edit steps=%d elapsed_ms=%.3f worker=%s", count, float64(elapsed)/float64(time.Millisecond), mustRuntimeJSON(run))
+	edited := activeBodyArtifact(t, view)
+	if math.Abs(edited.Volume-(expectedVolume+lastArea*.25)) > 1e-5 {
+		t.Fatal("edited volume", edited.Volume)
+	}
+	for _, pick := range picks {
+		start := time.Now()
+		request := workspace.ResolvePersistentSelectionRequest{Selection: pick.Selection, SourceVersionID: sourceVersion, TargetVersionID: view.Document.VersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest}
+		resolution, err := service.ResolvePersistentSelection(ctx, view.Document.ID, request)
+		if err != nil || resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 {
+			t.Fatal("old face did not resolve", resolution, err)
+		}
+		t.Logf("growing-router selection elapsed_ms=%.3f anchor=%s", float64(time.Since(start))/float64(time.Millisecond), pick.Selection.Anchor.OutputSlot)
+		request.ManifestDigest = "wrong"
+		if rejected, err := service.ResolvePersistentSelection(ctx, view.Document.ID, request); err != nil || rejected.Status != modelcore.SelectionContractMismatch {
+			t.Fatal("index bypassed target snapshot qualification", rejected, err)
+		}
+	}
+	apply(workspace.CommandRequest{Type: "UNDO"})
+	if math.Abs(activeBodyArtifact(t, view).Volume-expectedVolume) > 1e-5 {
+		t.Fatal("undo changed the accepted shape")
+	}
+	apply(workspace.CommandRequest{Type: "REDO"})
+	accepted := activeBodyArtifact(t, view)
+	revision := view.Document.VersionID
+	cold, err := service.PreviewCommand(workspace.WithColdEvaluation(ctx), view.Document.ID, workspace.CommandRequest{Type: "EDIT_FEATURE", ActorID: p6Actor, RequestID: view.Document.ID + "-growing-cold", TargetID: tip.ID, Feature: &tip, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, tip.ID)})
+	if err != nil || cold.Artifact == nil {
+		t.Fatal("cold growing chain", err)
+	}
+	for _, role := range []string{"BREP", "NAMING"} {
+		if cold.Artifact.Representations[role].Digest != accepted.Representations[role].Digest {
+			t.Fatalf("cold %s differs", role)
+		}
+	}
+	current, err := service.GetDocument(ctx, view.Document.ID)
+	if err != nil || current.Document.VersionID != revision {
+		t.Fatal("read-only cold preview moved Head", err)
+	}
+}
+
+// Optional cross-build replay uses an existing development document so that
+// Feature identities, input BREP and stored artifact bytes are identical. The
+// ordinary growth scenario above also checks cached versus cold evaluation.
+func TestStoredGrowingTopologyNamingReplayThroughRouter(t *testing.T) {
+	documentID := os.Getenv("OCCCCAD_TEST_NAMING_REPLAY_DOCUMENT")
+	if documentID == "" {
+		t.Skip("requires a frozen growing-topology document from a prior build")
+	}
+	service, _, _, _, _ := featureAssociationRuntimeService(t)
+	ctx := t.Context()
+	view, err := service.GetDocument(ctx, documentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := activeBodyArtifact(t, view)
+	tip := view.Part.Features[len(view.Part.Features)-1]
+	start := time.Now()
+	cold, err := service.PreviewCommand(workspace.WithColdEvaluation(ctx), documentID, workspace.CommandRequest{Type: "EDIT_FEATURE", ActorID: p6Actor, RequestID: documentID + "-cross-build-replay", TargetID: tip.ID, Feature: &tip, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, tip.ID)})
+	if err != nil || cold.Artifact == nil {
+		t.Fatal("cold stored chain", err)
+	}
+	for _, role := range []string{"BREP", "NAMING"} {
+		if cold.Artifact.Representations[role].Digest != accepted.Representations[role].Digest {
+			t.Fatalf("stored %s bytes changed", role)
+		}
+	}
+	current, err := service.GetDocument(ctx, documentID)
+	if err != nil || current.Document.VersionID != view.Document.VersionID {
+		t.Fatal("cross-build preview moved Head", err)
+	}
+	t.Logf("stored-growing-replay features=%d elapsed_ms=%.3f exact_bytes_unchanged=true", len(view.Part.Features), float64(time.Since(start))/float64(time.Millisecond))
+}
 
 // Hold the exact result at six faces while growing real Feature history. This
 // separates scheduling/history cost from the dense STEP's increasing topology.

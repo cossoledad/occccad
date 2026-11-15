@@ -35,7 +35,7 @@ OCCT IsDone 不是接纳条件。结果须非空、有效、满足多 Solid Body
 
 未被三维结果消费的 `EDIT_SKETCH` 预览只产生草图候选；提交携带同一候选、操作 ID 和基础 Revision，复用仍通过原候选提升/CAS 门禁。被实体或曲面消费的轮廓修改继续执行真实下游。Body 制品不携带草图图元；DocumentView 和冻结 occurrence 的 `sketchVisualization` 从对应 Revision/变体投影，缩略图与视口使用同一归属及可见性。未变化的 BREP/NAMING/VISUAL 引用不因草图绘制更新。
 
-Body、Stage 和按面网格缓存的费用复用已序列化 BREP 的保守估算；历史前缀携带累计费用，不为记账重新编码驻留形体并集或遍历整个历史。共享原生图可能被重复收费，淘汰可增加冷计算，但不放宽几何或 Naming 门禁。输入 BREP 在请求与有界缓存间共享不可变字节。整个 Part 的规范化、完整历史输出、参数/视图投影与 Revision 快照仍有随模型规模增长的成本，尚未实现完整模型和存储的结构共享；缓存计量稳定也不能证明进程 RSS 恒定。
+Body、Stage 和按面网格缓存的费用复用已序列化 BREP 的保守估算，不为记账重新编码驻留形体并集。Stage 历史账本按缓存根及分叉共同保留的不可变前缀并集计费，根租借与前驱边分别计数；新增/释放只遍历新接入/失去最后所有者的前缀尾部。共享历史不因多个检查点重复收费。形体及构造上下文估算仍可能重复计费；缓存预算不是全进程 RSS 上限。输入 BREP 在请求与有界缓存间共享不可变字节。
 
 导入件的首次新操作可从该 Body 已接纳的不可变 Naming 制品恢复 ImportBody 根 transition。输入绑定冻结 BREP SHA-256、Feature/Body、导入身份分配、OCCT/策略版本、完整历史及正体积；体积来自原始导入制品，不读取已切除后的 Body Tip。Worker 验证制品摘要和归属，内核逐项验证 typed locator 与随机身份覆盖。没有可恢复的根时执行完整初始化；`ForceCold` 显式绕过恢复和阶段缓存。此优化不需要曾经计算过同一个切除结果。
 
@@ -43,13 +43,21 @@ Body、Stage 和按面网格缓存的费用复用已序列化 BREP 的保守估�
 
 一次请求内按精确 OCCT occurrence（包含朝向）复用质量与几何证据；同一语义引用且拓扑未变时可沿用已接纳证据，邻接按本次结果重建。最终邻接使用包含/共享边界索引，不做全部拓扑两两扫描。语义引用索引按完整 typed ref 查找，并保留重复候选的原顺序；不在每个输出/lineage 上线性扫描全部输入。上述索引不是持久身份，规则见 [Naming](persistent-naming.md)。
 
-前缀检查点带输入与策略 digest、历史、质量、命名及构造上下文。已完成的 FeatureResult 以不可变前缀节点共享，追加只复制当前项；恢复时一次展开公共结果，避免每一步重新复制整个历史前缀。工具、Body 阶段及范围基底的构造上下文共享不可变 ToolBuild，复制阶段时只复制索引；实际需要重执行的工具再按需复制。持久 Naming 的完整历史、顺序和摘要保持原合同。缓存超预算时可仅保留经过验证的 Tip 检查点；缺少成员重执行上下文的检查点不得服务 `SOLID_PATTERN`，须重新建立完整上下文。取消后不接纳检查点；淘汰与冷重建不改变结果语义。
+前缀检查点带输入与策略 digest、历史、质量、命名及构造上下文。完成的 FeatureResult 冻结一次，返回的 `ImmutableSequence` 与检查点持有同一只读记录；恢复只展开共享句柄索引，记录在缓存淘汰后仍由读者持有。完整历史及每个阶段的 semantic outputs 继续可读。工具、Body 阶段及范围基底的构造上下文共享不可变 ToolBuild，复制阶段时只复制索引；实际需要重执行的工具再按需复制。持久 Naming 的完整历史、顺序和摘要保持原合同。缓存超预算时可仅保留经过验证的 Tip 检查点；缺少成员重执行上下文的检查点不得服务 `SOLID_PATTERN`，须重新建立完整上下文。取消后不接纳检查点；淘汰与冷重建不改变结果语义。
 
-Worker 将原生历史逐条转入可复用的 protobuf 工作消息，直接装配 Naming v2，避免再保留整份 protobuf FeatureResult 中间数组。引用/证据表按首次出现顺序赋号，哈希仅加速完整字节键的查找，不作为身份或输出顺序。完整原生历史展开及最终制品仍存在，尚非增量持久化。
+历史摘要排序借用记录并预计算排序键，避免深拷贝证据/邻接；原 canonical 字节及顺序不变。Worker 的同一个 Naming v2 编码器接受原生只读记录及 protobuf 输入，只转换实际写出的字段。原生引用/证据以完整值记忆转换结果，再由原完整 protobuf 字节键决定共享表编号；不能只按 evidence digest 或地址合并。表仍按首次出现赋号，全部 transition、删除、歧义和当前 tip 保留，历史 semantic outputs 不先转成最终不会写出的 protobuf。新增 Evidence 编码字段时须同步完整值比较/散列及原字节对照；已有证据类型上的新 Feature 自动复用这条公共路径。当前仍输出完整 v2 文件。
 
 Boolean 和剖分通过 OCCT progress 协作取消，算法内观察本地单调取消标记，真实 transport 状态至多每 16 ms 轮询一次；检查点/网格接纳和结果发布边界强制查询真实状态，制品提交仍检查取消和过期资格。单次几何积分及部分构造器仍可能在返回后才响应取消，不承诺所有原生算法立即中断。
 
 `PartRuntimeStats` 分开记录 base、exact、Naming、display、mesh、encoding、邻接、积分次数及证据复用；Naming 再区分内核与制品装配，另记真实取消查询、网格复用/计算面数和缓存记账耗时/编码次数。GetTopology 另报排队、精确加载与查询时间，客户端接入请求计时。mesh/encoding 属于 display，缓存记账也包含在 RPC 总时长内，不能重复相加。指定复杂导入件及生成 STEP 的测量与边界见[零件性能测量](../../validation/part-feature-performance.md)。
+
+### 通用特征性能与增长边界
+
+新增 Feature 应接入既有依赖执行计划、规范输入/策略键、不可变结果、完整 Naming、显示制品及接纳门。Body 链共享前驱检查点；独立曲线/曲面共享结果容器、摘要、编码与服务端解析。公共层不按“孔/切除”选择是否优化；具体生成器仍拥有精确算法及真实 history。冷算、取消、淘汰、上游修改、重排/删除、阵列上下文、补偿历史及过期候选必须分别验证。公共层优化不意味着每类精确构造具有相同加速比。
+
+设第 i 步最终拓扑数为 Tᵢ，目前内存历史输出及显式 UNCHANGED transition 的行数仍约为 H=ΣTᵢ；若持续新增拓扑，H 可为平方增长。值共享降低复制/转换成本，服务端[按需索引](persistent-naming.md#有界解析视图与按需查询)降低重复查询成本，但首次加载仍读取全文件。Part 参数规范化、模型 JSON/digest、视图投影及 Revision 快照也尚未全面共享。
+
+后续存储设计优先采用不可变历史块、显式变化量和独立当前 tip 索引，跨 Revision 共享前缀；查询直接沿块与索引读取，避免先展开全部历史。变化量必须保留生成/修改/分裂/合并/删除/歧义及有序语义，checkpoint 应由冷恢复预算决定；GC 跟随 Revision、跨文档引用及活动作业的根可达性。它涉及新存储布局及 digest/完整性合同，**尚未实现**；不能通过丢弃旧来源、歧义、tombstone 或换用 localId 缩减数据。实施入口统一归[CAD 核心主线](../../../plans/cad-core-roadmap.md)。
 
 ## Sketcher 的显示上下文
 
@@ -66,6 +74,8 @@ Boolean 和剖分通过 OCCT progress 协作取消，算法内观察本地单调
 - `services/internal/workspace/document_history_evaluation.go`：补偿求值、冻结支撑与原历史冲突门禁。
 - `services/internal/workspace/feature_association.go`：显示贡献的分步归并、未变集合复用；不承担持久拓扑解析。
 - `workers/geometry/src/naming_artifact.hpp`：流式装配及完整字节键去重；冻结序列化摘要的回归在邻近测试。
+- `kernel/api/include/occccad/kernel/immutable_sequence.hpp`、`kernel/occt/include/internal/retained_prefix_budget.hpp`：只读返回记录及共享历史计费。
+- `kernel/occt/tests/naming_growth_scenarios.cpp`：持续新增拓扑的原生基准、旧摘要 oracle、分叉所有权及冷重建；120 步性能需显式设置 `OCCCCAD_TEST_NAMING_STEPS=120`。
 - `kernel/occt/src/occt_kernel.cpp`：精确构造、历史与门禁；先按操作符号搜索。
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp`：多区域/孔岛、ADD/REMOVE、boss/pocket、merge/split/delete、完整拓扑覆盖与冷重建。
 - `services/internal/control/solid_feature_integration_test.go`：真实 Router/Worker、预览、提交、历史及重开。

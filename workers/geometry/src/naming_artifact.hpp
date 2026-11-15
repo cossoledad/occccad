@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "naming_value_access.hpp"
 
 namespace occccad::worker {
 // Restore typed geometry evidence from the immutable v2 artifact. This is the
@@ -44,31 +45,44 @@ inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& 
     return out;
 }
 
-// The reader may reuse one protobuf scratch message. Only the compact v2
+// Protobuf readers may reuse scratch. Native readers must borrow records that
+// remain immutable for this whole call. Only the compact v2
 // representation is retained; IDs still follow first occurrence, never hash
 // table iteration. Full wire keys retain exact equality, including unknowns.
 template<class ReadFeature>
 inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest& out) {
     if (!count) throw std::invalid_argument("NAMING_OWNER_REQUIRED");
     const auto& first=read(0);
-    const bool geometric=first.has_result();
-    if(geometric ? (!first.body_id().empty() || first.result().feature_id().empty() || first.result().result_id().empty()) : first.body_id().empty())
+    const bool geometric=naming_detail::has_result(first);
+    if(geometric ? (!naming_detail::body_id(first).empty() || naming_detail::owner_result(first).feature_id().empty() || naming_detail::owner_result(first).result_id().empty()) : naming_detail::body_id(first).empty())
         throw std::invalid_argument("NAMING_OWNER_INVALID");
-    const auto body_id=first.body_id();
-    const auto result_owner=first.result();
+    const auto body_id=naming_detail::body_id(first);
+    const auto result_owner=naming_detail::owner_result(first);
     const auto result_identity=result_owner.SerializeAsString();
     out.set_schema_version(2);
     out.set_coordinate_space("PART_LOCAL");
     out.set_length_unit("mm");
     std::unordered_map<std::string, uint32_t> refs, evidence;
-    auto ref = [&](const v1::SemanticTopologyRef& value) {
+    auto wire_ref = [&](const v1::SemanticTopologyRef& value) {
         const auto key = value.SerializeAsString();
         auto [it, added] = refs.emplace(key, refs.size() + 1);
         if (added)
             *out.add_semantic_refs() = value;
         return it->second;
     };
-    auto ev = [&](const v1::SelectionEvidence& value) {
+    // Native keys borrow immutable records, but hash/compare complete values.
+    // A hit only skips conversion; full protobuf wire keys remain authoritative
+    // on a miss (including ignored fields, signed zero and optional presence).
+    std::unordered_map<const kernel::SemanticTopologyRef*,uint32_t,naming_detail::RefHash,naming_detail::RefEqual> native_refs;
+    std::unordered_map<const kernel::SelectionEvidence*,uint32_t,naming_detail::EvidenceHash,naming_detail::EvidenceEqual> native_evidence;
+    const auto ref = [&](const auto& value) {
+        if constexpr(std::is_same_v<std::decay_t<decltype(value)>,kernel::SemanticTopologyRef>) {
+            const auto found=native_refs.find(&value);if(found!=native_refs.end())return found->second;
+            v1::SemanticTopologyRef converted;naming_detail::encode_ref(value,&converted);
+            const auto id=wire_ref(converted);native_refs.emplace(&value,id);return id;
+        } else return wire_ref(value);
+    };
+    auto wire_ev = [&](const v1::SelectionEvidence& value) {
         v1::NamingEvidence packed;
         *packed.mutable_centroid() = value.centroid();
         if (value.has_measure_si())
@@ -125,55 +139,62 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
             *out.add_evidence() = packed;
         return it->second;
     };
+    const auto ev = [&](const auto& value) {
+        if constexpr(std::is_same_v<std::decay_t<decltype(value)>,kernel::SelectionEvidence>) {
+            const auto found=native_evidence.find(&value);if(found!=native_evidence.end())return found->second;
+            v1::SelectionEvidence converted;naming_detail::encode_evidence(value,&converted);
+            const auto id=wire_ev(converted);native_evidence.emplace(&value,id);return id;
+        } else return wire_ev(value);
+    };
     const auto write_snapshot = [&](auto* body) {
     for (size_t i = 0; i < count; ++i) {
         const auto& f = read(i);
-        if (f.body_id()!=body_id || f.has_result()!=geometric || f.result().SerializeAsString()!=result_identity)
+        if (naming_detail::body_id(f)!=body_id || naming_detail::has_result(f)!=geometric || naming_detail::owner_result(f).SerializeAsString()!=result_identity)
             throw std::invalid_argument("NAMING_CROSS_OWNER_TRANSITION");
-        const auto& h = f.topology_history();
+        const auto& h = naming_detail::topology_history(f);
         auto* t = out.add_transitions();
         body->add_transitions(out.transitions_size());
-        t->set_feature_id(f.feature_id());
-        t->set_body_id(f.body_id());
-        if(f.has_result())*t->mutable_result()=f.result();
-        t->set_input_feature_id(f.input_feature_id());
-        t->set_profile_feature_id(f.profile_feature_id());
-        t->set_input_geometry_id(h.input_geometry_id());
-        t->set_result_geometry_id(f.result_geometry_id());
-        t->set_evidence_digest(h.evidence_digest());
-        t->set_complete(f.topology_history_complete());
-        for (const auto& d : f.diagnostics())
+        t->set_feature_id(naming_detail::feature_id(f));
+        t->set_body_id(naming_detail::body_id(f));
+        if(naming_detail::has_result(f))*t->mutable_result()=naming_detail::owner_result(f);
+        t->set_input_feature_id(naming_detail::input_feature_id(f));
+        t->set_profile_feature_id(naming_detail::profile_feature_id(f));
+        t->set_input_geometry_id(naming_detail::input_geometry_id(h));
+        t->set_result_geometry_id(naming_detail::result_geometry_id(f));
+        t->set_evidence_digest(naming_detail::evidence_digest(h));
+        t->set_complete(naming_detail::topology_history_complete(f));
+        for (const auto& d : naming_detail::diagnostics(f))
             t->add_diagnostics(d);
-        for (const auto& l : h.lineage()) {
+        for (const auto& l : naming_detail::lineage(h)) {
             auto* p = t->add_lineage();
-            for (const auto& s : l.sources())
+            for (const auto& s : naming_detail::sources(l))
                 p->add_sources(ref(s));
-            p->set_result(ref(l.result()));
-            p->set_kind(l.kind());
-            p->set_evidence(ev(l.evidence()));
+            p->set_result(ref(naming_detail::result(l)));
+            p->set_kind(naming_detail::encoded_kind(naming_detail::kind(l)));
+            p->set_evidence(ev(naming_detail::evidence(l)));
         }
-        for (const auto& d : h.deleted()) {
+        for (const auto& d : naming_detail::deleted(h)) {
             auto* p = t->add_deleted();
-            p->set_source(ref(d.source()));
-            p->set_reason(d.reason());
-            p->set_evidence(ev(d.evidence()));
+            p->set_source(ref(naming_detail::source(d)));
+            p->set_reason(naming_detail::reason(d));
+            p->set_evidence(ev(naming_detail::evidence(d)));
         }
-        for (const auto& a : h.ambiguous()) {
+        for (const auto& a : naming_detail::ambiguous(h)) {
             auto* p = t->add_ambiguous();
-            for (const auto& s : a.sources())
+            for (const auto& s : naming_detail::sources(a))
                 p->add_sources(ref(s));
-            for (const auto& c : a.candidates())
+            for (const auto& c : naming_detail::candidates(a))
                 p->add_candidates(ref(c));
-            p->set_diagnostic_code(a.diagnostic_code());
+            p->set_diagnostic_code(naming_detail::diagnostic_code(a));
         }
         if (i+1 == count) {
             body->set_tip_transition(out.transitions_size());
-            for (const auto& o : f.semantic_outputs()) {
+            for (const auto& o : naming_detail::semantic_outputs(f)) {
                 auto* p = body->add_tip();
-                p->set_topology_type(o.topology_type());
-                p->set_local_id(o.local_id());
-                p->set_semantic_ref(ref(o.semantic_ref()));
-                p->set_evidence(ev(o.evidence()));
+                p->set_topology_type(naming_detail::encoded_type(naming_detail::topology_type(o)));
+                p->set_local_id(naming_detail::local_id(o));
+                p->set_semantic_ref(ref(naming_detail::semantic_ref(o)));
+                p->set_evidence(ev(naming_detail::evidence(o)));
             }
         }
     }

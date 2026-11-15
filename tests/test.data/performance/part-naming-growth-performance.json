@@ -1,0 +1,1965 @@
+{
+  "schema": "occccad.part-naming-growth-performance.v1",
+  "measuredAtUTC": "2026-11-15",
+  "environment": {
+    "cpu": "AMD Ryzen 9 9950X",
+    "platform": "WSL2 Linux x86_64",
+    "native": "Release / OCCT 7.9.1",
+    "database": "configured SQLite",
+    "artifactStore": "configured LOCAL",
+    "resources": "current .env; no reset or alternate database/bucket"
+  },
+  "baselineCommit": "bb86d22b6853d65609a4afddb1ea728adeb1e3a5",
+  "sourceFiles": [
+    {
+      "path": "kernel/api/include/occccad/kernel/topology_naming.hpp",
+      "sha256": "1c3d1cdca8da38d2328dc95b8342c615e48d8bd59ecda3a5bb0021d2f717c4a8"
+    },
+    {
+      "path": "kernel/occt/src/occt_kernel.cpp",
+      "sha256": "6ba5f4f4ea0aee6e6f73b262d0531211da3ddbf225fd2aa70b5e8e8c69907a24"
+    },
+    {
+      "path": "kernel/occt/tests/CMakeLists.txt",
+      "sha256": "e7bd404721855503bb21f734cd7109cd0572d5fdac8d26943a8bb2a6221df23f"
+    },
+    {
+      "path": "services/internal/control/part_feature_performance_integration_test.go",
+      "sha256": "549f5390f97d751279fc99890db4f07558ba276564e42b53e9bbc29a3e2a1dab"
+    },
+    {
+      "path": "services/internal/workspace/naming_artifact.go",
+      "sha256": "70980d70e0bc68a401c1fdbcd3513b802879ec646dbef78f58e0e96ce062a592"
+    },
+    {
+      "path": "services/internal/workspace/service.go",
+      "sha256": "aa8fcfa2b4beebc748db79e68e3dc92af3fa0273fb4622d56fd1d9259bb7a529"
+    },
+    {
+      "path": "services/internal/workspace/topology_naming_diagnostics.go",
+      "sha256": "3793540296dd717ec5412187f5c93d8c9c7977e3af14250bcbbe3712f2aa5423"
+    },
+    {
+      "path": "services/internal/workspace/topology_naming_diagnostics_test.go",
+      "sha256": "01a85518752ce039f6d1f96c3fa31651bf28ddd98ff503df4879cc594f080465"
+    },
+    {
+      "path": "services/internal/workspace/topology_selection.go",
+      "sha256": "c4fc7b592ba9896b1f1729bcac1317403cb508f33d8d856802f4c0f6d7dcfaaa"
+    },
+    {
+      "path": "workers/geometry/src/main.cpp",
+      "sha256": "d038e5f8dd4cd08ef452973ef2fcbe637b6b32d40a6e001b5f1efbb5677646d8"
+    },
+    {
+      "path": "workers/geometry/src/naming_artifact.hpp",
+      "sha256": "92cf9237a7815686a31e5c3df525a0c0a61dd78ed30519978084f7e1845785ab"
+    },
+    {
+      "path": "workers/geometry/tests/naming_artifact_test.cpp",
+      "sha256": "11701fdb7e0c283d80ce96c933fe483025935abfda9059305e93d1771723e257"
+    },
+    {
+      "path": "kernel/api/include/occccad/kernel/immutable_sequence.hpp",
+      "sha256": "5b7ffe961e9a05a7970bd3faf513289d3391d5b68257e3a6a6e82d876c358758"
+    },
+    {
+      "path": "kernel/occt/include/internal/naming_digest.hpp",
+      "sha256": "f7938ab0001a6d6965a8ddd1b5923248c37ac6b014bd057e885d15a280b84544"
+    },
+    {
+      "path": "kernel/occt/include/internal/retained_prefix_budget.hpp",
+      "sha256": "2803e62791e927faf645fdde708393e753fbf92141225c8c462decd59065a8de"
+    },
+    {
+      "path": "kernel/occt/tests/naming_growth_scenarios.cpp",
+      "sha256": "a4b120373a2382c712c50b4a3eeac41e841b089cfab7b2d34d00a4a39ab00da6"
+    },
+    {
+      "path": "services/internal/workspace/naming_search.go",
+      "sha256": "8d28d1040d6345187296b06197d1f64ec672199ce185914e186d10474374bb29"
+    },
+    {
+      "path": "services/internal/workspace/naming_search_performance_test.go",
+      "sha256": "f4dbabe4d3ac05dd46a5362d6f4bbaa495f2cf6e3b654b3dbaab026a9e8dbb15"
+    },
+    {
+      "path": "services/internal/workspace/naming_search_reference_test.go",
+      "sha256": "ece91dcec3626360dd6986f2375a3d4d4925def4bab181fe08049b52e4dbb402"
+    },
+    {
+      "path": "services/internal/workspace/naming_search_test.go",
+      "sha256": "fc0ca842d06a49cf176bd09d17e2725b8d3b6fbd31a1bf7632ac897233a91e15"
+    },
+    {
+      "path": "services/internal/workspace/naming_view_cache.go",
+      "sha256": "16e2a7608ffc871c3d574ff2ba9e73faac8a2e47fcaa70961b2082a4647344e9"
+    },
+    {
+      "path": "services/internal/workspace/naming_view_cache_test.go",
+      "sha256": "89afa30108fb96ad7d28d2daba79dfe29fd8acbd62a5a7cc0b22d37589ee4f3a"
+    },
+    {
+      "path": "workers/geometry/src/naming_value_access.hpp",
+      "sha256": "5426fee7b0429214910d7c4023fb41e1d748c0cef3875fba8881e28208b4e5e4"
+    }
+  ],
+  "binaries": {
+    "build/performance/naming-growth/baseline/occcad_geometry_scenarios": "fae96d0c91bc04ad5798e254109ab69bc4ed941f7c46513a885ae3e9631e9626",
+    "build/performance/naming-growth/baseline/occccad_geometry_worker": "35ba496a5153784b577fd2d59eb889e43f8262b30736461d7d542f612b66ad17",
+    "build/cmake/linux-gcc15-x86_64/release/kernel/occt/tests/occcad_geometry_scenarios": "ba04921517df4ae8a61476d54a8e78918ad70e7422207d9890c05a27d292a934",
+    "build/cmake/linux-gcc15-x86_64/release/workers/geometry/occccad_geometry_worker": "6ab64e74c3528543588491ff4ccc9f14f0846828065d97eef9bd9447ae5cf2ca"
+  },
+  "native": {
+    "boundary": "evaluateProfilePadsWithHistory only: exact geometry, complete semantic history, stage ownership/accounting; excludes mesh, Naming protobuf artifact packing, service/HTTP/browser",
+    "recipe": {
+      "units": "mm",
+      "base": "56 x 72 x 3 rectangle",
+      "operations": 120,
+      "operation": "ADD distinct bosses; odd circular radius .45, even rectangular 1 x 1",
+      "positions": "x=2+(step%12)*4, y=2+(step/12)*4",
+      "length": "7+(step%9)*.1; edit last +.25",
+      "identities": "deterministic native fixture identities unchanged across both binaries",
+      "stageBudgetBytes": 134217728
+    },
+    "samplesPerVariant": 3,
+    "samples": {
+      "baseline": [
+        {
+          "log": "build/performance/naming-growth/baseline/native-1.log",
+          "checkpoints": [
+            {
+              "steps": 1,
+              "elapsed_ms": 6.65533,
+              "base_ms": 0.059331,
+              "exact_ms": 5.09882,
+              "naming_ms": 1.39828,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 250688,
+              "peak_rss_bytes": 25903104,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396",
+              "operation": "append"
+            },
+            {
+              "steps": 20,
+              "elapsed_ms": 55.5,
+              "base_ms": 7.78036,
+              "exact_ms": 24.5155,
+              "naming_ms": 14.0312,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 133259440,
+              "peak_rss_bytes": 140009472,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01",
+              "operation": "append"
+            },
+            {
+              "steps": 50,
+              "elapsed_ms": 181.374,
+              "base_ms": 44.081,
+              "exact_ms": 53.4987,
+              "naming_ms": 39.2627,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 105047680,
+              "peak_rss_bytes": 677539840,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141",
+              "operation": "append"
+            },
+            {
+              "steps": 100,
+              "elapsed_ms": 542.975,
+              "base_ms": 162.577,
+              "exact_ms": 103.936,
+              "naming_ms": 113.044,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 86304752,
+              "peak_rss_bytes": 2420940800,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 743.612,
+              "base_ms": 215.289,
+              "exact_ms": 139.514,
+              "naming_ms": 159.509,
+              "stages_executed": 1,
+              "stages_reused": 120,
+              "history_outputs": 118766,
+              "history_lineages": 118766,
+              "tip_outputs": 1946,
+              "stage_bytes": 122012048,
+              "peak_rss_bytes": 3453530112,
+              "geometry": "sha256:4acb9074be67bab339ed7c438a1b055dad200712e59618bb65a08f9e1eb44cb7",
+              "history_digest": "sha256:586014afa6742354456f9f4a2ee7343365cfe2c39cae4627cefd5b27569830c2",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 13251.5,
+              "base_ms": 0.026871,
+              "exact_ms": 7462.45,
+              "naming_ms": 4634.72,
+              "stages_executed": 121,
+              "stages_reused": 0,
+              "operation": "tip_edit"
+            }
+          ]
+        },
+        {
+          "log": "build/performance/naming-growth/baseline/native-2.log",
+          "checkpoints": [
+            {
+              "steps": 1,
+              "elapsed_ms": 6.15243,
+              "base_ms": 0.05011,
+              "exact_ms": 4.81236,
+              "naming_ms": 1.20344,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 250688,
+              "peak_rss_bytes": 24104960,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396",
+              "operation": "append"
+            },
+            {
+              "steps": 20,
+              "elapsed_ms": 56.9357,
+              "base_ms": 8.41542,
+              "exact_ms": 24.2818,
+              "naming_ms": 14.3489,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 133259440,
+              "peak_rss_bytes": 138354688,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01",
+              "operation": "append"
+            },
+            {
+              "steps": 50,
+              "elapsed_ms": 169.212,
+              "base_ms": 43.0931,
+              "exact_ms": 49.9506,
+              "naming_ms": 30.9944,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 105047680,
+              "peak_rss_bytes": 675553280,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141",
+              "operation": "append"
+            },
+            {
+              "steps": 100,
+              "elapsed_ms": 504.63,
+              "base_ms": 158.677,
+              "exact_ms": 101.512,
+              "naming_ms": 76.5215,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 86304752,
+              "peak_rss_bytes": 2418667520,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 993.498,
+              "base_ms": 218.428,
+              "exact_ms": 161.284,
+              "naming_ms": 126.102,
+              "stages_executed": 1,
+              "stages_reused": 120,
+              "history_outputs": 118766,
+              "history_lineages": 118766,
+              "tip_outputs": 1946,
+              "stage_bytes": 122012048,
+              "peak_rss_bytes": 3453710336,
+              "geometry": "sha256:4acb9074be67bab339ed7c438a1b055dad200712e59618bb65a08f9e1eb44cb7",
+              "history_digest": "sha256:586014afa6742354456f9f4a2ee7343365cfe2c39cae4627cefd5b27569830c2",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 13596.3,
+              "base_ms": 0.326516,
+              "exact_ms": 7527.2,
+              "naming_ms": 4537.21,
+              "stages_executed": 121,
+              "stages_reused": 0,
+              "operation": "tip_edit"
+            }
+          ]
+        },
+        {
+          "log": "build/performance/naming-growth/baseline/native-3.log",
+          "checkpoints": [
+            {
+              "steps": 1,
+              "elapsed_ms": 5.91257,
+              "base_ms": 0.05351,
+              "exact_ms": 4.56403,
+              "naming_ms": 1.20489,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 250688,
+              "peak_rss_bytes": 25255936,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396",
+              "operation": "append"
+            },
+            {
+              "steps": 20,
+              "elapsed_ms": 57.4832,
+              "base_ms": 9.5366,
+              "exact_ms": 23.6352,
+              "naming_ms": 14.0131,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 133259440,
+              "peak_rss_bytes": 139468800,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01",
+              "operation": "append"
+            },
+            {
+              "steps": 50,
+              "elapsed_ms": 173.266,
+              "base_ms": 46.6955,
+              "exact_ms": 50.2573,
+              "naming_ms": 31.1822,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 105047680,
+              "peak_rss_bytes": 676995072,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141",
+              "operation": "append"
+            },
+            {
+              "steps": 100,
+              "elapsed_ms": 505.604,
+              "base_ms": 159.852,
+              "exact_ms": 99.584,
+              "naming_ms": 75.4857,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 86304752,
+              "peak_rss_bytes": 2420187136,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 687.608,
+              "base_ms": 220.729,
+              "exact_ms": 131.516,
+              "naming_ms": 99.7442,
+              "stages_executed": 1,
+              "stages_reused": 120,
+              "history_outputs": 118766,
+              "history_lineages": 118766,
+              "tip_outputs": 1946,
+              "stage_bytes": 122012048,
+              "peak_rss_bytes": 3455184896,
+              "geometry": "sha256:4acb9074be67bab339ed7c438a1b055dad200712e59618bb65a08f9e1eb44cb7",
+              "history_digest": "sha256:586014afa6742354456f9f4a2ee7343365cfe2c39cae4627cefd5b27569830c2",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 13064.6,
+              "base_ms": 0.028091,
+              "exact_ms": 7463.43,
+              "naming_ms": 4466.71,
+              "stages_executed": 121,
+              "stages_reused": 0,
+              "operation": "tip_edit"
+            }
+          ]
+        },
+        {
+          "log": "build/performance/naming-growth/baseline/native-check.log",
+          "checkpoints": []
+        }
+      ],
+      "current": [
+        {
+          "log": "build/performance/naming-growth/current/native-1.log",
+          "checkpoints": [
+            {
+              "steps": 1,
+              "elapsed_ms": 6.3156,
+              "base_ms": 0.016409,
+              "exact_ms": 5.08371,
+              "naming_ms": 1.17931,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 225728,
+              "peak_rss_bytes": 23572480,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396",
+              "operation": "append"
+            },
+            {
+              "steps": 20,
+              "elapsed_ms": 32.2964,
+              "base_ms": 0.247377,
+              "exact_ms": 22.2138,
+              "naming_ms": 9.41761,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 112564592,
+              "peak_rss_bytes": 73551872,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01",
+              "operation": "append"
+            },
+            {
+              "steps": 50,
+              "elapsed_ms": 71.1261,
+              "base_ms": 0.867242,
+              "exact_ms": 48.4759,
+              "naming_ms": 20.5072,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 105047680,
+              "peak_rss_bytes": 285335552,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141",
+              "operation": "append"
+            },
+            {
+              "steps": 100,
+              "elapsed_ms": 161.054,
+              "base_ms": 2.30801,
+              "exact_ms": 100.894,
+              "naming_ms": 44.3663,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 89346128,
+              "peak_rss_bytes": 897970176,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 198.98,
+              "base_ms": 2.72282,
+              "exact_ms": 126.317,
+              "naming_ms": 61.299,
+              "stages_executed": 1,
+              "stages_reused": 120,
+              "history_outputs": 118766,
+              "history_lineages": 118766,
+              "tip_outputs": 1946,
+              "stage_bytes": 125676992,
+              "peak_rss_bytes": 1242820608,
+              "geometry": "sha256:4acb9074be67bab339ed7c438a1b055dad200712e59618bb65a08f9e1eb44cb7",
+              "history_digest": "sha256:586014afa6742354456f9f4a2ee7343365cfe2c39cae4627cefd5b27569830c2",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 199.855,
+              "base_ms": 2.94207,
+              "exact_ms": 127.506,
+              "naming_ms": 61.6227,
+              "stages_executed": 1,
+              "stages_reused": 120,
+              "operation": "tip_edit"
+            }
+          ]
+        },
+        {
+          "log": "build/performance/naming-growth/current/native-2.log",
+          "checkpoints": [
+            {
+              "steps": 1,
+              "elapsed_ms": 5.5104,
+              "base_ms": 0.01511,
+              "exact_ms": 4.42404,
+              "naming_ms": 1.03751,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 225728,
+              "peak_rss_bytes": 23314432,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396",
+              "operation": "append"
+            },
+            {
+              "steps": 20,
+              "elapsed_ms": 32.4773,
+              "base_ms": 0.234898,
+              "exact_ms": 22.3827,
+              "naming_ms": 9.49102,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 112564592,
+              "peak_rss_bytes": 73256960,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01",
+              "operation": "append"
+            },
+            {
+              "steps": 50,
+              "elapsed_ms": 75.4529,
+              "base_ms": 0.979301,
+              "exact_ms": 50.9243,
+              "naming_ms": 22.0242,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 105047680,
+              "peak_rss_bytes": 285188096,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141",
+              "operation": "append"
+            },
+            {
+              "steps": 100,
+              "elapsed_ms": 164.254,
+              "base_ms": 2.5122,
+              "exact_ms": 103.309,
+              "naming_ms": 45.076,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 89346128,
+              "peak_rss_bytes": 897826816,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 197.767,
+              "base_ms": 2.99099,
+              "exact_ms": 125.711,
+              "naming_ms": 59.9363,
+              "stages_executed": 1,
+              "stages_reused": 120,
+              "history_outputs": 118766,
+              "history_lineages": 118766,
+              "tip_outputs": 1946,
+              "stage_bytes": 125676992,
+              "peak_rss_bytes": 1242435584,
+              "geometry": "sha256:4acb9074be67bab339ed7c438a1b055dad200712e59618bb65a08f9e1eb44cb7",
+              "history_digest": "sha256:586014afa6742354456f9f4a2ee7343365cfe2c39cae4627cefd5b27569830c2",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 197.918,
+              "base_ms": 3.24613,
+              "exact_ms": 127.015,
+              "naming_ms": 60.2438,
+              "stages_executed": 1,
+              "stages_reused": 120,
+              "operation": "tip_edit"
+            }
+          ]
+        },
+        {
+          "log": "build/performance/naming-growth/current/native-3.log",
+          "checkpoints": [
+            {
+              "steps": 1,
+              "elapsed_ms": 6.3813,
+              "base_ms": 0.01497,
+              "exact_ms": 5.20886,
+              "naming_ms": 1.12603,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 225728,
+              "peak_rss_bytes": 23052288,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396",
+              "operation": "append"
+            },
+            {
+              "steps": 20,
+              "elapsed_ms": 32.2295,
+              "base_ms": 0.223498,
+              "exact_ms": 22.2442,
+              "naming_ms": 9.38757,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 112564592,
+              "peak_rss_bytes": 73195520,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01",
+              "operation": "append"
+            },
+            {
+              "steps": 50,
+              "elapsed_ms": 74.329,
+              "base_ms": 0.909181,
+              "exact_ms": 50.1592,
+              "naming_ms": 21.6833,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 105047680,
+              "peak_rss_bytes": 284782592,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141",
+              "operation": "append"
+            },
+            {
+              "steps": 100,
+              "elapsed_ms": 159.431,
+              "base_ms": 2.25395,
+              "exact_ms": 100.48,
+              "naming_ms": 44.2367,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 89346128,
+              "peak_rss_bytes": 897044480,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 199.065,
+              "base_ms": 2.82814,
+              "exact_ms": 125.214,
+              "naming_ms": 62.745,
+              "stages_executed": 1,
+              "stages_reused": 120,
+              "history_outputs": 118766,
+              "history_lineages": 118766,
+              "tip_outputs": 1946,
+              "stage_bytes": 125676992,
+              "peak_rss_bytes": 1241812992,
+              "geometry": "sha256:4acb9074be67bab339ed7c438a1b055dad200712e59618bb65a08f9e1eb44cb7",
+              "history_digest": "sha256:586014afa6742354456f9f4a2ee7343365cfe2c39cae4627cefd5b27569830c2",
+              "operation": "append"
+            },
+            {
+              "steps": 120,
+              "elapsed_ms": 197.866,
+              "base_ms": 3.08018,
+              "exact_ms": 126.542,
+              "naming_ms": 60.9626,
+              "stages_executed": 1,
+              "stages_reused": 120,
+              "operation": "tip_edit"
+            }
+          ]
+        }
+      ]
+    },
+    "medians": [
+      {
+        "steps": 1,
+        "operation": "append",
+        "baseline": {
+          "steps": 1,
+          "elapsed_ms": 6.15243,
+          "base_ms": 0.05351,
+          "exact_ms": 4.81236,
+          "naming_ms": 1.20489,
+          "stages_executed": 1,
+          "stages_reused": 1,
+          "history_outputs": 59,
+          "history_lineages": 59,
+          "tip_outputs": 33,
+          "stage_bytes": 250688,
+          "peak_rss_bytes": 25255936
+        },
+        "current": {
+          "steps": 1,
+          "elapsed_ms": 6.3156,
+          "base_ms": 0.01511,
+          "exact_ms": 5.08371,
+          "naming_ms": 1.12603,
+          "stages_executed": 1,
+          "stages_reused": 1,
+          "history_outputs": 59,
+          "history_lineages": 59,
+          "tip_outputs": 33,
+          "stage_bytes": 225728,
+          "peak_rss_bytes": 23314432
+        }
+      },
+      {
+        "steps": 20,
+        "operation": "append",
+        "baseline": {
+          "steps": 20,
+          "elapsed_ms": 56.9357,
+          "base_ms": 8.41542,
+          "exact_ms": 24.2818,
+          "naming_ms": 14.0312,
+          "stages_executed": 1,
+          "stages_reused": 20,
+          "history_outputs": 3816,
+          "history_lineages": 3816,
+          "tip_outputs": 346,
+          "stage_bytes": 133259440,
+          "peak_rss_bytes": 139468800
+        },
+        "current": {
+          "steps": 20,
+          "elapsed_ms": 32.2964,
+          "base_ms": 0.234898,
+          "exact_ms": 22.2442,
+          "naming_ms": 9.41761,
+          "stages_executed": 1,
+          "stages_reused": 20,
+          "history_outputs": 3816,
+          "history_lineages": 3816,
+          "tip_outputs": 346,
+          "stage_bytes": 112564592,
+          "peak_rss_bytes": 73256960
+        }
+      },
+      {
+        "steps": 50,
+        "operation": "append",
+        "baseline": {
+          "steps": 50,
+          "elapsed_ms": 173.266,
+          "base_ms": 44.081,
+          "exact_ms": 50.2573,
+          "naming_ms": 31.1822,
+          "stages_executed": 1,
+          "stages_reused": 50,
+          "history_outputs": 21501,
+          "history_lineages": 21501,
+          "tip_outputs": 826,
+          "stage_bytes": 105047680,
+          "peak_rss_bytes": 676995072
+        },
+        "current": {
+          "steps": 50,
+          "elapsed_ms": 74.329,
+          "base_ms": 0.909181,
+          "exact_ms": 50.1592,
+          "naming_ms": 21.6833,
+          "stages_executed": 1,
+          "stages_reused": 50,
+          "history_outputs": 21501,
+          "history_lineages": 21501,
+          "tip_outputs": 826,
+          "stage_bytes": 105047680,
+          "peak_rss_bytes": 285188096
+        }
+      },
+      {
+        "steps": 100,
+        "operation": "append",
+        "baseline": {
+          "steps": 100,
+          "elapsed_ms": 505.604,
+          "base_ms": 159.852,
+          "exact_ms": 101.512,
+          "naming_ms": 76.5215,
+          "stages_executed": 1,
+          "stages_reused": 100,
+          "history_outputs": 82976,
+          "history_lineages": 82976,
+          "tip_outputs": 1626,
+          "stage_bytes": 86304752,
+          "peak_rss_bytes": 2420187136
+        },
+        "current": {
+          "steps": 100,
+          "elapsed_ms": 161.054,
+          "base_ms": 2.30801,
+          "exact_ms": 100.894,
+          "naming_ms": 44.3663,
+          "stages_executed": 1,
+          "stages_reused": 100,
+          "history_outputs": 82976,
+          "history_lineages": 82976,
+          "tip_outputs": 1626,
+          "stage_bytes": 89346128,
+          "peak_rss_bytes": 897826816
+        }
+      },
+      {
+        "steps": 120,
+        "operation": "append",
+        "baseline": {
+          "steps": 120,
+          "elapsed_ms": 743.612,
+          "base_ms": 218.428,
+          "exact_ms": 139.514,
+          "naming_ms": 126.102,
+          "stages_executed": 1,
+          "stages_reused": 120,
+          "history_outputs": 118766,
+          "history_lineages": 118766,
+          "tip_outputs": 1946,
+          "stage_bytes": 122012048,
+          "peak_rss_bytes": 3453710336
+        },
+        "current": {
+          "steps": 120,
+          "elapsed_ms": 198.98,
+          "base_ms": 2.82814,
+          "exact_ms": 125.711,
+          "naming_ms": 61.299,
+          "stages_executed": 1,
+          "stages_reused": 120,
+          "history_outputs": 118766,
+          "history_lineages": 118766,
+          "tip_outputs": 1946,
+          "stage_bytes": 125676992,
+          "peak_rss_bytes": 1242435584
+        }
+      },
+      {
+        "steps": 120,
+        "operation": "tip_edit",
+        "baseline": {
+          "steps": 120,
+          "elapsed_ms": 13251.5,
+          "base_ms": 0.028091,
+          "exact_ms": 7463.43,
+          "naming_ms": 4537.21,
+          "stages_executed": 121,
+          "stages_reused": 0
+        },
+        "current": {
+          "steps": 120,
+          "elapsed_ms": 197.918,
+          "base_ms": 3.08018,
+          "exact_ms": 127.015,
+          "naming_ms": 60.9626,
+          "stages_executed": 1,
+          "stages_reused": 120
+        }
+      }
+    ],
+    "correctness": "all checkpoint BREP GeometryIds, full history digests and topology/history counts match frozen baseline; each run also compares cold geometry and every transition digest; final implementation asserts one-stage append/tip edit and immutable prefix lease survival",
+    "memoryBoundary": "ru_maxrss sampled after each append: cumulative process high-water from the entire preceding build chain; not a per-operation peak, live heap, steady-state RSS or cache hard limit",
+    "reproduce": "OCCCCAD_TEST_NAMING_STEPS=120 <scenario binary> --gtest_filter=GeometryIncrementalHistory.GrowingTopologyKeepsCompleteHistoryAndColdResult (three serial processes; no concurrent builds/tests)"
+  },
+  "searchMicrobenchmark": {
+    "boundary": "Go only, immutable shared-ref synthetic history; excludes OCCT, artifact I/O/unmarshal/unpack, HTTP and browser; 3 iterations per case, one run, not P95",
+    "recipe": "each step adds 2 new faces, carries all previous UNCHANGED records, and modifies/deletes the anchor every 9 steps; generated supports are not identity continuation",
+    "baseline": [
+      {
+        "name": "BenchmarkNamingResolveGrowingHistory",
+        "steps": 100,
+        "iterations": 3,
+        "nsPerOp": 1992702,
+        "bytesPerOp": 2026184,
+        "allocationsPerOp": 31600
+      },
+      {
+        "name": "BenchmarkNamingResolveGrowingHistory",
+        "steps": 300,
+        "iterations": 3,
+        "nsPerOp": 14224504,
+        "bytesPerOp": 17601341,
+        "allocationsPerOp": 274807
+      },
+      {
+        "name": "BenchmarkNamingResolveGrowingHistory",
+        "steps": 1000,
+        "iterations": 3,
+        "nsPerOp": 142077035,
+        "bytesPerOp": 193029928,
+        "allocationsPerOp": 3015934
+      }
+    ],
+    "current": [
+      {
+        "name": "BenchmarkNamingResolveGrowingHistory",
+        "steps": 100,
+        "iterations": 3,
+        "nsPerOp": 323264,
+        "bytesPerOp": 103248,
+        "allocationsPerOp": 975
+      },
+      {
+        "name": "BenchmarkNamingResolveGrowingHistory",
+        "steps": 300,
+        "iterations": 3,
+        "nsPerOp": 2797724,
+        "bytesPerOp": 361562,
+        "allocationsPerOp": 2789
+      },
+      {
+        "name": "BenchmarkNamingResolveGrowingHistory",
+        "steps": 1000,
+        "iterations": 3,
+        "nsPerOp": 29638291,
+        "bytesPerOp": 1324656,
+        "allocationsPerOp": 9068
+      },
+      {
+        "name": "BenchmarkNamingIndexedQueryGrowingHistory",
+        "steps": 100,
+        "iterations": 3,
+        "nsPerOp": 7863,
+        "bytesPerOp": 3554,
+        "allocationsPerOp": 18
+      },
+      {
+        "name": "BenchmarkNamingIndexedQueryGrowingHistory",
+        "steps": 300,
+        "iterations": 3,
+        "nsPerOp": 9823,
+        "bytesPerOp": 7184,
+        "allocationsPerOp": 25
+      },
+      {
+        "name": "BenchmarkNamingIndexedQueryGrowingHistory",
+        "steps": 1000,
+        "iterations": 3,
+        "nsPerOp": 28513,
+        "bytesPerOp": 14416,
+        "allocationsPerOp": 29
+      }
+    ],
+    "comparison": "ResolveGrowingHistory includes first index construction plus query in current, full scan in baseline. IndexedQueryGrowingHistory builds the index outside timing; it is a separate reuse boundary, not the first-query comparison.",
+    "reproduce": "go -C services test ./internal/workspace -run 'TestNaming|TestTopologyManifest' -bench 'BenchmarkNaming(Resolve|IndexedQuery)GrowingHistory' -benchtime=3x -count=1 -benchmem -v"
+  },
+  "routerWriterAndViewValidation": {
+    "boundary": "normal Workspace Service through production Router and real Worker; one serial recipe run per variant, independent generated business identities. Before is intermediate current-turn implementation AFTER native prefix fixes and indexed search, BEFORE native-value writer memoization and 128 MiB parsed-view admission. This is not a whole-HEAD service comparison.",
+    "before": {
+      "log": "build/agent-check/20261115T041107.074500385/03-router-integration.log",
+      "checkpoints": [
+        {
+          "steps": 20,
+          "features": 42,
+          "elapsed_ms": 162.462,
+          "naming_bytes": 405976,
+          "operation": "append",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 20,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.087787,
+            "exact_ms": 24.216108,
+            "naming_ms": 36.574736,
+            "display_ms": 10.678965,
+            "artifact_io_ms": 5.14916,
+            "stage_cache_bytes": 112564592,
+            "input_prepare_ms": 0.416374,
+            "peak_rss_bytes": 130301952,
+            "mesh_ms": 4.12179,
+            "encoding_ms": 0.283429,
+            "response_cache_bytes": 7829732,
+            "visual_cache_bytes": 11351688,
+            "base_ms": 0.845338,
+            "adjacency_ms": 0.212232,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 70,
+            "naming_kernel_ms": 10.7825,
+            "naming_artifact_ms": 25.792236,
+            "cancellation_polls": 6,
+            "cancellation_poll_ms": 0.468,
+            "mesh_reused_faces": 69,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 0.8685279999999995,
+            "cache_accounting_serializations": 2
+          }
+        },
+        {
+          "steps": 50,
+          "features": 102,
+          "elapsed_ms": 423.699,
+          "naming_bytes": 1372071,
+          "operation": "append",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 50,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.078217,
+            "exact_ms": 53.63395,
+            "naming_ms": 177.884361,
+            "display_ms": 23.311768,
+            "artifact_io_ms": 9.156056,
+            "stage_cache_bytes": 105047680,
+            "stage_evictions": 1,
+            "input_prepare_ms": 0.906725,
+            "peak_rss_bytes": 596393984,
+            "mesh_ms": 9.347238,
+            "encoding_ms": 0.583927,
+            "response_cache_bytes": 52236241,
+            "visual_cache_bytes": 62970640,
+            "base_ms": 2.090368,
+            "adjacency_ms": 0.51608,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 175,
+            "naming_kernel_ms": 27.822381,
+            "naming_artifact_ms": 150.06198,
+            "cancellation_polls": 8,
+            "cancellation_poll_ms": 0.692,
+            "mesh_reused_faces": 174,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 2.0856390000000005,
+            "cache_accounting_serializations": 2
+          }
+        },
+        {
+          "steps": 100,
+          "features": 202,
+          "elapsed_ms": 1201.492,
+          "naming_bytes": 3980416,
+          "operation": "append",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 100,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.098406,
+            "exact_ms": 113.238965,
+            "naming_ms": 691.1485660000001,
+            "display_ms": 54.288009,
+            "artifact_io_ms": 21.227044,
+            "stage_cache_bytes": 89346128,
+            "stage_evictions": 1,
+            "input_prepare_ms": 1.54255,
+            "peak_rss_bytes": 1898008576,
+            "mesh_ms": 20.163726,
+            "encoding_ms": 1.261251,
+            "response_cache_bytes": 63028244,
+            "visual_cache_bytes": 64639456,
+            "base_ms": 3.927937,
+            "adjacency_ms": 1.260091,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 350,
+            "naming_kernel_ms": 54.294558,
+            "naming_artifact_ms": 636.854008,
+            "cancellation_polls": 13,
+            "cancellation_poll_ms": 1.128,
+            "mesh_reused_faces": 349,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 4.090188000000012,
+            "cache_accounting_serializations": 2
+          }
+        },
+        {
+          "steps": 120,
+          "features": 242,
+          "elapsed_ms": 1696.907,
+          "naming_bytes": 5373286,
+          "operation": "append",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 120,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.088737,
+            "exact_ms": 142.980666,
+            "naming_ms": 1065.523358,
+            "display_ms": 66.279415,
+            "artifact_io_ms": 37.741063999999994,
+            "stage_cache_bytes": 125676992,
+            "stage_evictions": 1,
+            "input_prepare_ms": 1.567768,
+            "peak_rss_bytes": 2738642944,
+            "mesh_ms": 22.981097,
+            "encoding_ms": 1.431914,
+            "response_cache_bytes": 63571033,
+            "visual_cache_bytes": 61875720,
+            "base_ms": 4.676789,
+            "adjacency_ms": 1.399016,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 420,
+            "naming_kernel_ms": 68.837596,
+            "naming_artifact_ms": 996.685762,
+            "cancellation_polls": 13,
+            "cancellation_poll_ms": 1.115,
+            "mesh_reused_faces": 419,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 5.232247000000029,
+            "cache_accounting_serializations": 2
+          }
+        },
+        {
+          "steps": 120,
+          "elapsed_ms": 1709.187,
+          "operation": "tip_edit",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 120,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.084547,
+            "exact_ms": 147.2358,
+            "naming_ms": 1067.6251869999999,
+            "display_ms": 65.601961,
+            "artifact_io_ms": 27.629277000000002,
+            "stage_cache_bytes": 125677120,
+            "stage_evictions": 1,
+            "input_prepare_ms": 1.458893,
+            "peak_rss_bytes": 2756759552,
+            "mesh_ms": 23.133291,
+            "encoding_ms": 1.495522,
+            "response_cache_bytes": 64288443,
+            "visual_cache_bytes": 62010072,
+            "base_ms": 4.861361,
+            "adjacency_ms": 2.219894,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 420,
+            "naming_kernel_ms": 72.200545,
+            "naming_artifact_ms": 995.424642,
+            "cancellation_polls": 14,
+            "cancellation_poll_ms": 1.246,
+            "mesh_reused_faces": 419,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 5.38969000000003,
+            "cache_accounting_serializations": 2
+          }
+        }
+      ],
+      "selectionsMs": [
+        47.138,
+        37.385,
+        48.282
+      ],
+      "passed": [
+        "--- PASS: TestGrowingTopologyPartFeaturesAndNamingThroughRouter (119.39s)"
+      ]
+    },
+    "current": {
+      "log": "build/agent-check/20261115T043744.695047720/03-router-integration.log",
+      "checkpoints": [
+        {
+          "steps": 20,
+          "features": 42,
+          "elapsed_ms": 151.157,
+          "naming_bytes": 405976,
+          "operation": "append",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 20,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.084529,
+            "exact_ms": 24.985552,
+            "naming_ms": 25.189821000000002,
+            "display_ms": 9.562524,
+            "artifact_io_ms": 4.307131,
+            "stage_cache_bytes": 112564592,
+            "input_prepare_ms": 0.502056,
+            "peak_rss_bytes": 119107584,
+            "mesh_ms": 3.937694,
+            "encoding_ms": 0.279967,
+            "response_cache_bytes": 7829764,
+            "visual_cache_bytes": 11351720,
+            "base_ms": 0.893812,
+            "adjacency_ms": 0.196888,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 70,
+            "naming_kernel_ms": 13.015712,
+            "naming_artifact_ms": 12.174109,
+            "cancellation_polls": 6,
+            "cancellation_poll_ms": 0.467,
+            "mesh_reused_faces": 69,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 0.9428710000000002,
+            "cache_accounting_serializations": 2
+          }
+        },
+        {
+          "steps": 50,
+          "features": 102,
+          "elapsed_ms": 344.008,
+          "naming_bytes": 1372071,
+          "operation": "append",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 50,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.087499,
+            "exact_ms": 54.384429,
+            "naming_ms": 94.33573100000001,
+            "display_ms": 24.296756,
+            "artifact_io_ms": 8.6068,
+            "stage_cache_bytes": 105047680,
+            "stage_evictions": 1,
+            "input_prepare_ms": 0.791733,
+            "peak_rss_bytes": 518230016,
+            "mesh_ms": 10.068332,
+            "encoding_ms": 0.736074,
+            "response_cache_bytes": 52236273,
+            "visual_cache_bytes": 62970672,
+            "base_ms": 1.877033,
+            "adjacency_ms": 0.514165,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 175,
+            "naming_kernel_ms": 33.000016,
+            "naming_artifact_ms": 61.335715,
+            "cancellation_polls": 9,
+            "cancellation_poll_ms": 0.828,
+            "mesh_reused_faces": 174,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 2.2312590000000014,
+            "cache_accounting_serializations": 2
+          }
+        },
+        {
+          "steps": 100,
+          "features": 202,
+          "elapsed_ms": 835.861,
+          "naming_bytes": 3980416,
+          "operation": "append",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 100,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.090629,
+            "exact_ms": 111.184606,
+            "naming_ms": 327.086062,
+            "display_ms": 53.460628,
+            "artifact_io_ms": 22.61384,
+            "stage_cache_bytes": 89346128,
+            "stage_evictions": 1,
+            "input_prepare_ms": 1.646294,
+            "peak_rss_bytes": 1532076032,
+            "mesh_ms": 21.726901,
+            "encoding_ms": 1.144069,
+            "response_cache_bytes": 63028244,
+            "visual_cache_bytes": 64639456,
+            "base_ms": 4.155822,
+            "adjacency_ms": 1.225099,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 350,
+            "naming_kernel_ms": 84.90748,
+            "naming_artifact_ms": 242.178582,
+            "cancellation_polls": 13,
+            "cancellation_poll_ms": 1.04,
+            "mesh_reused_faces": 349,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 4.1810509999999965,
+            "cache_accounting_serializations": 2
+          }
+        },
+        {
+          "steps": 120,
+          "features": 242,
+          "elapsed_ms": 1040.509,
+          "naming_bytes": 5373286,
+          "operation": "append",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 120,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.100849,
+            "exact_ms": 152.601309,
+            "naming_ms": 427.430472,
+            "display_ms": 69.619945,
+            "artifact_io_ms": 26.755115,
+            "stage_cache_bytes": 125676992,
+            "stage_evictions": 1,
+            "input_prepare_ms": 2.518237,
+            "peak_rss_bytes": 1991127040,
+            "mesh_ms": 25.874455,
+            "encoding_ms": 1.286618,
+            "response_cache_bytes": 63571033,
+            "visual_cache_bytes": 61875720,
+            "base_ms": 5.616319,
+            "adjacency_ms": 1.907002,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 420,
+            "naming_kernel_ms": 66.943309,
+            "naming_artifact_ms": 360.487163,
+            "cancellation_polls": 15,
+            "cancellation_poll_ms": 1.369,
+            "mesh_reused_faces": 419,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 5.955667000000062,
+            "cache_accounting_serializations": 2
+          }
+        },
+        {
+          "steps": 120,
+          "elapsed_ms": 1030.049,
+          "operation": "tip_edit",
+          "worker": {
+            "stages_executed": 1,
+            "stages_reused": 120,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.083439,
+            "exact_ms": 159.548946,
+            "naming_ms": 415.346653,
+            "display_ms": 68.637655,
+            "artifact_io_ms": 26.5049,
+            "stage_cache_bytes": 125677120,
+            "stage_evictions": 1,
+            "input_prepare_ms": 2.120661,
+            "peak_rss_bytes": 2002354176,
+            "mesh_ms": 24.929563,
+            "encoding_ms": 1.466506,
+            "response_cache_bytes": 64288443,
+            "visual_cache_bytes": 62010072,
+            "base_ms": 5.628698,
+            "adjacency_ms": 2.061512,
+            "volume_integrations": 1,
+            "face_evidence_computed": 7,
+            "face_evidence_reused": 420,
+            "naming_kernel_ms": 67.792602,
+            "naming_artifact_ms": 347.554051,
+            "cancellation_polls": 17,
+            "cancellation_poll_ms": 1.475,
+            "mesh_reused_faces": 419,
+            "mesh_computed_faces": 7,
+            "cache_accounting_ms": 5.85882799999996,
+            "cache_accounting_serializations": 2
+          }
+        }
+      ],
+      "selectionsMs": [
+        4.475,
+        1.264,
+        1.277
+      ],
+      "passed": [
+        "--- PASS: TestGrowingTopologyPartFeaturesAndNamingThroughRouter (92.20s)",
+        "--- PASS: TestStoredGrowingTopologyNamingReplayThroughRouter (15.39s)"
+      ],
+      "crossBuildReplay": "stored-growing-replay features=242 elapsed_ms=14131.756 exact_bytes_unchanged=true"
+    },
+    "topologyAt120": {
+      "faces": 426,
+      "edges": 912,
+      "vertices": 608,
+      "totalTipOutputs": 1946,
+      "historyOutputs": 118766,
+      "threeDFeatures": 121,
+      "featuresIncludingSketches": 242,
+      "namingBytes": 5373286
+    },
+    "correctness": "one-stage appends and tip edit; exact expected volume; three old source face references resolve; wrong target manifest digest rejected; Undo/Redo; cold BREP/NAMING equivalence; Head unchanged by cold preview; cross-build replay of the earlier stored 242-feature document retains exact BREP/NAMING bytes",
+    "parsedViewBudgetBytes": 134217728,
+    "parsedViewCharging": "encodedBytes*16 plus metadata; conservative admission estimate, not process RSS or a measured decoded-size upper bound; oversized views share the in-flight load but are not retained",
+    "reproduce": "mise run check --scope services --level integration --match 'TestGrowingTopologyPartFeaturesAndNamingThroughRouter|TestStoredGrowingTopologyNamingReplayThroughRouter' --test-jobs 1 --jobs 4; optional stored replay requires OCCCCAD_TEST_NAMING_REPLAY_DOCUMENT referencing a frozen prior-build development document"
+  },
+  "limitations": [
+    "No remote 10 MB B-pillar input, CATIA comparison, GPU timing, P95 or industrial-capacity conclusion.",
+    "Native and service timings are different boundaries; service before/after covers only the second part of this turn.",
+    "Full v2 transition rows, evidence and historical outputs are preserved. With growing topology, explicit unchanged lineage storage remains proportional to the sum of tip sizes. Chunk/delta persistence and incremental Revision model storage remain design directions.",
+    "Common pipeline savings apply wherever the shared result/encoder/resolver contract is used; exact Boolean/loft/fillet algorithms still need feature-specific measurements. This fixture does not measure every feature type.",
+    "Cache budgets do not bound OCCT/allocator/process memory or active reader leases."
+  ],
+  "research": [
+    {
+      "title": "Making Data Structures Persistent (Driscoll, Sarnak, Sleator, Tarjan)",
+      "url": "https://www.cs.cmu.edu/~sleator/papers/making-data-structures-persistent.pdf",
+      "application": "immutable prefix structural sharing and ownership ledger, not an implementation of every paper algorithm"
+    },
+    {
+      "title": "Demand interprocedural dataflow analysis (Horwitz, Reps, Sagiv)",
+      "url": "https://research.cs.wisc.edu/wpis/papers/fse95a.pdf",
+      "application": "query-driven relevant event traversal; chronological tombstone semantics retained; no IFDS complexity theorem claimed"
+    }
+  ],
+  "validation": {
+    "reports": [
+      {
+        "report": "build/agent-check/20261115T043433.288804166/report.json",
+        "status": "PASS",
+        "source": {
+          "commit": "bb86d22b6853d65609a4afddb1ea728adeb1e3a5",
+          "dirty": true,
+          "files": 1697,
+          "sha256": "96a892ba0e0b491c40067957981d457b4c1d258581f21c9cf0d2e8d3605a1460"
+        },
+        "sourceAfterSha256": "96a892ba0e0b491c40067957981d457b4c1d258581f21c9cf0d2e8d3605a1460",
+        "steps": [
+          {
+            "id": "geometry-build-occcad_geometry_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-build-occccad_naming_artifact_tests",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-native",
+            "status": "PASS",
+            "counts": {
+              "started": 10,
+              "passed": 10,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "notApplicable": []
+      },
+      {
+        "report": "build/agent-check/20261115T044030.847585827/report.json",
+        "status": "PASS",
+        "source": {
+          "commit": "bb86d22b6853d65609a4afddb1ea728adeb1e3a5",
+          "dirty": true,
+          "files": 1697,
+          "sha256": "b5a4dbf9021727e9a3c3d723300e5c43b7f5e2362554d94869af3b3242c3274e"
+        },
+        "sourceAfterSha256": "b5a4dbf9021727e9a3c3d723300e5c43b7f5e2362554d94869af3b3242c3274e",
+        "steps": [
+          {
+            "id": "assembly-build-occcad_assembly_solver_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "assembly-build-occcad_assembly_solver_corpus",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-build-occcad_geometry_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-build-occccad_naming_artifact_tests",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "sketch-build-occcad_sketch_solver_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "web-production",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "assembly-native",
+            "status": "PASS",
+            "counts": {
+              "started": 233,
+              "passed": 233,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-native",
+            "status": "PASS",
+            "counts": {
+              "started": 204,
+              "passed": 204,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "sketch-native",
+            "status": "PASS",
+            "counts": {
+              "started": 67,
+              "passed": 67,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "workspace-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 762,
+              "passed": 762,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "services-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 1025,
+              "passed": 1023,
+              "failed": 0,
+              "skipped": 2
+            }
+          },
+          {
+            "id": "tooling-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 92,
+              "passed": 92,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "web-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 171,
+              "passed": 171,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "docs",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "contract-tools",
+            "status": "PASS",
+            "counts": {
+              "started": 41,
+              "passed": 41,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "go-conformance-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 2,
+              "passed": 2,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "codegen-drift",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "notApplicable": [
+          {
+            "package": "github.com/occccad/occccad/internal/thumbnail",
+            "name": "TestStudioMeasurements",
+            "status": "NOT_APPLICABLE",
+            "detail": "=== RUN   TestStudioMeasurements\n    studio_measurement_test.go:19: NOT_APPLICABLE: optional native-GLB studio measurement export\n--- SKIP: TestStudioMeasurements (0.00s)\n"
+          },
+          {
+            "package": "github.com/occccad/occccad/internal/thumbnail",
+            "name": "TestThumbnailGallery",
+            "status": "NOT_APPLICABLE",
+            "detail": "=== RUN   TestThumbnailGallery\n    render_test.go:259: NOT_APPLICABLE: optional thumbnail gallery export\n--- SKIP: TestThumbnailGallery (0.00s)\n"
+          }
+        ]
+      },
+      {
+        "report": "build/agent-check/20261115T043744.695047720/report.json",
+        "status": "PASS",
+        "source": {
+          "commit": "bb86d22b6853d65609a4afddb1ea728adeb1e3a5",
+          "dirty": true,
+          "files": 1697,
+          "sha256": "b5a4dbf9021727e9a3c3d723300e5c43b7f5e2362554d94869af3b3242c3274e"
+        },
+        "sourceAfterSha256": "b5a4dbf9021727e9a3c3d723300e5c43b7f5e2362554d94869af3b3242c3274e",
+        "steps": [
+          {
+            "id": "integration-native-occccad_geometry_worker",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occcad_geometry_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occccad_naming_artifact_tests",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "router-integration",
+            "status": "PASS",
+            "counts": {
+              "started": 2,
+              "passed": 2,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "notApplicable": []
+      },
+      {
+        "report": "build/agent-check/20261115T044925.798390549/report.json",
+        "status": "PASS",
+        "source": {
+          "commit": "bb86d22b6853d65609a4afddb1ea728adeb1e3a5",
+          "dirty": true,
+          "files": 1698,
+          "sha256": "d4ce5294879f3b0795e82966e2da4b73de52aeaa8dc8671735cbdf168045af13"
+        },
+        "sourceAfterSha256": "d4ce5294879f3b0795e82966e2da4b73de52aeaa8dc8671735cbdf168045af13",
+        "steps": [
+          {
+            "id": "integration-native-occccad_geometry_worker",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occcad_geometry_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occccad_naming_artifact_tests",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "router-integration",
+            "status": "PASS",
+            "counts": {
+              "started": 9,
+              "passed": 9,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "notApplicable": []
+      },
+      {
+        "report": "build/agent-check/20261115T045050.787752078/report.json",
+        "status": "PASS",
+        "source": {
+          "commit": "bb86d22b6853d65609a4afddb1ea728adeb1e3a5",
+          "dirty": true,
+          "files": 1698,
+          "sha256": "d4ce5294879f3b0795e82966e2da4b73de52aeaa8dc8671735cbdf168045af13"
+        },
+        "sourceAfterSha256": "d4ce5294879f3b0795e82966e2da4b73de52aeaa8dc8671735cbdf168045af13",
+        "steps": [
+          {
+            "id": "integration-native-occccad_geometry_worker",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occcad_geometry_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occccad_naming_artifact_tests",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "workspace-integration",
+            "status": "PASS",
+            "counts": {
+              "started": 18,
+              "passed": 18,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "notApplicable": []
+      }
+    ],
+    "race": {
+      "status": "PASS",
+      "log": "build/performance/naming-growth/current/search-race-validation.log",
+      "scope": "Naming search, parsed-view cache, manifest qualification and legacy differential tests; -race -count=1"
+    },
+    "runtimeDoctor": "build/performance/naming-growth/current/doctor-live.log",
+    "browser": {
+      "report": "build/performance/naming-growth/current/browser-report.json",
+      "renderer": "Chromium / SwiftShader",
+      "stats": {
+        "startTime": "2026-11-15T04:52:18.807Z",
+        "duration": 79138.143,
+        "expected": 6,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "cases": [
+        {
+          "name": "Extracted faces sew and close from viewport as a whole skin while source faces stay visible",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMs": 14211
+            }
+          ]
+        },
+        {
+          "name": "Engineering surface display: curved sheets, point glyphs, dark theme and real thumbnails",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMs": 14113
+            }
+          ]
+        },
+        {
+          "name": "face sketch drawing retains accepted Body buffers and BVH",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMs": 7149
+            }
+          ]
+        },
+        {
+          "name": "Hole preview keeps one shaded result through picking and cancel",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMs": 14796
+            }
+          ]
+        },
+        {
+          "name": "unified patterns preserve mirrored cut tools and highlight each actual owner",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMs": 17827
+            }
+          ]
+        },
+        {
+          "name": "solid and face highlights retain material appearance and use spatial contour lines",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMs": 8985
+            }
+          ]
+        }
+      ],
+      "scope": "6 selected live workflows; no browser capacity/latency or GPU measurements"
+    },
+    "runtimeDoctorStatus": {
+      "runningBuild": "PASS",
+      "database": "PASS",
+      "nativeFreshness": "NOT_RUN by Ninja dry-run; actual native build/checks above passed"
+    },
+    "runtimeObservations": {
+      "log": "build/performance/naming-growth/current/dev-runtime.log",
+      "observed": "startup Jobs SQLITE_BUSY and transient document-list/preview HTTP 500 were present while using the shared development data; causal relationship not established",
+      "followup": "two authenticated document-list reads and one affected preview read returned HTTP 200 after browser completion",
+      "boundary": "selected browser flows passed; this does not certify zero errors across every application request"
+    },
+    "documentation": {
+      "status": "PASS",
+      "log": "build/performance/naming-growth/current/docs-validation.log",
+      "markdownPages": 98
+    },
+    "contracts": {
+      "status": "PASS",
+      "log": "build/performance/naming-growth/current/contract-validation.log",
+      "passed": 41
+    },
+    "diffCheck": "PASS git diff --check",
+    "measurementSourceRecheck": "PASS: all recorded production and test source file SHA-256 values still match at closeout; later changes are documentation and this evidence JSON only"
+  }
+}

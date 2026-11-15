@@ -8,6 +8,7 @@
 #define OCCCCAD_TOPOLOGY_NAMING_HPP
 
 #include <occccad/kernel/kernel.hpp>
+#include <occccad/kernel/immutable_sequence.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -193,7 +194,7 @@ struct ImportTopologySeed {
 
 struct ProfileEvaluationResult {
     GeometryId geometry_id;
-    std::vector<FeatureResult> feature_results;
+    ImmutableSequence<FeatureResult> feature_results;
 };
 
 }  // namespace occccad::kernel

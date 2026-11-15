@@ -2,12 +2,9 @@ package workspace
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -16,8 +13,6 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
 )
-
-const topologySelectionResolverVersion = "semantic-continuation-v1"
 
 type BindPersistentSelectionRequest struct {
 	Result          *modelcore.GeometryResultReference `json:"result,omitempty"`
@@ -486,10 +481,18 @@ func semanticRef(source *workerv1.SemanticTopologyRef) modelcore.SemanticTopolog
 	return modelcore.SemanticTopologyRef{FeatureID: source.GetFeatureId(), OutputSlot: source.GetOutputSlot(), SourceIDs: append([]string(nil), source.GetSourceIds()...)}
 }
 
+func copySelectionScalar[T any](source *T) *T {
+	if source == nil {
+		return nil
+	}
+	value := *source
+	return &value
+}
+
 func selectionEvidence(source *workerv1.SelectionEvidence) modelcore.TopologySelectionEvidence {
 	result := modelcore.TopologySelectionEvidence{GeometryType: source.GetGeometryType(), MeasureDimension: source.GetMeasureDimension(), EvidenceDigest: source.GetEvidenceDigest()}
-	result.MinorRadiusMM = source.MinorRadiusMm
-	result.RadiusMM, result.HalfAngleRadians, result.ConeLeaf, result.MaterialSide = source.RadiusMm, source.HalfAngleRadians, source.ConeLeaf, source.MaterialSide
+	result.MinorRadiusMM = copySelectionScalar(source.MinorRadiusMm)
+	result.RadiusMM, result.HalfAngleRadians, result.ConeLeaf, result.MaterialSide = copySelectionScalar(source.RadiusMm), copySelectionScalar(source.HalfAngleRadians), copySelectionScalar(source.ConeLeaf), copySelectionScalar(source.MaterialSide)
 	if x := source.GetXDirection(); x != nil {
 		result.XDirection = [3]float64{x.X, x.Y, x.Z}
 	}
@@ -607,19 +610,13 @@ func manifestOutput(manifest *topologyManifest, kind modelcore.PersistentTopolog
 	return entry.Output, entry.BodyID
 }
 func manifestSemanticOutput(manifest *topologyManifest, selection modelcore.PersistentSelection) *workerv1.SemanticTopologyOutput {
-	tip := manifest.selectionTip(selection)
-	if tip == nil {
-		return nil
-	}
-	for _, output := range tip.SemanticOutputs {
-		if topologyType(output.GetTopologyType()) == selection.ExpectedType && sameSemanticRef(semanticRef(output.GetSemanticRef()), selection.Anchor) {
-			return output
-		}
-	}
-	return nil
+	return namingSearch(manifest).semanticOutput(selection)
 }
 
 func topologyHistoryComplete(manifest *topologyManifest) bool {
+	if manifest != nil && manifest.search != nil {
+		return manifest.search.complete
+	}
 	features := manifest.GetFeatureResults()
 	if len(features) == 0 {
 		return false
@@ -641,117 +638,7 @@ func unavailableSelectionResolution(code, diagnostic string) modelcore.Selection
 // resolveManifest follows semantic lineage only. Geometry evidence confirms and explains
 // candidates; it is never used as a nearest-shape identity fallback.
 func resolveManifest(selection modelcore.PersistentSelection, geometryKey string, manifest *topologyManifest) modelcore.SelectionResolution {
-	result := modelcore.SelectionResolution{Status: modelcore.SelectionMissing, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "PERSISTENT_SELECTION_MISSING", Diagnostic: "semantic anchor has no result in the target body tip"}
-	current := map[string]modelcore.SemanticTopologyRef{refKey(selection.Anchor): selection.Anchor}
-	seenAnchor := false
-	for _, feature := range manifest.GetFeatureResults() {
-		if !selectionOwnsFeature(selection, feature) {
-			continue
-		}
-		for _, lineage := range feature.GetTopologyHistory().GetLineage() {
-			if sameSemanticRef(semanticRef(lineage.GetResult()), selection.Anchor) {
-				seenAnchor = true
-			}
-			matched := false
-			for _, source := range lineage.GetSources() {
-				if _, ok := current[refKey(semanticRef(source))]; ok {
-					matched = true
-					seenAnchor = true
-					break
-				}
-			}
-			if matched {
-				// Generated records constructive support, not continuation of
-				// the source's identity (e.g. shell inner walls, fillet surfaces,
-				// or pattern replicas). Explicit generated anchors still start
-				// in current; follow their Modified/Split/Merged history normally.
-				if lineage.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED {
-					continue
-				}
-				ref := semanticRef(lineage.GetResult())
-				current[refKey(ref)] = ref
-			}
-		}
-		for _, ambiguous := range feature.GetTopologyHistory().GetAmbiguous() {
-			matched := false
-			for _, source := range ambiguous.GetSources() {
-				if _, ok := current[refKey(semanticRef(source))]; ok {
-					matched = true
-					seenAnchor = true
-				}
-			}
-			if matched {
-				for _, candidate := range ambiguous.GetCandidates() {
-					ref := semanticRef(candidate)
-					current[refKey(ref)] = ref
-				}
-			}
-		}
-		for _, deleted := range feature.GetTopologyHistory().GetDeleted() {
-			if sameSemanticRef(semanticRef(deleted.GetSource()), selection.Anchor) {
-				seenAnchor = true
-			}
-			delete(current, refKey(semanticRef(deleted.GetSource())))
-		}
-	}
-	if !seenAnchor {
-		for _, feature := range manifest.GetFeatureResults() {
-			if !selectionOwnsFeature(selection, feature) {
-				continue
-			}
-			for _, output := range feature.GetSemanticOutputs() {
-				if sameSemanticRef(semanticRef(output.GetSemanticRef()), selection.Anchor) {
-					seenAnchor = true
-				}
-			}
-		}
-	}
-	if !seenAnchor {
-		result.Status = modelcore.SelectionOutsideCurrentTip
-		result.DiagnosticCode = "PERSISTENT_SELECTION_OUTSIDE_CURRENT_TIP"
-		result.Diagnostic = "anchor feature is not part of the target body tip"
-		return result
-	}
-	tip := manifest.selectionTip(selection)
-	if tip == nil {
-		return result
-	}
-	for _, output := range tip.GetSemanticOutputs() {
-		ref := semanticRef(output.GetSemanticRef())
-		if _, ok := current[refKey(ref)]; !ok {
-			continue
-		}
-		if topologyType(output.GetTopologyType()) != selection.ExpectedType {
-			result.Status = modelcore.SelectionTypeMismatch
-			result.DiagnosticCode = "PERSISTENT_SELECTION_TYPE_MISMATCH"
-			continue
-		}
-		evidence := selectionEvidence(output.GetEvidence())
-		if !candidateMatchesRecipe(selection, ref, evidence) {
-			continue
-		}
-		result.Candidates = append(result.Candidates, modelcore.ResolvedTopologyElement{GeometryID: manifest.GeometryID, GeometryKey: geometryKey, Type: selection.ExpectedType, LocalID: output.GetLocalId(), SemanticRef: ref, Evidence: evidence})
-	}
-	sort.Slice(result.Candidates, func(i, j int) bool {
-		return refKey(result.Candidates[i].SemanticRef) < refKey(result.Candidates[j].SemanticRef)
-	})
-	switch len(result.Candidates) {
-	case 1:
-		result.Status = modelcore.SelectionResolved
-		result.SupportingElementStatus = modelcore.SupportingElementConnected
-		result.DiagnosticCode = ""
-		result.Diagnostic = ""
-		result.EvidenceDigest = result.Candidates[0].Evidence.EvidenceDigest
-	case 0:
-		if result.Status != modelcore.SelectionTypeMismatch {
-			result.Status = modelcore.SelectionMissing
-		}
-	default:
-		result.Status = modelcore.SelectionAmbiguous
-		result.DiagnosticCode = "PERSISTENT_SELECTION_AMBIGUOUS"
-		result.Diagnostic = "lineage produced multiple valid candidates; reconnect or use a more specific recipe"
-	}
-	return result
+	return namingSearch(manifest).resolve(selection, geometryKey, manifest.GeometryID, nil)
 }
 
 func (service *Service) topologyManifestForVersion(ctx context.Context, documentID, versionID, bodyID string) (*topologyManifest, string, string, error) {
@@ -862,15 +749,7 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.ManifestDigest != "" && !strings.EqualFold(request.ManifestDigest, digest) {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "TARGET_MANIFEST_MISMATCH"}, nil
 	}
-	selectionJSON, _ := json.Marshal(request.Selection)
-	cacheHash := sha256.Sum256(append(selectionJSON, []byte("|"+request.TargetVersionID+"|"+digest+"|"+request.PolicyDigest+"|"+topologySelectionResolverVersion)...))
-	cacheKey := hex.EncodeToString(cacheHash[:])
-	if cached, ok := service.selectionResolutions.Load(cacheKey); ok {
-		return cached.(modelcore.SelectionResolution), nil
-	}
-	resolution := resolveManifest(request.Selection, geometryKey, manifest)
-	service.selectionResolutions.Store(cacheKey, resolution)
-	return resolution, nil
+	return resolveManifest(request.Selection, geometryKey, manifest), nil
 }
 
 func datumAssemblyReferenceExists(part PartModel, reference AssemblyGeometryRef) bool {

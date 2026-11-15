@@ -28,6 +28,10 @@
 - 历史语义恢复沿 transition；不是按 localId 或最近几何匹配。当前没有任意历史节点几何 snapshot 查询接口；需要历史 Revision 时读取该不可变 Revision 的 Naming Artifact。未来可增加可选 checkpoint/delta，不能退回每个 Feature 无条件全量快照。
 - Loader 拒绝越界表引用、错误 owner 归属、重复 locator、未知 schema/单位/参数约定。内存 domain view 按 Body Tip 或精确 FeatureResult 查询，不能使用全局最后一个 Feature。
 
+Worker 直接借用不可变原生记录，仅转换需要写出的值；同一个编码器仍支持 protobuf 输入。完整值记忆只减少重复转换，首次出现顺序及完整 wire key 决定引用/证据表编号；地址、hash 和 evidence digest 都不单独定义等价。冻结原编码器摘要及跨构建冷重放用于验证字节合同。
+
+v2 仍在每个新结果文件写出全 transition 链，显式 UNCHANGED 行也占空间。共享 ref/evidence 表不消除这些行或跨 Revision 的重复；持续新增拓扑时不能把它称为增量存储。服务端可共享有界的[已解析视图和查询索引](persistent-naming.md#有界解析视图与按需查询)，历史块/变化量的后续设计及边界归[Part 求值](part-feature-evaluation.md#通用特征性能与增长边界)。
+
 ## 演进与边界
 
 旧 v1 文件不兼容读取；开发数据通过维护者运行 `mise run data:reset --yes` 后重建。新字段遵循 protobuf 保留字段号、glTF extension 和显式 schemaVersion；消费者不能把未知必需语义当成已支持。Preview 仍是 transient representation，可使用同一个显示 schema，但不成为正式 Naming/业务真相。

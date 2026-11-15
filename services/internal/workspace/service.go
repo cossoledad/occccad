@@ -78,6 +78,7 @@ func (service *Service) BranchWorkspace(ctx context.Context, documentID string, 
 
 type Service struct {
 	prepared                 preparedCache
+	namingViews              namingViewCache
 	database                 database.DB
 	worker                   *geometry.Client
 	artifacts                *artifactstore.Service
@@ -93,7 +94,6 @@ type Service struct {
 	assemblyInteractions     assemblyInteractionCache
 	assemblyEngineering      assemblyEngineeringCache
 	mechanismSessions        mechanismSessionCache
-	selectionResolutions     sync.Map
 }
 
 func New(database database.DB, worker *geometry.Client) *Service {
