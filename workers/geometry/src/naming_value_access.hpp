@@ -1,5 +1,6 @@
 #pragma once
 #include <occccad/kernel/topology_naming.hpp>
+#include <occccad/kernel/topology_value_key.hpp>
 #include <occccad/worker/v1/geometry_worker.pb.h>
 #include <algorithm>
 #include <cstring>
@@ -38,6 +39,29 @@ OCCCCAD_NAMING_FIELD(topology_type)
 OCCCCAD_NAMING_FIELD(local_id)
 OCCCCAD_NAMING_FIELD(semantic_ref)
 #undef OCCCCAD_NAMING_FIELD
+
+// A frozen history projects borrowed rows and bindings without materializing
+// every old FeatureResult. Both storage encoders use the same value adapters.
+#define OCCCCAD_FROZEN_HEADER(name) inline decltype(auto) name(const kernel::FrozenFeatureResult& v){return (v.header().name);}
+OCCCCAD_FROZEN_HEADER(feature_id)
+OCCCCAD_FROZEN_HEADER(body_id)
+OCCCCAD_FROZEN_HEADER(input_feature_id)
+OCCCCAD_FROZEN_HEADER(profile_feature_id)
+OCCCCAD_FROZEN_HEADER(result_geometry_id)
+OCCCCAD_FROZEN_HEADER(topology_history_complete)
+OCCCCAD_FROZEN_HEADER(diagnostics)
+#undef OCCCCAD_FROZEN_HEADER
+#define OCCCCAD_FROZEN_HISTORY(name) inline decltype(auto) name(const kernel::FrozenFeatureResult& v){return (v.header().topology_history.name);}
+OCCCCAD_FROZEN_HISTORY(input_geometry_id)
+OCCCCAD_FROZEN_HISTORY(evidence_digest)
+OCCCCAD_FROZEN_HISTORY(deleted)
+OCCCCAD_FROZEN_HISTORY(ambiguous)
+#undef OCCCCAD_FROZEN_HISTORY
+inline const auto& topology_history(const kernel::FrozenFeatureResult& v){return v;}
+inline const auto& lineage(const kernel::FrozenFeatureResult& v){return v.lineage();}
+inline auto semantic_outputs(const kernel::FrozenFeatureResult& v){return v.outputs();}
+inline bool has_result(const kernel::FrozenFeatureResult& v){return !v.header().result_id.empty();}
+inline v1::GeometryResultReference owner_result(const kernel::FrozenFeatureResult& v){v1::GeometryResultReference r;if(has_result(v)){r.set_feature_id(v.header().feature_id);r.set_result_id(v.header().result_id);}return r;}
 
 template<class T> bool has_result(const T& value) {
     if constexpr(std::is_base_of_v<google::protobuf::MessageLite,T>) return value.has_result();
@@ -90,39 +114,9 @@ inline void encode_evidence(const kernel::SelectionEvidence& source,v1::Selectio
     target->set_evidence_digest(source.evidence_digest);
 }
 
-inline uint64_t bits(double value){uint64_t result;std::memcpy(&result,&value,sizeof(result));return result;}
-inline bool equal_vec(const kernel::Vec3& a,const kernel::Vec3& b){return bits(a.x)==bits(b.x)&&bits(a.y)==bits(b.y)&&bits(a.z)==bits(b.z);}
-inline bool equal_real(const std::optional<double>& a,const std::optional<double>& b){return a.has_value()==b.has_value()&&(!a||bits(*a)==bits(*b));}
-inline bool equal_ref(const kernel::SemanticTopologyRef& a,const kernel::SemanticTopologyRef& b){return a.feature_id==b.feature_id&&a.output_slot==b.output_slot&&a.source_ids==b.source_ids;}
-struct RefHash {
-    size_t operator()(const kernel::SemanticTopologyRef* ref)const {
-        size_t result=std::hash<std::string>{}(ref->feature_id);
-        const auto add=[&](const auto& value){result^=std::hash<std::decay_t<decltype(value)>>{}(value)+0x9e3779b9+(result<<6)+(result>>2);};
-        add(ref->output_slot);add(ref->source_ids.size());for(const auto& id:ref->source_ids)add(id);return result;
-    }
-};
-struct RefEqual {bool operator()(const kernel::SemanticTopologyRef* a,const kernel::SemanticTopologyRef* b)const{return equal_ref(*a,*b);}};
-struct EvidenceHash {
-    size_t operator()(const kernel::SelectionEvidence* e)const {
-        size_t result=0;
-        const auto add=[&](const auto& value){result^=std::hash<std::decay_t<decltype(value)>>{}(value)+0x9e3779b9+(result<<6)+(result>>2);};
-        const auto vec=[&](const auto& value){add(bits(value.x));add(bits(value.y));add(bits(value.z));};
-        const auto real=[&](const auto& value){add(value.has_value());if(value)add(bits(*value));};
-        add(e->geometry_type);add(e->measure_dimension);add(e->endpoint_role);add(e->evidence_digest);
-        vec(e->centroid);vec(e->origin);vec(e->direction);real(e->measure_si);real(e->parameter_start);real(e->parameter_end);real(e->radius_mm);real(e->minor_radius_mm);real(e->half_angle_radians);
-        add(e->cone_leaf.has_value());if(e->cone_leaf)add(*e->cone_leaf);add(e->material_side.has_value());if(e->material_side)add(*e->material_side);
-        add(e->x_direction.has_value());if(e->x_direction)vec(*e->x_direction);
-        add(e->adjacent.size());for(const auto& adjacent:e->adjacent)add(RefHash{}(&adjacent));return result;
-    }
-};
-struct EvidenceEqual {
-    bool operator()(const kernel::SelectionEvidence* a,const kernel::SelectionEvidence* b)const {
-        return a->geometry_type==b->geometry_type&&a->measure_dimension==b->measure_dimension&&a->endpoint_role==b->endpoint_role&&a->evidence_digest==b->evidence_digest&&
-            equal_vec(a->centroid,b->centroid)&&equal_vec(a->origin,b->origin)&&equal_vec(a->direction,b->direction)&&
-            equal_real(a->measure_si,b->measure_si)&&equal_real(a->parameter_start,b->parameter_start)&&equal_real(a->parameter_end,b->parameter_end)&&
-            equal_real(a->radius_mm,b->radius_mm)&&equal_real(a->minor_radius_mm,b->minor_radius_mm)&&equal_real(a->half_angle_radians,b->half_angle_radians)&&
-            a->cone_leaf==b->cone_leaf&&a->material_side==b->material_side&&a->x_direction.has_value()==b->x_direction.has_value()&&(!a->x_direction||equal_vec(*a->x_direction,*b->x_direction))&&
-            a->adjacent.size()==b->adjacent.size()&&std::equal(a->adjacent.begin(),a->adjacent.end(),b->adjacent.begin(),equal_ref);
-    }
-};
+using kernel::detail::RefHash;
+using kernel::detail::RefEqual;
+using kernel::detail::EvidenceHash;
+using kernel::detail::EvidenceEqual;
+
 }

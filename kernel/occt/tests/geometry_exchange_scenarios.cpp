@@ -3584,14 +3584,19 @@ TEST(GeometryExchange, CompactCheckpointResumesButRebuildsPatternContext) {
     const auto resumed=kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime);
     ASSERT_EQ(stats.stages_reused,3U) << "compact accepted Tip must remain reusable";
     EXPECT_EQ(resumed.geometry_id,accepted.geometry_id);
+    const auto d=generator("next",8,4,23);
+    runtime.stage_keys.push_back("compact-next");
+    kernel.evaluateProfilePadsWithHistory({a,b,c,d},{},nullptr,runtime);
+    EXPECT_EQ(stats.stages_reused,3U);
+    EXPECT_EQ(stats.stages_executed,1U);
     ProfilePadSpec pattern;pattern.feature_id="array";pattern.body_id="body";pattern.generator="SOLID_PATTERN";
     pattern.pattern_source_kind="GENERATOR_TOOL";pattern.pattern_source_feature_id="stem";
     pattern.pattern_placements={{0,{1,0,0,0,0,1,0,0,0,0,1,0}},{1,{1,0,0,25,0,1,0,0,0,0,1,0}}};
     runtime.stage_keys.push_back("compact-array");
-    const auto rebuilt=kernel.evaluateProfilePadsWithHistory({a,b,c,pattern},{},nullptr,runtime);
-    EXPECT_LT(stats.stages_reused,3U) << "Pattern must not borrow a Tip lacking construction context";
+    const auto rebuilt=kernel.evaluateProfilePadsWithHistory({a,b,c,d,pattern},{},nullptr,runtime);
+    EXPECT_LT(stats.stages_reused,4U) << "Ordinary continuation cannot promote missing Pattern context";
     runtime.force_cold=true;
-    const auto cold=kernel.evaluateProfilePadsWithHistory({a,b,c,pattern},{},nullptr,runtime);
+    const auto cold=kernel.evaluateProfilePadsWithHistory({a,b,c,d,pattern},{},nullptr,runtime);
     EXPECT_EQ(cold.geometry_id,rebuilt.geometry_id);
     EXPECT_EQ(cold.feature_results.back().topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);
 }

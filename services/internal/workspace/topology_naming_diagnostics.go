@@ -44,7 +44,7 @@ func decodeTopologyManifest(data []byte, digest string) (*topologyManifest, erro
 	return decodeTopologyManifestContext(context.Background(), data, digest)
 }
 
-func decodeTopologyManifestContext(ctx context.Context, data []byte, digest string) (*topologyManifest, error) {
+func decodeTopologyManifestContext(ctx context.Context, data []byte, digest string, loaders ...namingHistoryLoader) (*topologyManifest, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -56,11 +56,22 @@ func decodeTopologyManifestContext(ctx context.Context, data []byte, digest stri
 	if err := proto.Unmarshal(data, stored); err != nil {
 		return nil, namingError("CORRUPT", "TOPOLOGY_MANIFEST_INVALID", "拓扑命名制品无法解码，需要重新生成制品。")
 	}
-	if stored.GetSchemaVersion() != 2 || stored.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest {
+	if stored.GetSchemaVersion() != 3 || stored.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest || stored.PolicyId != modelcore.TopologyNamingPolicyID || stored.EvaluatorVersion != modelcore.TopologyNamingEvaluator {
 		return nil, namingError("INCOMPATIBLE", "TOPOLOGY_MANIFEST_CONTRACT_MISMATCH", "拓扑命名制品与当前求值合同不匹配，需要重新求值。")
 	}
-	manifest, err := unpackNaming(stored)
+	var loader namingHistoryLoader
+	if len(loaders) > 0 {
+		loader = loaders[0]
+	}
+	manifest, err := unpackNamingRoot(ctx, stored, loader)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		var loadError namingHistoryLoadError
+		if errors.As(err, &loadError) {
+			return nil, loadError.error
+		}
 		return nil, namingError("CORRUPT", "TOPOLOGY_MANIFEST_INVALID", err.Error())
 	}
 	if !topologyHistoryComplete(manifest) {
@@ -70,7 +81,7 @@ func decodeTopologyManifestContext(ctx context.Context, data []byte, digest stri
 	if err != nil {
 		return nil, err
 	}
-	manifest.encodedBytes = len(data)
+	manifest.retainedBytes += len(data) * 16
 	return manifest, nil
 }
 
@@ -81,17 +92,13 @@ func (service *Service) readTopologyManifest(ctx context.Context, inline []byte,
 	if len(inline) > 0 || objectID == nil || digest == nil || strings.TrimSpace(*digest) == "" || geometry.PartRuntime(ctx).ForceCold {
 		return service.loadTopologyManifest(ctx, inline, objectID, digest)
 	}
-	key := *objectID + "\x00" + strings.ToLower(strings.TrimSpace(*digest)) + "\x00" + modelcore.TopologyNamingPolicyDigest
+	key := namingViewKey(*objectID, strings.ToLower(strings.TrimSpace(*digest)))
 	manifest, err := service.namingViews.read(ctx, key, namingViewBudget, func() (*topologyManifest, int64, error) {
 		value, _, err := service.loadTopologyManifest(ctx, inline, objectID, digest)
 		if err != nil {
 			return nil, 0, err
 		}
-		charge := namingViewBudget + 1
-		if int64(value.encodedBytes) <= namingViewBudget/16 {
-			charge = int64(value.encodedBytes)*16 + int64(len(key)) + 128
-		}
-		return value, charge, nil
+		return value, namingViewCharge(value, key), nil
 	})
 	return manifest, strings.TrimSpace(*digest), err
 }
@@ -127,6 +134,6 @@ func (service *Service) loadTopologyManifest(ctx context.Context, inline []byte,
 	if len(data) == 0 {
 		return nil, "", namingError("CORRUPT", "TOPOLOGY_MANIFEST_OBJECT_MISSING", "拓扑命名摘要已登记但制品内容缺失，需要恢复或重新生成制品。")
 	}
-	manifest, err := decodeTopologyManifestContext(ctx, data, *digest)
+	manifest, err := decodeTopologyManifestContext(ctx, data, *digest, service.namingHistoryLoader(ctx, objectID))
 	return manifest, strings.TrimSpace(*digest), err
 }

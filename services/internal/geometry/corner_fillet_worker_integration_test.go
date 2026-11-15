@@ -5,18 +5,17 @@ package geometry
 import (
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"testing"
+	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/modelcore"
-	"google.golang.org/protobuf/proto"
+	"github.com/occccad/occccad/internal/testsupport"
 )
 
 func TestCppWorkerChamferedCornerFillets(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("OCCCCAD_DATA_DIR", root)
+	root := testsupport.Environment(t).DataDirectory
+	namespace := fmt.Sprintf("tests/fillet/%d/", time.Now().UnixNano())
 	client := openCppWorkerForNamingContract(t)
 	base := ProfilePad{
 		FeatureID: "base", BodyID: "body", ProfileFeatureID: "sketch",
@@ -32,27 +31,12 @@ func TestCppWorkerChamferedCornerFillets(t *testing.T) {
 	evaluate := func(pads []ProfilePad) (*workerv1.EvaluatePartResponse, *workerv1.PartTopologyManifest) {
 		t.Helper()
 		sequence++
-		key := fmt.Sprintf("corner-%d", sequence)
+		key := fmt.Sprintf("%scorner-%d", namespace, sequence)
 		response, err := client.EvaluateProfilePartFromArtifact(t.Context(), key, key, pads, ArtifactReference{}, key+".brep", key+".glb")
 		if err != nil {
 			t.Fatal(err)
 		}
-		manifest := new(workerv1.PartTopologyManifest)
-		data, err := os.ReadFile(filepath.Join(root, response.GetEvaluationManifest().GetTopologyManifestArtifact().GetObjectKey()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := proto.Unmarshal(data, manifest); err != nil {
-			t.Fatal(err)
-		}
-		if response.GetTriangleCount() == 0 || response.GetGlbArtifact().GetSizeBytes() == 0 || response.GetBrepArtifact().GetSizeBytes() == 0 {
-			t.Fatal("missing exact or display artifact")
-		}
-		for _, transition := range manifest.GetTransitions() {
-			if !transition.GetComplete() {
-				t.Fatalf("incomplete topology history: %s", transition.GetFeatureId())
-			}
-		}
+		manifest, _ := readWorkerNamingArtifact(t, root, response)
 		return response, manifest
 	}
 	// Coordinates select fixture edges only. The next request carries actual

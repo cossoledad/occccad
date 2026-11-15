@@ -53,7 +53,20 @@ func (s *Service) importBaseStage(ctx context.Context, baseKey string, base geom
 			if err != nil {
 				return nil, err
 			}
-			return &workerv1.PartBaseStage{GeometryId: input.GeometryID, Volume: input.Volume, Naming: &workerv1.ArtifactReference{
+			var rootHistory *workerv1.ArtifactReference
+			for _, ref := range manifest.historyReferences {
+				if ref.FeatureId == seed.FeatureId {
+					rootHistory, err = s.historyArtifactReference(ctx, object.ID, ref.Sha256)
+					if err != nil {
+						return nil, err
+					}
+					break
+				}
+			}
+			if rootHistory == nil {
+				return nil, fmt.Errorf("import naming history unavailable")
+			}
+			return &workerv1.PartBaseStage{GeometryId: input.GeometryID, Volume: input.Volume, RootHistory: rootHistory, Naming: &workerv1.ArtifactReference{
 				Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType,
 			}}, nil
 		}

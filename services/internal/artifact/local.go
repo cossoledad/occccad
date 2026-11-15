@@ -133,6 +133,8 @@ func fileName(kind Kind) string {
 		return "mesh.glb"
 	case Kind("IMPORT_IDENTITY"):
 		return "identity.pb"
+	case KindNamingHistory:
+		return "history.pb"
 	case KindTopologyManifest:
 		return "naming.pb"
 	case KindExchangeSource:

@@ -12,6 +12,7 @@ const (
 	KindBREP             Kind = "BREP"
 	KindGLB              Kind = "GLB"
 	KindTopologyManifest Kind = "TOPOLOGY_MANIFEST"
+	KindNamingHistory    Kind = "NAMING_HISTORY"
 	KindExchangeSource   Kind = "EXCHANGE_SOURCE"
 	KindExchangeExport   Kind = "EXCHANGE_EXPORT"
 	KindThumbnail        Kind = "THUMBNAIL"

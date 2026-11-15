@@ -1,4 +1,4 @@
-# Visual / Naming Artifact v2
+# Visual 2 / Naming 3 制品
 
 这两个文件共享冻结 Geometry 的关联信息，但不共享职责。数据库只保存 Artifact 索引、摘要和业务状态。领域选择、历史及求值对象可以在内存展开；这些对象不是第二份持久数据格式。
 
@@ -15,23 +15,26 @@
 
 可选 `OCCCCAD_cad.edgeProfile` 是[自然边线](natural-edges.md)的显示证据，独立 `schemaVersion=1, source=OCCT_EDGE_USE_V1`。`positions / normalA / normalB` 指向 FLOAT/VEC3 accessor，每渲染段两个点及双侧法线；`metadata` 指向 UNSIGNED_INT/VEC4 accessor，每段 `[edgeLocalId, faceA, faceB, flags]`。缺失 face 为 0；`flags & 255` 为 unknown/wire/boundary/manifold/seam/coplanar/non-manifold（0…6），`flags >> 8` 的 bit 0 表示法线缺失、bit 1 表示采样上限。零法线明确表示未知。原标准 EDGE 折线、拓扑 locator 和 Naming 保持不变，profile 只能细分原弦；它不是新的拓扑或持久选择格式。未知来源/版本忽略该可选证据并保守显示标准边；认识的 profile 必须通过数目、有限值和边/面关联检查。服务端添加 Visualization 二进制后缀时保留这些 accessor 与数据。
 
-## Naming: PartTopologyManifest schema_version 2
+## Naming: PartTopologyManifest schema_version 3
 
-文件 schema 与 Naming policy / evaluator 版本分离。改变存储布局不改变 SemanticTopologyRef 的业务身份、匹配容差和 history digest 算法。
+文件 schema 与 Naming policy / evaluator 版本分离。存储布局调整不改变 SemanticTopologyRef 的业务身份、匹配容差和 history digest 算法。
 
-- `geometry_id` 与 `brep_sha256` 共同校验对应 owner 的冻结结果和精确 BREP，`coordinate_space=PART_LOCAL`，`length_unit=mm`。坐标/原点/质心采用 mm，方向是无量纲向量；measure 明确为 SI（AREA=m²、LENGTH=m、NONE 无量纲）。
-- `semantic_refs`、`evidence` 是共享表，引用使用 1-based ID，0 无效。只按完整值 intern，不按几何 hash 合并不同 Feature/Definition 身份。Evidence 邻接只引用 semantic table ID。
-- Evidence 使用 Plane / Cylinder / Line / Circle / Point / Spline / Other oneof。公共质心、SI measure、digest、endpoint role 与几何专属 frame/range 分离。当前只保存 evaluator 已提供的证据，不伪造半径等尚未输出的数据。
-- Curve range 保留解析曲线的原始参数：直线 LINE_MM；圆/椭圆 ANGLE_RADIANS；Spline 及其余曲线 NATIVE_CURVE_PARAMETER，指该冻结曲线的原生参数域，不是归一化弧长。位置和参数不能混用。
-- `transitions` 保存 Feature/Body/input/profile 身份、输入/输出 Geometry、lineage/split/merge/deleted/ambiguous、完整性与诊断。source/result/evidence 全部通过表引用。
-- `bodies` 或 `results` 恰有一个 owner，互斥。前者保存 Body 的有序 transition ID 与 tip；后者以 `feature_id + result_id` 保存几何输出。两者都有 typed locator → semantic/evidence 映射，transition 的归属字段必须一致；serializer/loader 拒绝跨 owner 或混合文件。一个 Naming 文件不能组织整个 Part；Body 历史 Feature 不重复保存整个拓扑快照。
-- 历史语义恢复沿 transition；不是按 localId 或最近几何匹配。当前没有任意历史节点几何 snapshot 查询接口；需要历史 Revision 时读取该不可变 Revision 的 Naming Artifact。未来可增加可选 checkpoint/delta，不能退回每个 Feature 无条件全量快照。
-- Loader 拒绝越界表引用、错误 owner 归属、重复 locator、未知 schema/单位/参数约定。内存 domain view 按 Body Tip 或精确 FeatureResult 查询，不能使用全局最后一个 Feature。
+- `naming.pb` 为根：`geometry_id` / `brep_sha256` 绑定冻结结果；`coordinate_space=PART_LOCAL`、`length_unit=mm`。位置为 mm，方向无量纲，measure 显式为 SI。根的 `transitions` 为空，`history` 顺序声明块的 SHA-256、大小、Feature、Geometry 和完整 lineage 行数。
+- `bodies` 或 `results` 恰有一个 owner，互斥。根保存当前 `tip_feature_id`、全链完整性与 typed locator → semantic/evidence 映射；Body 和几何 FeatureResult 不能混合。一个 Naming 根不组织整个 Part。
+- 每个 `NamingHistoryBlock` 的 codec `schema_version=1`，包含前驱 SHA / 行数、完整行数、一个 Feature 的 metadata、literal 变化行、删除、歧义和有序 `layout`。前驱为空的块必须从零行开始，后续块必须与根声明的直接前驱及行数一致。
+- LITERAL span 按序读取本块 literal 表；CARRY span 读取已验证前驱行的 result 和完整 evidence，重建 `UNCHANGED(result ← result)`。只有同引用、同完整证据的自延续可编码为 CARRY；类型变化、其他来源、删除或歧义不省略。span 中的 offset 是已校验块内位置，不是拓扑身份。边界、计数、重复继承范围及有序语义须验证；完整行序列可无损重建。
+- 块的 `values` 和根各有局部 `semantic_refs` / `evidence` 表，1-based，0 非法。仅按完整值 intern，不按几何 hash、地址或 evidence digest 合并身份。块内不保存历史 locator 快照；根只保存当前 tip。跨块仍存在重复引用/证据，文件块并不保证每种模型的单个历史闭包最小。
+- Evidence 保留 Plane / Cylinder / Line / Circle / Point / Spline / Other typed 数据、公共质心、SI measure、digest、endpoint role 和邻接；不伪造 evaluator 未提供的值。Curve range 保留 LINE_MM、ANGLE_RADIANS 或 NATIVE_CURVE_PARAMETER 的原生约定，不能当成统一弧长。
+- Loader 校验根/全部块摘要及大小、policy/evaluator、Frame/单位、Feature/Geometry、单 owner、前驱、layout、表引用和 locator 唯一性。source/target Revision 及授权另行校验。部分缺失不能降级为“完整历史”，也不能按最近坐标改绑。
 
-Worker 直接借用不可变原生记录，仅转换需要写出的值；同一个编码器仍支持 protobuf 输入。完整值记忆只减少重复转换，首次出现顺序及完整 wire key 决定引用/证据表编号；地址、hash 和 evidence digest 都不单独定义等价。冻结原编码器摘要及跨构建冷重放用于验证字节合同。
+Worker 直接借用紧凑原生记录；32 MiB memo 按不可变记录、完整策略及前驱字节复用编码。一次请求先租借已有匹配项，再补算缺失项，防止长链顺序扫描淘汰稍后可命中的尾部；前驱 SHA 仍逐项核对。`PartEvaluationManifest.naming_history_artifacts` 只返回本次需要发布的块引用，根声明整个闭包。`EvaluatePartRequest.naming_source` 是已接纳根的发布复用提示，排除在精确计算缓存键外；它不能改变计算、身份或接纳门禁。导入根恢复另传根明确声明的 `PartBaseStage.root_history`，Worker 校验其摘要/归属。
 
-v2 仍在每个新结果文件写出全 transition 链，显式 UNCHANGED 行也占空间。共享 ref/evidence 表不消除这些行或跨 Revision 的重复；持续新增拓扑时不能把它称为增量存储。服务端可共享有界的[已解析视图和查询索引](persistent-naming.md#有界解析视图与按需查询)，历史块/变化量的后续设计及边界归[Part 求值](part-feature-evaluation.md#通用特征性能与增长边界)。
+数据库的 `artifact_dependencies` 原子记录根→全部块及块→前驱；共享块只存一份，依赖集不可改写。父引用限制直接删除仍被引用的块。可达性审计已提供；自动物理 GC 尚未启用，仍须设计完整 Revision、跨文档、预览和活动 Job 根集合。完整 Naming 不在 RPC 或数据库复制保存。
 
-## 演进与边界
+查询在全部块校验后只保留有序语义事件和完整当前 tip 证据，不展开 CARRY、不缓存历史行/删除的几何证据；权威制品保持完整。内核与测试的显式完整展开另有读者租借、预算和取消门禁。语义查询与缓存归[Naming](persistent-naming.md#有界解析视图与按需查询)，原生所有权与剩余增长归[Part 求值](part-feature-evaluation.md#通用特征性能与增长边界)。
 
-旧 v1 文件不兼容读取；开发数据通过维护者运行 `mise run data:reset --yes` 后重建。新字段遵循 protobuf 保留字段号、glTF extension 和显式 schemaVersion；消费者不能把未知必需语义当成已支持。Preview 仍是 transient representation，可使用同一个显示 schema，但不成为正式 Naming/业务真相。
+## 演进与验证边界
+
+生产不兼容读取旧 v1/v2 Naming；未发布开发数据通过 `mise run data:reset --yes` 重建。运行前重新构建 `mise run go:build`，避免旧迁移程序仍嵌入旧 SQL。Visual 仍为 schema 2；Naming 3 不表示 glTF 或 CAD 身份版本变化。新字段遵循 protobuf 字段号和显式 schema；Preview 仍为 transient，不形成正式 Revision。
+
+`NamingArtifact.HistoryBlocksKeepLegacyBytesAndSurviveEvictionAndColdRebuild` 用冻结旧编码器比较完整展开后的逻辑 v2 字节；不是比较 v3 文件与 v2 的 SHA。Native 增量/冷算保持 BREP 和历史摘要；正式 Router 对同一新格式输入比较冷算根 SHA，根又绑定每个块 SHA。Go 测试另外对照冻结旧扫描器、删除/重新出现/歧义顺序、错误闭包、缓存淘汰/取消、共享前缀依赖和精简查询视图。

@@ -437,6 +437,7 @@ message EvaluatePartRequest {
     string runtime_affinity = 16; // scheduling hint only; never part of shape identity
     GeometryFeatureSpec geometry_feature = 17;
     PartBaseStage base_stage = 18; // frozen upstream evidence; never a cached result of this operation
+    ArtifactReference naming_source = 19; // qualified prior root; publication reuse hint only
 }
 
 // Produced from an accepted immutable geometry artifact. The naming snapshot
@@ -445,6 +446,7 @@ message PartBaseStage {
     ArtifactReference naming = 1;
     string geometry_id = 2;
     double volume = 3; // mm^3, from that same authoritative stage summary
+    ArtifactReference root_history = 4; // import transition block declared by naming
 }
 
 // Independent, finite point/wire/sheet evaluation in the same Part pipeline.
@@ -577,6 +579,13 @@ message PartRuntimeStats {
     // Checkpoint admission cost, included in the enclosing RPC wall time.
     double cache_accounting_ms = 34;
     uint64 cache_accounting_serializations = 35;
+    uint64 naming_blocks_computed = 36;
+    uint64 naming_blocks_reused = 37;
+    uint64 naming_block_bytes_written = 38;
+    uint64 naming_root_bytes = 39;
+    uint64 naming_full_lineage_rows = 40;
+    uint64 naming_literal_lineage_rows = 41;
+    uint64 naming_carried_lineage_rows = 42;
 }
 
 message ProfileCurve {
@@ -985,6 +994,7 @@ message PartEvaluationManifest {
     repeated FeatureEvaluationIdentity features = 6;
     reserved 7; // Full results exist only in naming.pb.
     string topology_policy_digest = 8;
+    repeated ArtifactReference naming_history_artifacts = 9; // newly required blocks; root declares complete closure
 }
 
 message SemanticTopologyOutput {
@@ -1007,7 +1017,7 @@ message FeatureResult {
     GeometryResultReference result = 10;
 }
 
-// v2 storage contract. Domain SelectionEvidence remains a transient RPC/value object.
+// Shared typed value tables. Domain SelectionEvidence remains a transient value.
 message NamingFrame { Vec3 origin = 1; Vec3 direction = 2; }
 message NamingPoint { Vec3 position = 1; }
 message NamingCurveRange {
@@ -1069,12 +1079,40 @@ message NamingBody {
     repeated uint32 transitions = 2; // 1-based transition table IDs in evaluation order.
     uint32 tip_transition = 3;
     repeated NamingTopologyLocator tip = 4; // Only current tip has a full locator snapshot.
+    string tip_feature_id = 5; // v3 root; transition table IDs are only block-local
+    bool complete = 6;
 }
 message NamingGeometryResult {
     GeometryResultReference reference = 1;
     repeated uint32 transitions = 2;
     uint32 tip_transition = 3;
     repeated NamingTopologyLocator tip = 4;
+    string tip_feature_id = 5;
+    bool complete = 6;
+}
+
+// Lossless row storage, not topology identity. CARRY spans address the preceding
+// block's fully expanded row order, bound to its exact SHA. They recreate a
+// self-source UNCHANGED row using the previous result and full typed evidence.
+message NamingHistorySpan {
+    bool carry = 1;
+    uint64 offset = 2;
+    uint64 count = 3;
+}
+message NamingHistoryReference {
+    string sha256 = 1;
+    uint64 size_bytes = 2;
+    string feature_id = 3;
+    string result_geometry_id = 4;
+    uint64 full_lineage_count = 5;
+}
+message NamingHistoryBlock {
+    uint32 schema_version = 1; // block codec 1, independent of root schema 3
+    PartTopologyManifest values = 2; // one block-local transition, literals only, no tip or nested history
+    string previous_sha256 = 3;
+    uint64 previous_lineage_count = 4;
+    uint64 full_lineage_count = 5;
+    repeated NamingHistorySpan layout = 6;
 }
 
 message PartTopologyManifest {
@@ -1092,6 +1130,7 @@ message PartTopologyManifest {
     string length_unit = 12; // mm (positions); measures explicitly SI.
     string brep_sha256 = 13; // Exact frozen Body BREP artifact association.
     string policy_digest = 5;
+    repeated NamingHistoryReference history = 15; // v3 root: ordered immutable blocks; no inline transitions
 }
 
 message ArtifactReference {

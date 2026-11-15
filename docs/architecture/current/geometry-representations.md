@@ -37,7 +37,7 @@ Body GLB 保存三维显示与 Naming 关联，不再合入草图绘制图元。
 
 ## 唯一显示载荷
 
-持久实体显示只读取 `mesh.glb`，没有 protobuf Mesh → 数据库 JSON → DocumentView Mesh 的第二条路径。当前为 [Visual/Naming v2 契约](visual-naming-artifacts.md)：
+持久实体显示只读取 `mesh.glb`，没有 protobuf Mesh → 数据库 JSON → DocumentView Mesh 的第二条路径。当前为 [Visual 2 / Naming 3 契约](visual-naming-artifacts.md)：
 
 - 标准 glTF POSITION/NORMAL/indices，加上多个 mesh/primitive；
 - FACE 三角形、EDGE 折线、VERTEX 点统一使用 1-based topology localId，mapping 与数值均为 binary accessor；
@@ -75,7 +75,7 @@ Worker 的 `fill_evaluation` 统一调度离散与编码，`make_glb` 消费快�
 
 ## Naming、RPC 与预览
 
-每个 Body 或几何 FeatureResult 的完整 `PartTopologyManifest` 只存在自己的 `naming.pb`，采用共享 SemanticRef/Evidence 表、transition 与显式 owner 的 locator 索引；Body 历史 Feature 不重复保存完整快照。文件严格拥有一个 Body 或一个 FeatureResult，不能混合所有者。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。
+每个 Body 或几何 FeatureResult 的完整 Naming 由自己的 `naming.pb` v3 根及其声明的不可变历史块共同保存；根保存当前 locator，历史块通过局部 SemanticRef/Evidence 表和无损变化布局跨 Revision 共享，Body 历史 Feature 不重复保存完整输出快照。文件严格拥有一个 Body 或一个 FeatureResult，不能混合所有者。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。
 
 显示用 `featureAssociations` 从完整 Naming 重建：每步读取上一步状态，集中写入本步变化，不复制全部累积状态；单源同引用的 UNCHANGED transition 共享不可变归属集合。引用值的规范键在本次调用内复用，只有成员/修改器别名才建立摘要反向索引。指针仅作请求内 memoization，匹配仍用完整引用值；合并候选、来源、修改者、支撑、成员与排序保持原合同。最终集合与完整历史扫描仍随模型增长，这不是持久选择或增量 Naming 存储。
 

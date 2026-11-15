@@ -5,6 +5,7 @@ package control
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/occccad/occccad/internal/workspace"
+	"google.golang.org/protobuf/proto"
 )
 
 // Generated mechanical STEP, not the unavailable user's B-pillar. Controls
@@ -184,7 +186,7 @@ func TestGrowingTopologyPartFeaturesAndNamingThroughRouter(t *testing.T) {
 			t.Fatal("invalid naming growth step count", value)
 		}
 	}
-	service, _, db, _, _ := featureAssociationRuntimeService(t)
+	service, artifacts, db, client, _ := featureAssociationRuntimeService(t)
 	ctx := t.Context()
 	view, err := service.CreateDocument(ctx, workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Growing topology and naming"})
 	if err != nil {
@@ -257,6 +259,9 @@ func TestGrowingTopologyPartFeaturesAndNamingThroughRouter(t *testing.T) {
 		if run.StagesExecuted != 1 || run.StagesReused < uint32(step) {
 			t.Fatal("growing feature repeated the prefix", step, mustRuntimeJSON(run))
 		}
+		if run.NamingBlocksComputed+run.NamingBlocksReused != uint64(step+1) || run.NamingBlockBytesWritten == 0 || run.NamingRootBytes != uint64(artifact.Representations["NAMING"].Size) {
+			t.Fatal("invalid naming block accounting", step, mustRuntimeJSON(run))
+		}
 		if step == 20 || step == 50 || step == 100 || step == count {
 			t.Logf("growing-router steps=%d features=%d elapsed_ms=%.3f naming_bytes=%d topology=%v worker=%s", step, len(view.Part.Features), float64(elapsed)/float64(time.Millisecond), artifact.Representations["NAMING"].Size, artifact.Topology, mustRuntimeJSON(run))
 		}
@@ -285,6 +290,38 @@ func TestGrowingTopologyPartFeaturesAndNamingThroughRouter(t *testing.T) {
 		if rejected, err := service.ResolvePersistentSelection(ctx, view.Document.ID, request); err != nil || rejected.Status != modelcore.SelectionContractMismatch {
 			t.Fatal("index bypassed target snapshot qualification", rejected, err)
 		}
+	}
+	// Reopening has no parsed root/block/index cache. Resolve from the durable
+	// dependency closure rather than reusing the evaluator's in-memory records.
+	reopened := workspace.NewWithArtifacts(db, client, artifacts)
+	for _, pick := range picks {
+		start := time.Now()
+		resolution, err := reopened.ResolvePersistentSelection(ctx, view.Document.ID, workspace.ResolvePersistentSelectionRequest{Selection: pick.Selection, SourceVersionID: sourceVersion, TargetVersionID: view.Document.VersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+		if err != nil || resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 {
+			t.Fatal("reopened naming closure did not resolve old face", resolution, err)
+		}
+		t.Logf("growing-router reopened-selection elapsed_ms=%.3f anchor=%s", float64(time.Since(start))/float64(time.Millisecond), pick.Selection.Anchor.OutputSlot)
+	}
+	root := edited.Representations["NAMING"]
+	children, err := artifacts.Dependencies(ctx, root.ObjectID)
+	if err != nil || len(children) != count+1 {
+		t.Fatal("incomplete durable naming closure", len(children), err)
+	}
+	_, reader, err := artifacts.Open(ctx, root.ObjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootBytes, err := io.ReadAll(reader)
+	reader.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	naming := &workerv1.PartTopologyManifest{}
+	if err = proto.Unmarshal(rootBytes, naming); err != nil {
+		t.Fatal(err)
+	}
+	if len(naming.History) != count+1 || run.NamingBlockBytesWritten != naming.History[count].SizeBytes {
+		t.Fatal("tip edit republished durable prefix blocks", mustRuntimeJSON(run))
 	}
 	apply(workspace.CommandRequest{Type: "UNDO"})
 	if math.Abs(activeBodyArtifact(t, view).Volume-expectedVolume) > 1e-5 {

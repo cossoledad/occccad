@@ -88,7 +88,7 @@ Boolean semantic adjacency closure 受版本化 evaluator 与 policy digest 约�
 
 ## History 生成与制品门
 
-Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服务端 PersistentSelection bind/resolver。Profile Pad 求值必须携带稳定的 Feature、Body、输入 Feature 和 Profile Feature identity，以及固定版本 naming policy 的 digest 和以米、弧度表达的匹配容差；Part `geometry_key` 同时包含这些 identity、完整 Feature 输入和 policy digest，不能让几何相同但业务身份不同的 Feature 复用 topology manifest。Linear Extrude 从 profile region/entity ID 生成 start cap、end cap 和 side semantic outputs；OCCT adapter 保留 Prism、Fuse/Cut/Common 与 `ShapeUpgrade_UnifySameDomain` 的历史对象，将 Generated/Modified/Unchanged/Split/Merged/Deleted 折叠为逐 Feature `TopologyHistory`。Boolean/同域 history 后还会对未覆盖的合法最终拓扑执行 semantic adjacency closure：Face 优先读取已命名边界 Edge，Edge 读取 incident Face，Vertex 读取 incident Edge；派生 identity 绑定当前 Feature 与排序后的稳定 source ref，数值 evidence 只在相同 source set 内确定次序，不能以 local ID 或坐标单独补名。每个 live Face/Edge/Vertex 输出包含最终 GeometryId 内的 typed local ID、geometry evidence 与排序后的相邻语义引用；完整 history 的 shape gate 要求最终每个元素恰有一个唯一 semantic output 和 lineage result，并拒绝 live/tombstone 冲突、无稳定来源或无法消歧的派生候选。history digest 覆盖 source/result、lineage kind、歧义、删除、证据、邻接和 policy。Worker 在 `PartEvaluationManifest` 只返回轻量 Feature identity、策略摘要和 ArtifactReference；完整命名写入带 SHA-256 的 `naming.pb` v2。控制面核对 Worker reference、已采用对象摘要和冻结 Geometry 身份。`topology_history_complete=false` 是显式契约：未命名的导入 B-Rep 会返回诊断，不能被下游当作完整 history。服务端只允许从 source Revision 指定 Body Tip 或几何 FeatureResult 的 local pick 创建带 creation evidence 的 `PersistentSelection`，并按固定 source/target Revision、manifest/policy digest 与 semantic lineage 解析；歧义不会自动选取。Product topology endpoint 已升级为 occurrence + source Revision + PersistentSelection；revision-local local ID 仅作为瞬时 pick evidence。
+Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服务端 PersistentSelection bind/resolver。Profile Pad 求值必须携带稳定的 Feature、Body、输入 Feature 和 Profile Feature identity，以及固定版本 naming policy 的 digest 和以米、弧度表达的匹配容差；Part `geometry_key` 同时包含这些 identity、完整 Feature 输入和 policy digest，不能让几何相同但业务身份不同的 Feature 复用 topology manifest。Linear Extrude 从 profile region/entity ID 生成 start cap、end cap 和 side semantic outputs；OCCT adapter 保留 Prism、Fuse/Cut/Common 与 `ShapeUpgrade_UnifySameDomain` 的历史对象，将 Generated/Modified/Unchanged/Split/Merged/Deleted 折叠为逐 Feature `TopologyHistory`。Boolean/同域 history 后还会对未覆盖的合法最终拓扑执行 semantic adjacency closure：Face 优先读取已命名边界 Edge，Edge 读取 incident Face，Vertex 读取 incident Edge；派生 identity 绑定当前 Feature 与排序后的稳定 source ref，数值 evidence 只在相同 source set 内确定次序，不能以 local ID 或坐标单独补名。每个 live Face/Edge/Vertex 输出包含最终 GeometryId 内的 typed local ID、geometry evidence 与排序后的相邻语义引用；完整 history 的 shape gate 要求最终每个元素恰有一个唯一 semantic output 和 lineage result，并拒绝 live/tombstone 冲突、无稳定来源或无法消歧的派生候选。history digest 覆盖 source/result、lineage kind、歧义、删除、证据、邻接和 policy。Worker 在 `PartEvaluationManifest` 只返回轻量 Feature identity、策略摘要和 ArtifactReference；完整命名由带 SHA-256 的 `naming.pb` v3 根与其声明的不可变历史块共同保存。控制面核对 Worker reference、已采用对象摘要和冻结 Geometry 身份。`topology_history_complete=false` 是显式契约：未命名的导入 B-Rep 会返回诊断，不能被下游当作完整 history。服务端只允许从 source Revision 指定 Body Tip 或几何 FeatureResult 的 local pick 创建带 creation evidence 的 `PersistentSelection`，并按固定 source/target Revision、manifest/policy digest 与 semantic lineage 解析；歧义不会自动选取。Product topology endpoint 已升级为 occurrence + source Revision + PersistentSelection；revision-local local ID 仅作为瞬时 pick evidence。
 
 ## 实现与验证入口
 
@@ -113,9 +113,9 @@ EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named 
 
 当前回归入口包括 kernel/occt/tests/geometry_exchange_scenarios.cpp、surface_feature_scenarios.cpp、services/internal/control/import_naming_integration_test.go、import_naming_diagnostics_test.go、workspace/import_naming_test.go 和 surface_feature_integration_test.go。源文件替换/新版内核迁移未实现自动身份对照。
 
-完整 Naming 的唯一持久载荷为 `naming.pb`；RPC 和数据库不重复保存 FeatureResults。导入 identity 也通过 ArtifactReference 重放。数据边界见[几何制品](geometry-representations.md)。
+完整 Naming 的唯一持久载荷为 `naming.pb` 根及其声明的历史块；RPC 和数据库不重复保存 FeatureResults。导入 identity 也通过 ArtifactReference 重放。数据边界见[几何制品](geometry-representations.md)。
 
-当前持久格式见 [Visual/Naming Artifact v2](visual-naming-artifacts.md)。SemanticRef 与 typed Evidence 通过共享表引用，Body 或 FeatureResult 显式拥有 transition 链和 locator 索引。resolver 的历史存在性来自 transition 生成/删除记录，不依赖每个 Feature 的完整快照；领域 FeatureResult 仅作为消费者内存对象，绝不重复持久保存 v1。
+当前持久格式见 [Visual 2 / Naming 3](visual-naming-artifacts.md)。SemanticRef 与 typed Evidence 通过块内共享表引用，Body 或 FeatureResult 的根显式声明有序历史块及当前 locator 索引。resolver 的历史存在性来自 transition 生成/删除记录，不依赖每个 Feature 的完整快照；领域 FeatureResult 仅作为消费者内存对象，绝不重复持久保存 v1。
 
 每个 Body 或几何 FeatureResult 独立 Naming Artifact；bind 先验证 GeometryKey 属于指定 Revision/owner，再解释 localId。resolver 在 source/target Revision 中寻找同一个稳定 owner，不扫描兄弟 Body 或其他结果作为回退。Loader 同时验证 GeometryId、BREP SHA-256 及互斥的单 owner transition 归属。owner 删除或抑制后引用返回不可用，不按同名对象或相同 FACE 1 自动重连。几何输出的操作与当前独立 Part 边界见[线框与曲面](wireframe-surfaces.md)；扩展本地绑定不表示 Publication/Product 的开放几何互用已交付。
 
@@ -133,10 +133,12 @@ Feature 的当前贡献与树／视图联动使用 `featureAssociations.primary`
 
 ## 有界解析视图与按需查询
 
-`workspace/naming_search.go` 为校验后的不可变 manifest 一次构造派生索引：完整 semantic ref 值表、互斥 Body/FeatureResult owner、历史存在性、按 source 排序的事件列表和当前 tip 的 ref/type 输出索引。整数符号及事件位置只用于本次内存查询，不成为持久身份。`GENERATED` 支撑不加入延续关系，同引用 UNCHANGED 不创建无作用事件；原制品中的这些记录仍保留。
+`workspace/naming_search.go` 为校验后的不可变 manifest 一次构造派生索引：完整 semantic ref 值表、互斥 Body/FeatureResult owner、历史存在性、按 source 排序的事件列表和当前 tip 的 ref/type 输出索引。整数符号及事件位置只用于本次内存查询，不成为持久身份。`GENERATED` 支撑不加入延续关系，同引用 UNCHANGED 不创建无作用事件；权威历史仍可无损恢复这些记录。
 
-查询从锚点调度相关事件，用最小堆保留原 transition/lineage/ambiguity/delete 顺序。每个 source 的未来事件只调度一次；删除后重新出现也不重放过去事件。不能改成无序可达闭包，否则可能复活已删除拓扑或追踪在来源出现之前发生的规则。当前 tip 只检查活跃引用对应的候选，再按原 recipe、类型及顺序返回结果。首次建索引仍扫描全部历史；复用查询的工作量取决于相关事件和候选，歧义传播很大时仍可访问大量历史。
+查询从锚点调度相关事件，用最小堆保留原 transition/lineage/ambiguity/delete 顺序。每个 source 的未来事件只调度一次；删除后重新出现也不重放过去事件。不能改成无序可达闭包，否则可能复活已删除拓扑或追踪在来源出现之前发生的规则。当前 tip 只检查活跃引用对应的候选，再按原 recipe、类型及顺序返回结果。首次校验仍读取根声明的全部历史块，建索引扫描其 literal 事件；复用查询的工作量取决于相关事件和候选，歧义传播很大时仍可访问大量历史。
 
-`workspace/naming_view_cache.go` 以 object ID、预期 SHA-256、policy digest 为键，共享通过完整校验的解析视图，采用 **128 MiB** LRU 计费预算；计费为编码大小 ×16 加 metadata，是接纳估算，不是实测 decoded-size 上界或 RSS 上限。过大视图可共享正在进行的读取，但不留在缓存。读者租借在淘汰后仍有效；失败/取消不接纳，等待者独立取消，加载者取消后其他等待者可重试。inline 内容始终重新校验，`ForceCold` 绕过共享视图。
+`workspace/naming_view_cache.go` 以 object ID、预期 SHA-256、policy digest 为键，共享完整校验后的查询视图。预算拆为 **64 MiB 根视图 + 64 MiB 块视图**，总计不变。历史行/删除的几何证据、邻接和 CARRY 布局留在权威制品，不由查询缓存保留；完整当前 tip 证据仍用于绑定及匹配。块按实际保留的 protobuf 对象、slice、字符串和共享引用图估算费用，并留分配/索引余量；根另按根文件大小 ×16 计当前表及索引，不以重复序列化的引用大小为每个指针收费。这是接纳估算，不是 decoded-size 或 RSS 上界。 固定的根/块分区仍可能使大型根先达到接纳上限；统一共享所有权计费或动态分区需要另行测量，不能以直接增加总预算代替。
 
-已移除无界的逐选择结果缓存。每次操作仍校验访问资格、source/target Revision、owner、完整创建证据和 manifest/policy digest，索引只加速其后的语义查询。对外证据复制可变 optional 值和来源列表，避免调用者污染共享视图。回归入口为 `naming_search_test.go`、`naming_search_reference_test.go`、`naming_view_cache_test.go` 和 `topology_naming_diagnostics_test.go`；冻结旧扫描器检验有序语义，真实 Router 另验证长链旧面引用及错误目标摘要。存储增长及尚未交付的增量持久化归[Part 求值](part-feature-evaluation.md#通用特征性能与增长边界)。
+过大视图可共享正在进行的读取，但不留在缓存。读者租借在淘汰后仍有效；失败/取消不接纳，等待者独立取消，加载者取消后其他等待者可重试。inline 内容重新校验，`ForceCold` 绕过共享视图。完整历史展开使用明确预算和完整块 loader，精简查询对象不能冒充完整历史；此内存投影不修改持久证据、历史摘要或既有选择。
+
+已移除无界的逐选择结果缓存。每次操作仍校验访问资格、source/target Revision、owner、完整创建证据和 manifest/policy digest，索引只加速其后的语义查询。对外证据复制可变 optional 值和来源列表，避免调用者污染共享视图。回归入口为 `naming_search_test.go`、`naming_search_reference_test.go`、`naming_view_cache_test.go` 和 `topology_naming_diagnostics_test.go`；冻结旧扫描器检验有序语义，真实 Router 另验证长链旧面引用及错误目标摘要。存储共享、冷恢复及剩余增长边界归[Part 求值](part-feature-evaluation.md#通用特征性能与增长边界)。

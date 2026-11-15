@@ -1,0 +1,3212 @@
+{
+  "schema": "occccad.part-naming-history-performance.v1",
+  "baselineCommit": "24b7e806",
+  "environment": {
+    "profile": "Release",
+    "occt": "7.9.1",
+    "database": "SQLite",
+    "artifactStore": "LOCAL",
+    "cpu": "AMD Ryzen 9 9950X",
+    "platform": "WSL2"
+  },
+  "native": {
+    "baseline": {
+      "runs": [
+        {
+          "log": "build/performance/naming-history/baseline/native-130-1.log",
+          "status": "FAIL",
+          "samples": {
+            "1": {
+              "steps": 1,
+              "elapsed_ms": 6.52088,
+              "base_ms": 0.01753,
+              "exact_ms": 5.16901,
+              "naming_ms": 1.2746,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 225728,
+              "peak_rss_bytes": 24633344,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396"
+            },
+            "20": {
+              "steps": 20,
+              "elapsed_ms": 32.0507,
+              "base_ms": 0.221512,
+              "exact_ms": 21.6761,
+              "naming_ms": 9.80628,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 112564592,
+              "peak_rss_bytes": 74838016,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01"
+            },
+            "50": {
+              "steps": 50,
+              "elapsed_ms": 75.361,
+              "base_ms": 0.852658,
+              "exact_ms": 48.7955,
+              "naming_ms": 23.2921,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 105047680,
+              "peak_rss_bytes": 286535680,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141"
+            },
+            "100": {
+              "steps": 100,
+              "elapsed_ms": 167.399,
+              "base_ms": 2.28557,
+              "exact_ms": 101.142,
+              "naming_ms": 50.3485,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 89346128,
+              "peak_rss_bytes": 898478080,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e"
+            },
+            "130": {
+              "steps": 130,
+              "elapsed_ms": 439.794,
+              "base_ms": 3.21079,
+              "exact_ms": 272.651,
+              "naming_ms": 145.043,
+              "stages_executed": 2,
+              "stages_reused": 129,
+              "history_outputs": 139061,
+              "history_lineages": 139061,
+              "tip_outputs": 2106,
+              "stage_bytes": 133435024,
+              "peak_rss_bytes": 1468768256,
+              "geometry": "sha256:29676ba279b1480fd2721590c3d857d4a3efd93ac76212ad42376bb1e143bd75",
+              "history_digest": "sha256:bb50e545522f06a9666c8076c4bcd3b74efb721ea474ef120cff5de596048520"
+            },
+            "tip": {
+              "steps": 130,
+              "elapsed_ms": 425.065,
+              "base_ms": 4.49828,
+              "exact_ms": 278.793,
+              "naming_ms": 126.843,
+              "stages_executed": 2,
+              "stages_reused": 129
+            }
+          }
+        },
+        {
+          "log": "build/performance/naming-history/baseline/native-130-2.log",
+          "status": "FAIL",
+          "samples": {
+            "1": {
+              "steps": 1,
+              "elapsed_ms": 7.40237,
+              "base_ms": 0.01655,
+              "exact_ms": 6.05481,
+              "naming_ms": 1.29553,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 225728,
+              "peak_rss_bytes": 22224896,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396"
+            },
+            "20": {
+              "steps": 20,
+              "elapsed_ms": 31.827,
+              "base_ms": 0.223452,
+              "exact_ms": 22.2357,
+              "naming_ms": 8.99373,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 112564592,
+              "peak_rss_bytes": 72269824,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01"
+            },
+            "50": {
+              "steps": 50,
+              "elapsed_ms": 71.6126,
+              "base_ms": 0.876918,
+              "exact_ms": 48.4026,
+              "naming_ms": 20.8059,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 105047680,
+              "peak_rss_bytes": 284282880,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141"
+            },
+            "100": {
+              "steps": 100,
+              "elapsed_ms": 166.788,
+              "base_ms": 2.11976,
+              "exact_ms": 99.8096,
+              "naming_ms": 52.2484,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 89346128,
+              "peak_rss_bytes": 896450560,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e"
+            },
+            "130": {
+              "steps": 130,
+              "elapsed_ms": 445.051,
+              "base_ms": 3.26,
+              "exact_ms": 278.446,
+              "naming_ms": 144.188,
+              "stages_executed": 2,
+              "stages_reused": 129,
+              "history_outputs": 139061,
+              "history_lineages": 139061,
+              "tip_outputs": 2106,
+              "stage_bytes": 133435024,
+              "peak_rss_bytes": 1466359808,
+              "geometry": "sha256:29676ba279b1480fd2721590c3d857d4a3efd93ac76212ad42376bb1e143bd75",
+              "history_digest": "sha256:bb50e545522f06a9666c8076c4bcd3b74efb721ea474ef120cff5de596048520"
+            },
+            "tip": {
+              "steps": 130,
+              "elapsed_ms": 418.983,
+              "base_ms": 4.67161,
+              "exact_ms": 274.306,
+              "naming_ms": 125.972,
+              "stages_executed": 2,
+              "stages_reused": 129
+            }
+          }
+        },
+        {
+          "log": "build/performance/naming-history/baseline/native-130-3.log",
+          "status": "FAIL",
+          "samples": {
+            "1": {
+              "steps": 1,
+              "elapsed_ms": 5.65651,
+              "base_ms": 0.01517,
+              "exact_ms": 4.54673,
+              "naming_ms": 1.0637,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 225728,
+              "peak_rss_bytes": 22581248,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396"
+            },
+            "20": {
+              "steps": 20,
+              "elapsed_ms": 30.9422,
+              "base_ms": 0.215512,
+              "exact_ms": 21.552,
+              "naming_ms": 8.83322,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 112564592,
+              "peak_rss_bytes": 72687616,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01"
+            },
+            "50": {
+              "steps": 50,
+              "elapsed_ms": 71.6597,
+              "base_ms": 0.879109,
+              "exact_ms": 48.1728,
+              "naming_ms": 20.7229,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 105047680,
+              "peak_rss_bytes": 284200960,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141"
+            },
+            "100": {
+              "steps": 100,
+              "elapsed_ms": 172.181,
+              "base_ms": 3.19414,
+              "exact_ms": 104.923,
+              "naming_ms": 51.7401,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 89346128,
+              "peak_rss_bytes": 895676416,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e"
+            },
+            "130": {
+              "steps": 130,
+              "elapsed_ms": 441.176,
+              "base_ms": 3.21492,
+              "exact_ms": 273.555,
+              "naming_ms": 145.508,
+              "stages_executed": 2,
+              "stages_reused": 129,
+              "history_outputs": 139061,
+              "history_lineages": 139061,
+              "tip_outputs": 2106,
+              "stage_bytes": 133435024,
+              "peak_rss_bytes": 1465880576,
+              "geometry": "sha256:29676ba279b1480fd2721590c3d857d4a3efd93ac76212ad42376bb1e143bd75",
+              "history_digest": "sha256:bb50e545522f06a9666c8076c4bcd3b74efb721ea474ef120cff5de596048520"
+            },
+            "tip": {
+              "steps": 130,
+              "elapsed_ms": 425.482,
+              "base_ms": 4.35517,
+              "exact_ms": 280.396,
+              "naming_ms": 126.851,
+              "stages_executed": 2,
+              "stages_reused": 129
+            }
+          }
+        }
+      ],
+      "medianAppend130MS": 441.176,
+      "medianTipEditMS": 425.065,
+      "medianRecordedPeakRSSBytes": 1466359808
+    },
+    "current": {
+      "runs": [
+        {
+          "log": "build/performance/naming-history/current/native-130-1.log",
+          "status": "PASS",
+          "samples": {
+            "1": {
+              "steps": 1,
+              "elapsed_ms": 6.61532,
+              "base_ms": 0.01445,
+              "exact_ms": 5.19628,
+              "naming_ms": 1.37666,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 292645,
+              "history_owned_bytes": 124429,
+              "peak_rss_bytes": 23371776,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396"
+            },
+            "20": {
+              "steps": 20,
+              "elapsed_ms": 30.1645,
+              "base_ms": 0.143322,
+              "exact_ms": 21.4328,
+              "naming_ms": 8.42569,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 110823609,
+              "history_owned_bytes": 2366177,
+              "peak_rss_bytes": 36474880,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01"
+            },
+            "50": {
+              "steps": 50,
+              "elapsed_ms": 68.223,
+              "base_ms": 0.425816,
+              "exact_ms": 47.3742,
+              "naming_ms": 19.4447,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 81030722,
+              "history_owned_bytes": 6949666,
+              "peak_rss_bytes": 66998272,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141"
+            },
+            "100": {
+              "steps": 100,
+              "elapsed_ms": 150.786,
+              "base_ms": 1.04433,
+              "exact_ms": 99.7596,
+              "naming_ms": 46.7073,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 132716289,
+              "history_owned_bytes": 17441769,
+              "peak_rss_bytes": 99520512,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e"
+            },
+            "130": {
+              "steps": 130,
+              "elapsed_ms": 200.094,
+              "base_ms": 1.46265,
+              "exact_ms": 135.372,
+              "naming_ms": 58.4307,
+              "stages_executed": 1,
+              "stages_reused": 130,
+              "history_outputs": 139061,
+              "history_lineages": 139061,
+              "tip_outputs": 2106,
+              "stage_bytes": 131895913,
+              "history_owned_bytes": 25513121,
+              "peak_rss_bytes": 110886912,
+              "geometry": "sha256:29676ba279b1480fd2721590c3d857d4a3efd93ac76212ad42376bb1e143bd75",
+              "history_digest": "sha256:bb50e545522f06a9666c8076c4bcd3b74efb721ea474ef120cff5de596048520"
+            },
+            "tip": {
+              "steps": 130,
+              "elapsed_ms": 200.613,
+              "base_ms": 1.57129,
+              "exact_ms": 135.251,
+              "naming_ms": 59.103,
+              "stages_executed": 1,
+              "stages_reused": 130
+            }
+          }
+        },
+        {
+          "log": "build/performance/naming-history/current/native-130-2.log",
+          "status": "PASS",
+          "samples": {
+            "1": {
+              "steps": 1,
+              "elapsed_ms": 5.85066,
+              "base_ms": 0.012161,
+              "exact_ms": 4.71785,
+              "naming_ms": 1.09783,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 292645,
+              "history_owned_bytes": 124429,
+              "peak_rss_bytes": 23777280,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396"
+            },
+            "20": {
+              "steps": 20,
+              "elapsed_ms": 29.9634,
+              "base_ms": 0.132511,
+              "exact_ms": 21.4169,
+              "naming_ms": 8.25084,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 110823609,
+              "history_owned_bytes": 2366177,
+              "peak_rss_bytes": 36880384,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01"
+            },
+            "50": {
+              "steps": 50,
+              "elapsed_ms": 67.258,
+              "base_ms": 0.426166,
+              "exact_ms": 47.6175,
+              "naming_ms": 18.4598,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 81030722,
+              "history_owned_bytes": 6949666,
+              "peak_rss_bytes": 66363392,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141"
+            },
+            "100": {
+              "steps": 100,
+              "elapsed_ms": 150.384,
+              "base_ms": 1.05327,
+              "exact_ms": 99.1432,
+              "naming_ms": 46.8319,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 132716289,
+              "history_owned_bytes": 17441769,
+              "peak_rss_bytes": 100003840,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e"
+            },
+            "130": {
+              "steps": 130,
+              "elapsed_ms": 203.361,
+              "base_ms": 1.5672,
+              "exact_ms": 137.748,
+              "naming_ms": 59.2908,
+              "stages_executed": 1,
+              "stages_reused": 130,
+              "history_outputs": 139061,
+              "history_lineages": 139061,
+              "tip_outputs": 2106,
+              "stage_bytes": 131895913,
+              "history_owned_bytes": 25513121,
+              "peak_rss_bytes": 111398912,
+              "geometry": "sha256:29676ba279b1480fd2721590c3d857d4a3efd93ac76212ad42376bb1e143bd75",
+              "history_digest": "sha256:bb50e545522f06a9666c8076c4bcd3b74efb721ea474ef120cff5de596048520"
+            },
+            "tip": {
+              "steps": 130,
+              "elapsed_ms": 202.344,
+              "base_ms": 1.61143,
+              "exact_ms": 137.167,
+              "naming_ms": 58.9036,
+              "stages_executed": 1,
+              "stages_reused": 130
+            }
+          }
+        },
+        {
+          "log": "build/performance/naming-history/current/native-130-3.log",
+          "status": "PASS",
+          "samples": {
+            "1": {
+              "steps": 1,
+              "elapsed_ms": 6.29872,
+              "base_ms": 0.01202,
+              "exact_ms": 5.20239,
+              "naming_ms": 1.06313,
+              "stages_executed": 1,
+              "stages_reused": 1,
+              "history_outputs": 59,
+              "history_lineages": 59,
+              "tip_outputs": 33,
+              "stage_bytes": 292645,
+              "history_owned_bytes": 124429,
+              "peak_rss_bytes": 22695936,
+              "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+              "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396"
+            },
+            "20": {
+              "steps": 20,
+              "elapsed_ms": 30.2227,
+              "base_ms": 0.132202,
+              "exact_ms": 21.7763,
+              "naming_ms": 8.15115,
+              "stages_executed": 1,
+              "stages_reused": 20,
+              "history_outputs": 3816,
+              "history_lineages": 3816,
+              "tip_outputs": 346,
+              "stage_bytes": 110823609,
+              "history_owned_bytes": 2366177,
+              "peak_rss_bytes": 35885056,
+              "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+              "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01"
+            },
+            "50": {
+              "steps": 50,
+              "elapsed_ms": 68.8711,
+              "base_ms": 0.413776,
+              "exact_ms": 47.9639,
+              "naming_ms": 19.5767,
+              "stages_executed": 1,
+              "stages_reused": 50,
+              "history_outputs": 21501,
+              "history_lineages": 21501,
+              "tip_outputs": 826,
+              "stage_bytes": 81030722,
+              "history_owned_bytes": 6949666,
+              "peak_rss_bytes": 66097152,
+              "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+              "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141"
+            },
+            "100": {
+              "steps": 100,
+              "elapsed_ms": 151.384,
+              "base_ms": 1.12406,
+              "exact_ms": 101.389,
+              "naming_ms": 45.5551,
+              "stages_executed": 1,
+              "stages_reused": 100,
+              "history_outputs": 82976,
+              "history_lineages": 82976,
+              "tip_outputs": 1626,
+              "stage_bytes": 132716289,
+              "history_owned_bytes": 17441769,
+              "peak_rss_bytes": 99254272,
+              "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+              "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e"
+            },
+            "130": {
+              "steps": 130,
+              "elapsed_ms": 199.668,
+              "base_ms": 1.59556,
+              "exact_ms": 135.762,
+              "naming_ms": 57.8586,
+              "stages_executed": 1,
+              "stages_reused": 130,
+              "history_outputs": 139061,
+              "history_lineages": 139061,
+              "tip_outputs": 2106,
+              "stage_bytes": 131895913,
+              "history_owned_bytes": 25513121,
+              "peak_rss_bytes": 110600192,
+              "geometry": "sha256:29676ba279b1480fd2721590c3d857d4a3efd93ac76212ad42376bb1e143bd75",
+              "history_digest": "sha256:bb50e545522f06a9666c8076c4bcd3b74efb721ea474ef120cff5de596048520"
+            },
+            "tip": {
+              "steps": 130,
+              "elapsed_ms": 201.165,
+              "base_ms": 1.62417,
+              "exact_ms": 137.41,
+              "naming_ms": 57.7597,
+              "stages_executed": 1,
+              "stages_reused": 130
+            }
+          }
+        }
+      ],
+      "medianAppend130MS": 200.094,
+      "medianTipEditMS": 201.165,
+      "medianRecordedPeakRSSBytes": 110886912
+    },
+    "capacity200": {
+      "log": "build/performance/naming-history/current/native-200-capacity.log",
+      "status": "PASS",
+      "samples": {
+        "1": {
+          "steps": 1,
+          "elapsed_ms": 5.59284,
+          "base_ms": 0.0116,
+          "exact_ms": 4.40491,
+          "naming_ms": 1.15318,
+          "stages_executed": 1,
+          "stages_reused": 1,
+          "history_outputs": 59,
+          "history_lineages": 59,
+          "tip_outputs": 33,
+          "stage_bytes": 292645,
+          "history_owned_bytes": 124429,
+          "peak_rss_bytes": 23801856,
+          "geometry": "sha256:8b8ae8c2a5af4c065b2f21914efb3e7a68bf09f81e52f2d4065b8bf26adf1171",
+          "history_digest": "sha256:6ba243506c1bceeabcaa0d17d801cdf6d193db9cd805c891e1bab30d64a68396"
+        },
+        "20": {
+          "steps": 20,
+          "elapsed_ms": 29.4657,
+          "base_ms": 0.155332,
+          "exact_ms": 21.1558,
+          "naming_ms": 8.00117,
+          "stages_executed": 1,
+          "stages_reused": 20,
+          "history_outputs": 3816,
+          "history_lineages": 3816,
+          "tip_outputs": 346,
+          "stage_bytes": 110823609,
+          "history_owned_bytes": 2366177,
+          "peak_rss_bytes": 36900864,
+          "geometry": "sha256:ab73027334b450cef254838c7d202d2f04c6af5e6aa7504eabccb1880ef0cb36",
+          "history_digest": "sha256:390d7c579c41fa082cfb69b55019e270e67bf4c189b5459546e1a423b511df01"
+        },
+        "50": {
+          "steps": 50,
+          "elapsed_ms": 69.3971,
+          "base_ms": 0.442736,
+          "exact_ms": 48.1067,
+          "naming_ms": 19.9885,
+          "stages_executed": 1,
+          "stages_reused": 50,
+          "history_outputs": 21501,
+          "history_lineages": 21501,
+          "tip_outputs": 826,
+          "stage_bytes": 81030722,
+          "history_owned_bytes": 6949666,
+          "peak_rss_bytes": 67010560,
+          "geometry": "sha256:31875a0aa79bbad3485196be1072b7797283c39aae66b4b0d0cd0c3c32e5cb91",
+          "history_digest": "sha256:383b58ebd60cb6a1aa361319728aef40de934e98e8200029d668b9f8acb86141"
+        },
+        "100": {
+          "steps": 100,
+          "elapsed_ms": 155.203,
+          "base_ms": 1.10817,
+          "exact_ms": 102.917,
+          "naming_ms": 47.8276,
+          "stages_executed": 1,
+          "stages_reused": 100,
+          "history_outputs": 82976,
+          "history_lineages": 82976,
+          "tip_outputs": 1626,
+          "stage_bytes": 132716289,
+          "history_owned_bytes": 17441769,
+          "peak_rss_bytes": 99811328,
+          "geometry": "sha256:f94b98f16e96c6daf2327a840487dba77c6c692d761c8970b0103a03b4a27a0d",
+          "history_digest": "sha256:24391c7b50a75126c534b856b511bee259b9fe7ba98b55bf2fa1950d1f1f780e"
+        },
+        "160": {
+          "steps": 160,
+          "elapsed_ms": 262.483,
+          "base_ms": 2.48565,
+          "exact_ms": 177.207,
+          "naming_ms": 77.2026,
+          "stages_executed": 1,
+          "stages_reused": 160,
+          "history_outputs": 209546,
+          "history_lineages": 209546,
+          "tip_outputs": 2586,
+          "stage_bytes": 131840969,
+          "history_owned_bytes": 34834353,
+          "peak_rss_bytes": 127348736,
+          "geometry": "sha256:fb321a10cd75863beb4caf624c8165d8c7e8199c36631826d0842f06374661af",
+          "history_digest": "sha256:44f97507e6355389b770164d98d84eb5d48f785bb1ae385d6feed38419f6a53e"
+        },
+        "180": {
+          "steps": 180,
+          "elapsed_ms": 304.437,
+          "base_ms": 2.81581,
+          "exact_ms": 207.537,
+          "naming_ms": 85.794,
+          "stages_executed": 1,
+          "stages_reused": 180,
+          "history_outputs": 264536,
+          "history_lineages": 264536,
+          "tip_outputs": 2906,
+          "stage_bytes": 131929913,
+          "history_owned_bytes": 41710001,
+          "peak_rss_bytes": 138194944,
+          "geometry": "sha256:a43967d9105240f098cd6d1ec83ccfb9fa6c243f35b20ce7827ae0859182d9b1",
+          "history_digest": "sha256:3aee87f400156e221ec6edaad526a2ba48e192bec1b0b4505184cf4c3e4b91d6"
+        },
+        "200": {
+          "steps": 200,
+          "elapsed_ms": 343.246,
+          "base_ms": 3.08003,
+          "exact_ms": 237.6,
+          "naming_ms": 95.4101,
+          "stages_executed": 1,
+          "stages_reused": 200,
+          "history_outputs": 325926,
+          "history_lineages": 325926,
+          "tip_outputs": 3226,
+          "stage_bytes": 132812321,
+          "history_owned_bytes": 49114521,
+          "peak_rss_bytes": 156749824,
+          "geometry": "sha256:1d33ef95076c6aa94de6babea5aa717c279c57bbae31cc256b940ebd1ca94d2a",
+          "history_digest": "sha256:09467349a5210bf1ef9c846b5024bf68b1995fcbb5d80fb4172319fe0c25cb55"
+        },
+        "tip": {
+          "steps": 200,
+          "elapsed_ms": 343.927,
+          "base_ms": 2.9739,
+          "exact_ms": 239.127,
+          "naming_ms": 94.4345,
+          "stages_executed": 1,
+          "stages_reused": 200
+        }
+      }
+    },
+    "recordedCheckpointComparison": [
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-1.log",
+        "step": 1,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-1.log",
+        "step": 20,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-1.log",
+        "step": 50,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-1.log",
+        "step": 100,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-1.log",
+        "step": 130,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-2.log",
+        "step": 1,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-2.log",
+        "step": 20,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-2.log",
+        "step": 50,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-2.log",
+        "step": 100,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-2.log",
+        "step": 130,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-3.log",
+        "step": 1,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-3.log",
+        "step": 20,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-3.log",
+        "step": 50,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-3.log",
+        "step": 100,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      },
+      {
+        "sample": "build/performance/naming-history/baseline/native-130-3.log",
+        "step": 130,
+        "geometryEqual": true,
+        "historyDigestEqual": true
+      }
+    ]
+  },
+  "service": {
+    "baseline": {
+      "runs": [
+        {
+          "log": "build/performance/naming-history/baseline/router-1.log",
+          "report": null,
+          "phases": [
+            {
+              "kind": "append",
+              "steps": 20,
+              "elapsedMS": 146.916,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 20,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.076891,
+                "exact_ms": 23.350804,
+                "naming_ms": 27.279071000000002,
+                "display_ms": 8.97827,
+                "artifact_io_ms": 3.977244,
+                "stage_cache_bytes": 112564592,
+                "input_prepare_ms": 0.354823,
+                "peak_rss_bytes": 118394880,
+                "mesh_ms": 3.980767,
+                "encoding_ms": 0.256892,
+                "response_cache_bytes": 7832033,
+                "visual_cache_bytes": 11351688,
+                "base_ms": 0.751597,
+                "adjacency_ms": 0.213912,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 70,
+                "naming_kernel_ms": 15.313261,
+                "naming_artifact_ms": 11.96581,
+                "cancellation_polls": 6,
+                "cancellation_poll_ms": 0.447,
+                "mesh_reused_faces": 69,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 0.8330570000000002,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 406232
+            },
+            {
+              "kind": "append",
+              "steps": 50,
+              "elapsedMS": 308.649,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 50,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.085942,
+                "exact_ms": 51.165601,
+                "naming_ms": 88.328833,
+                "display_ms": 21.355036,
+                "artifact_io_ms": 8.666889,
+                "stage_cache_bytes": 105047680,
+                "stage_evictions": 1,
+                "input_prepare_ms": 0.538045,
+                "peak_rss_bytes": 520716288,
+                "mesh_ms": 9.389356,
+                "encoding_ms": 0.517164,
+                "response_cache_bytes": 52253197,
+                "visual_cache_bytes": 62970640,
+                "base_ms": 1.464793,
+                "adjacency_ms": 0.504045,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 175,
+                "naming_kernel_ms": 32.817302,
+                "naming_artifact_ms": 55.511531,
+                "cancellation_polls": 8,
+                "cancellation_poll_ms": 0.666,
+                "mesh_reused_faces": 174,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 2.0432890000000015,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 1372777
+            },
+            {
+              "kind": "append",
+              "steps": 100,
+              "elapsedMS": 754.185,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 100,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.088181,
+                "exact_ms": 108.080244,
+                "naming_ms": 287.590605,
+                "display_ms": 55.875604,
+                "artifact_io_ms": 23.813548,
+                "stage_cache_bytes": 89346128,
+                "stage_evictions": 1,
+                "input_prepare_ms": 1.466623,
+                "peak_rss_bytes": 1515143168,
+                "mesh_ms": 20.399178,
+                "encoding_ms": 1.14735,
+                "response_cache_bytes": 63044726,
+                "visual_cache_bytes": 64639456,
+                "base_ms": 3.730625,
+                "adjacency_ms": 1.257962,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 350,
+                "naming_kernel_ms": 67.825953,
+                "naming_artifact_ms": 219.764652,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.06,
+                "mesh_reused_faces": 349,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.058537999999999,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 3981872
+            },
+            {
+              "kind": "append",
+              "steps": 120,
+              "elapsedMS": 944.878,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.087371,
+                "exact_ms": 132.599099,
+                "naming_ms": 376.69248100000004,
+                "display_ms": 64.164415,
+                "artifact_io_ms": 30.419308,
+                "stage_cache_bytes": 125676992,
+                "stage_evictions": 1,
+                "input_prepare_ms": 1.989363,
+                "peak_rss_bytes": 1972146176,
+                "mesh_ms": 21.346625,
+                "encoding_ms": 1.196444,
+                "response_cache_bytes": 63586297,
+                "visual_cache_bytes": 61875720,
+                "base_ms": 4.858765,
+                "adjacency_ms": 1.531638,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 64.363256,
+                "naming_artifact_ms": 312.329225,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.095,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 5.057808000000023,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 5375042
+            },
+            {
+              "kind": "tip",
+              "steps": 120,
+              "elapsedMS": 981.456,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.081221,
+                "exact_ms": 139.241264,
+                "naming_ms": 388.407537,
+                "display_ms": 60.710345,
+                "artifact_io_ms": 25.453733,
+                "stage_cache_bytes": 125677120,
+                "stage_evictions": 1,
+                "input_prepare_ms": 1.633489,
+                "peak_rss_bytes": 1999020032,
+                "mesh_ms": 22.498887,
+                "encoding_ms": 1.323545,
+                "response_cache_bytes": 64303827,
+                "visual_cache_bytes": 62010072,
+                "base_ms": 4.42111,
+                "adjacency_ms": 1.750621,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 77.631149,
+                "naming_artifact_ms": 310.776388,
+                "cancellation_polls": 14,
+                "cancellation_poll_ms": 1.139,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 5.234600999999941,
+                "cache_accounting_serializations": 2
+              }
+            }
+          ],
+          "selectionMS": [
+            1.991,
+            1.246,
+            1.266
+          ],
+          "reopenedSelectionMS": []
+        },
+        {
+          "log": "build/performance/naming-history/baseline/router-2.log",
+          "report": null,
+          "phases": [
+            {
+              "kind": "append",
+              "steps": 20,
+              "elapsedMS": 140.422,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 20,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.076851,
+                "exact_ms": 23.248888,
+                "naming_ms": 23.874746000000002,
+                "display_ms": 9.099798,
+                "artifact_io_ms": 3.8586050000000003,
+                "stage_cache_bytes": 112564592,
+                "input_prepare_ms": 0.376195,
+                "peak_rss_bytes": 118439936,
+                "mesh_ms": 3.830185,
+                "encoding_ms": 0.267013,
+                "response_cache_bytes": 7830393,
+                "visual_cache_bytes": 11351720,
+                "base_ms": 0.783809,
+                "adjacency_ms": 0.194272,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 70,
+                "naming_kernel_ms": 12.214416,
+                "naming_artifact_ms": 11.66033,
+                "cancellation_polls": 6,
+                "cancellation_poll_ms": 0.464,
+                "mesh_reused_faces": 69,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 0.8389019999999991,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 406045
+            },
+            {
+              "kind": "append",
+              "steps": 50,
+              "elapsedMS": 319.749,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 50,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.082151,
+                "exact_ms": 52.699736,
+                "naming_ms": 96.11301399999999,
+                "display_ms": 21.176277,
+                "artifact_io_ms": 8.51948,
+                "stage_cache_bytes": 105047680,
+                "stage_evictions": 1,
+                "input_prepare_ms": 0.776289,
+                "peak_rss_bytes": 510128128,
+                "mesh_ms": 8.816753,
+                "encoding_ms": 0.500386,
+                "response_cache_bytes": 52240832,
+                "visual_cache_bytes": 62970672,
+                "base_ms": 2.251106,
+                "adjacency_ms": 0.500466,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 175,
+                "naming_kernel_ms": 36.329825,
+                "naming_artifact_ms": 59.783189,
+                "cancellation_polls": 9,
+                "cancellation_poll_ms": 0.726,
+                "mesh_reused_faces": 174,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 2.020122999999998,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 1372260
+            },
+            {
+              "kind": "append",
+              "steps": 100,
+              "elapsedMS": 781.961,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 100,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.094381,
+                "exact_ms": 106.465498,
+                "naming_ms": 295.69782699999996,
+                "display_ms": 48.17926,
+                "artifact_io_ms": 20.260044999999998,
+                "stage_cache_bytes": 89346128,
+                "stage_evictions": 1,
+                "input_prepare_ms": 1.552268,
+                "peak_rss_bytes": 1576968192,
+                "mesh_ms": 19.872622,
+                "encoding_ms": 1.071172,
+                "response_cache_bytes": 63032648,
+                "visual_cache_bytes": 64639456,
+                "base_ms": 3.690243,
+                "adjacency_ms": 1.079173,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 350,
+                "naming_kernel_ms": 74.808829,
+                "naming_artifact_ms": 220.888998,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.054,
+                "mesh_reused_faces": 349,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 3.8693949999999973,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 3980805
+            },
+            {
+              "kind": "append",
+              "steps": 120,
+              "elapsedMS": 950.558,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.08905,
+                "exact_ms": 132.332738,
+                "naming_ms": 374.64272700000004,
+                "display_ms": 56.201249,
+                "artifact_io_ms": 28.183246,
+                "stage_cache_bytes": 125676992,
+                "stage_evictions": 1,
+                "input_prepare_ms": 1.226304,
+                "peak_rss_bytes": 2019749888,
+                "mesh_ms": 20.517557,
+                "encoding_ms": 1.133383,
+                "response_cache_bytes": 63575110,
+                "visual_cache_bytes": 61875720,
+                "base_ms": 3.775734,
+                "adjacency_ms": 1.69378,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 66.978854,
+                "naming_artifact_ms": 307.663873,
+                "cancellation_polls": 12,
+                "cancellation_poll_ms": 0.977,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.960497000000032,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 5373755
+            },
+            {
+              "kind": "tip",
+              "steps": 120,
+              "elapsedMS": 924.944,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.081891,
+                "exact_ms": 129.319314,
+                "naming_ms": 373.472302,
+                "display_ms": 58.428565,
+                "artifact_io_ms": 22.630791000000002,
+                "stage_cache_bytes": 125677120,
+                "stage_evictions": 1,
+                "input_prepare_ms": 1.266035,
+                "peak_rss_bytes": 2019749888,
+                "mesh_ms": 22.007564,
+                "encoding_ms": 1.370035,
+                "response_cache_bytes": 64292552,
+                "visual_cache_bytes": 62010072,
+                "base_ms": 3.638852,
+                "adjacency_ms": 1.382986,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 67.215236,
+                "naming_artifact_ms": 306.257066,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.036,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.668483999999978,
+                "cache_accounting_serializations": 2
+              }
+            }
+          ],
+          "selectionMS": [
+            1.54,
+            1.052,
+            1.168
+          ],
+          "reopenedSelectionMS": []
+        },
+        {
+          "log": "build/performance/naming-history/baseline/router-3.log",
+          "report": null,
+          "phases": [
+            {
+              "kind": "append",
+              "steps": 20,
+              "elapsedMS": 139.863,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 20,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.077271,
+                "exact_ms": 23.632185,
+                "naming_ms": 23.840238,
+                "display_ms": 8.887404,
+                "artifact_io_ms": 3.537741,
+                "stage_cache_bytes": 112564592,
+                "input_prepare_ms": 0.362524,
+                "peak_rss_bytes": 118554624,
+                "mesh_ms": 4.148469,
+                "encoding_ms": 0.257923,
+                "response_cache_bytes": 7831640,
+                "visual_cache_bytes": 11351720,
+                "base_ms": 0.80081,
+                "adjacency_ms": 0.215793,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 70,
+                "naming_kernel_ms": 12.115011,
+                "naming_artifact_ms": 11.725227,
+                "cancellation_polls": 6,
+                "cancellation_poll_ms": 0.457,
+                "mesh_reused_faces": 69,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 0.8894500000000001,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 406191
+            },
+            {
+              "kind": "append",
+              "steps": 50,
+              "elapsedMS": 313.266,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 50,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.09041,
+                "exact_ms": 51.078353,
+                "naming_ms": 94.182211,
+                "display_ms": 22.144858,
+                "artifact_io_ms": 8.50929,
+                "stage_cache_bytes": 105047680,
+                "stage_evictions": 1,
+                "input_prepare_ms": 0.91084,
+                "peak_rss_bytes": 510681088,
+                "mesh_ms": 9.919616,
+                "encoding_ms": 0.616307,
+                "response_cache_bytes": 52250644,
+                "visual_cache_bytes": 62970672,
+                "base_ms": 2.128974,
+                "adjacency_ms": 0.485326,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 175,
+                "naming_kernel_ms": 36.913767,
+                "naming_artifact_ms": 57.268444,
+                "cancellation_polls": 9,
+                "cancellation_poll_ms": 0.714,
+                "mesh_reused_faces": 174,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 2.028933000000002,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 1372676
+            },
+            {
+              "kind": "append",
+              "steps": 100,
+              "elapsedMS": 745.184,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 100,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.088751,
+                "exact_ms": 109.586018,
+                "naming_ms": 284.200743,
+                "display_ms": 48.592183,
+                "artifact_io_ms": 19.475716,
+                "stage_cache_bytes": 89346128,
+                "stage_evictions": 1,
+                "input_prepare_ms": 1.198623,
+                "peak_rss_bytes": 1600720896,
+                "mesh_ms": 19.489956,
+                "encoding_ms": 0.989552,
+                "response_cache_bytes": 63042446,
+                "visual_cache_bytes": 64639456,
+                "base_ms": 3.124576,
+                "adjacency_ms": 1.308075,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 350,
+                "naming_kernel_ms": 67.507663,
+                "naming_artifact_ms": 216.69308,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.069,
+                "mesh_reused_faces": 349,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 3.953345999999982,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 3981671
+            },
+            {
+              "kind": "append",
+              "steps": 120,
+              "elapsedMS": 928.56,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.094351,
+                "exact_ms": 142.80043,
+                "naming_ms": 372.124314,
+                "display_ms": 60.999375,
+                "artifact_io_ms": 23.589092,
+                "stage_cache_bytes": 125676992,
+                "stage_evictions": 1,
+                "input_prepare_ms": 1.426507,
+                "peak_rss_bytes": 2120007680,
+                "mesh_ms": 22.429459,
+                "encoding_ms": 1.311245,
+                "response_cache_bytes": 63584200,
+                "visual_cache_bytes": 61875720,
+                "base_ms": 4.293809,
+                "adjacency_ms": 1.884232,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 62.19078,
+                "naming_artifact_ms": 309.933534,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.101,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 5.108137999999997,
+                "cache_accounting_serializations": 2
+              },
+              "namingRootBytes": 5374801
+            },
+            {
+              "kind": "tip",
+              "steps": 120,
+              "elapsedMS": 933.867,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.081521,
+                "exact_ms": 132.842285,
+                "naming_ms": 372.654738,
+                "display_ms": 60.608911,
+                "artifact_io_ms": 24.264169000000003,
+                "stage_cache_bytes": 125677120,
+                "stage_evictions": 1,
+                "input_prepare_ms": 1.294555,
+                "peak_rss_bytes": 2122174464,
+                "mesh_ms": 22.637982,
+                "encoding_ms": 1.299185,
+                "response_cache_bytes": 64301714,
+                "visual_cache_bytes": 62010072,
+                "base_ms": 4.487602,
+                "adjacency_ms": 1.74614,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 60.173966,
+                "naming_artifact_ms": 312.480772,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.056,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.969589000000042,
+                "cache_accounting_serializations": 2
+              }
+            }
+          ],
+          "selectionMS": [
+            1.452,
+            1.074,
+            1.171
+          ],
+          "reopenedSelectionMS": []
+        }
+      ],
+      "medianAppend120MS": 944.878,
+      "medianTipEditMS": 933.867,
+      "medianNamingArtifactMS": 309.933534,
+      "medianRecordedWorkerPeakRSSBytes": 2019749888,
+      "medianHotSelectionMS": 1.246,
+      "medianNamingPublicationBytes": 5374801
+    },
+    "current": {
+      "runs": [
+        {
+          "log": "build/performance/naming-history/current/router-1.log",
+          "report": "build/agent-check/20261115T084519.722368850/report.json",
+          "phases": [
+            {
+              "kind": "append",
+              "steps": 20,
+              "elapsedMS": 160.285,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 20,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.084019,
+                "exact_ms": 22.97523,
+                "naming_ms": 14.144048,
+                "display_ms": 8.490041,
+                "artifact_io_ms": 4.937270000000001,
+                "stage_cache_bytes": 111264521,
+                "input_prepare_ms": 1.631454,
+                "peak_rss_bytes": 71720960,
+                "mesh_ms": 3.673649,
+                "encoding_ms": 0.273043,
+                "response_cache_bytes": 15565522,
+                "visual_cache_bytes": 11351720,
+                "base_ms": 0.495919,
+                "adjacency_ms": 0.195076,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 70,
+                "naming_kernel_ms": 11.243462,
+                "naming_artifact_ms": 2.900586,
+                "cancellation_polls": 6,
+                "cancellation_poll_ms": 0.46,
+                "mesh_reused_faces": 69,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 0.8710009999999997,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 20,
+                "naming_block_bytes_written": 103606,
+                "naming_root_bytes": 191109,
+                "naming_full_lineage_rows": 3816,
+                "naming_literal_lineage_rows": 626,
+                "naming_carried_lineage_rows": 3190
+              },
+              "namingRootBytes": 191109
+            },
+            {
+              "kind": "append",
+              "steps": 50,
+              "elapsedMS": 261.232,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 50,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.080558,
+                "exact_ms": 52.192297,
+                "naming_ms": 37.828935,
+                "display_ms": 20.595325,
+                "artifact_io_ms": 7.404896,
+                "stage_cache_bytes": 80837043,
+                "input_prepare_ms": 4.038321,
+                "peak_rss_bytes": 210018304,
+                "mesh_ms": 9.331534,
+                "encoding_ms": 0.520079,
+                "response_cache_bytes": 62889605,
+                "visual_cache_bytes": 62970672,
+                "base_ms": 1.087036,
+                "adjacency_ms": 0.488169,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 175,
+                "naming_kernel_ms": 30.850299,
+                "naming_artifact_ms": 6.978636,
+                "cancellation_polls": 8,
+                "cancellation_poll_ms": 0.616,
+                "mesh_reused_faces": 174,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 2.112363000000002,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 50,
+                "naming_block_bytes_written": 227949,
+                "naming_root_bytes": 464033,
+                "naming_full_lineage_rows": 21501,
+                "naming_literal_lineage_rows": 1526,
+                "naming_carried_lineage_rows": 19975
+              },
+              "namingRootBytes": 464033
+            },
+            {
+              "kind": "append",
+              "steps": 100,
+              "elapsedMS": 483.335,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 100,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.081638,
+                "exact_ms": 109.229952,
+                "naming_ms": 65.986679,
+                "display_ms": 44.430836,
+                "artifact_io_ms": 13.795176,
+                "stage_cache_bytes": 133127561,
+                "stage_evictions": 2,
+                "input_prepare_ms": 7.899636,
+                "peak_rss_bytes": 416354304,
+                "mesh_ms": 17.310576,
+                "encoding_ms": 1.025667,
+                "response_cache_bytes": 49665921,
+                "visual_cache_bytes": 64639456,
+                "base_ms": 2.392656,
+                "adjacency_ms": 1.080066,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 350,
+                "naming_kernel_ms": 51.5062,
+                "naming_artifact_ms": 14.480479,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.074,
+                "mesh_reused_faces": 349,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.327664999999968,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 100,
+                "naming_block_bytes_written": 435622,
+                "naming_root_bytes": 919060,
+                "naming_full_lineage_rows": 82976,
+                "naming_literal_lineage_rows": 3026,
+                "naming_carried_lineage_rows": 79950
+              },
+              "namingRootBytes": 919060
+            },
+            {
+              "kind": "append",
+              "steps": 120,
+              "elapsedMS": 572.01,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.088087,
+                "exact_ms": 129.508025,
+                "naming_ms": 79.87496300000001,
+                "display_ms": 55.592421,
+                "artifact_io_ms": 15.674663,
+                "stage_cache_bytes": 132583035,
+                "stage_evictions": 2,
+                "input_prepare_ms": 7.867736,
+                "peak_rss_bytes": 457551872,
+                "mesh_ms": 20.275131,
+                "encoding_ms": 1.295342,
+                "response_cache_bytes": 35048024,
+                "visual_cache_bytes": 61875720,
+                "base_ms": 2.813928,
+                "adjacency_ms": 1.224403,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 62.469838,
+                "naming_artifact_ms": 17.405125,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.039,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.8896029999999655,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 120,
+                "naming_block_bytes_written": 518428,
+                "naming_root_bytes": 1101235,
+                "naming_full_lineage_rows": 118766,
+                "naming_literal_lineage_rows": 3626,
+                "naming_carried_lineage_rows": 115140
+              },
+              "namingRootBytes": 1101235
+            },
+            {
+              "kind": "tip",
+              "steps": 120,
+              "elapsedMS": 586.597,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.092907,
+                "exact_ms": 130.382146,
+                "naming_ms": 81.60950399999999,
+                "display_ms": 56.49736,
+                "artifact_io_ms": 16.066903,
+                "stage_cache_bytes": 133919399,
+                "stage_evictions": 1,
+                "input_prepare_ms": 8.215818,
+                "peak_rss_bytes": 466874368,
+                "mesh_ms": 20.673892,
+                "encoding_ms": 1.193494,
+                "response_cache_bytes": 35048028,
+                "visual_cache_bytes": 62010072,
+                "base_ms": 2.799668,
+                "adjacency_ms": 1.198073,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 64.853445,
+                "naming_artifact_ms": 16.756059,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.017,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 5.060606999999948,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 120,
+                "naming_block_bytes_written": 518428,
+                "naming_root_bytes": 1101235,
+                "naming_full_lineage_rows": 118766,
+                "naming_literal_lineage_rows": 3626,
+                "naming_carried_lineage_rows": 115140
+              }
+            }
+          ],
+          "selectionMS": [
+            1.655,
+            1.167,
+            1.297
+          ],
+          "reopenedSelectionMS": [
+            81.109,
+            1.453,
+            1.247
+          ]
+        },
+        {
+          "log": "build/performance/naming-history/current/router-2.log",
+          "report": "build/agent-check/20261115T084637.081112787/report.json",
+          "phases": [
+            {
+              "kind": "append",
+              "steps": 20,
+              "elapsedMS": 150.298,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 20,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.076078,
+                "exact_ms": 23.004004,
+                "naming_ms": 13.174061,
+                "display_ms": 8.067532,
+                "artifact_io_ms": 3.9047540000000005,
+                "stage_cache_bytes": 111264809,
+                "input_prepare_ms": 1.692083,
+                "peak_rss_bytes": 69226496,
+                "mesh_ms": 3.729248,
+                "encoding_ms": 0.263124,
+                "response_cache_bytes": 15565376,
+                "visual_cache_bytes": 11351720,
+                "base_ms": 0.45928,
+                "adjacency_ms": 0.196936,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 70,
+                "naming_kernel_ms": 10.396153,
+                "naming_artifact_ms": 2.777908,
+                "cancellation_polls": 6,
+                "cancellation_poll_ms": 0.46,
+                "mesh_reused_faces": 69,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 0.8815290000000005,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 20,
+                "naming_block_bytes_written": 103605,
+                "naming_root_bytes": 191068,
+                "naming_full_lineage_rows": 3816,
+                "naming_literal_lineage_rows": 626,
+                "naming_carried_lineage_rows": 3190
+              },
+              "namingRootBytes": 191068
+            },
+            {
+              "kind": "append",
+              "steps": 50,
+              "elapsedMS": 263.104,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 50,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.079908,
+                "exact_ms": 51.060042,
+                "naming_ms": 35.62159,
+                "display_ms": 20.053791,
+                "artifact_io_ms": 7.661612999999999,
+                "stage_cache_bytes": 80840339,
+                "input_prepare_ms": 3.637471,
+                "peak_rss_bytes": 214646784,
+                "mesh_ms": 8.918093,
+                "encoding_ms": 0.502339,
+                "response_cache_bytes": 62913883,
+                "visual_cache_bytes": 62970672,
+                "base_ms": 1.228793,
+                "adjacency_ms": 0.46075,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 175,
+                "naming_kernel_ms": 28.598444,
+                "naming_artifact_ms": 7.023146,
+                "cancellation_polls": 8,
+                "cancellation_poll_ms": 0.632,
+                "mesh_reused_faces": 174,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 2.108074000000002,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 50,
+                "naming_block_bytes_written": 228180,
+                "naming_root_bytes": 464073,
+                "naming_full_lineage_rows": 21501,
+                "naming_literal_lineage_rows": 1526,
+                "naming_carried_lineage_rows": 19975
+              },
+              "namingRootBytes": 464073
+            },
+            {
+              "kind": "append",
+              "steps": 100,
+              "elapsedMS": 484.306,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 100,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.080498,
+                "exact_ms": 107.929952,
+                "naming_ms": 66.172642,
+                "display_ms": 45.194294,
+                "artifact_io_ms": 13.568100000000001,
+                "stage_cache_bytes": 133129009,
+                "stage_evictions": 2,
+                "input_prepare_ms": 8.467333,
+                "peak_rss_bytes": 379133952,
+                "mesh_ms": 17.138813,
+                "encoding_ms": 1.060517,
+                "response_cache_bytes": 49672673,
+                "visual_cache_bytes": 64639456,
+                "base_ms": 2.509585,
+                "adjacency_ms": 1.072506,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 350,
+                "naming_kernel_ms": 50.913788,
+                "naming_artifact_ms": 15.258854,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.014,
+                "mesh_reused_faces": 349,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.433682000000005,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 100,
+                "naming_block_bytes_written": 435620,
+                "naming_root_bytes": 919118,
+                "naming_full_lineage_rows": 82976,
+                "naming_literal_lineage_rows": 3026,
+                "naming_carried_lineage_rows": 79950
+              },
+              "namingRootBytes": 919118
+            },
+            {
+              "kind": "append",
+              "steps": 120,
+              "elapsedMS": 576.725,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.088797,
+                "exact_ms": 127.930558,
+                "naming_ms": 84.70063,
+                "display_ms": 55.224391,
+                "artifact_io_ms": 16.529205,
+                "stage_cache_bytes": 132587387,
+                "stage_evictions": 2,
+                "input_prepare_ms": 7.591392,
+                "peak_rss_bytes": 523681792,
+                "mesh_ms": 19.866662,
+                "encoding_ms": 1.237003,
+                "response_cache_bytes": 35052528,
+                "visual_cache_bytes": 61875720,
+                "base_ms": 2.7277,
+                "adjacency_ms": 1.296481,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 68.118605,
+                "naming_artifact_ms": 16.582025,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.059,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.80260300000009,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 120,
+                "naming_block_bytes_written": 518767,
+                "naming_root_bytes": 1101210,
+                "naming_full_lineage_rows": 118766,
+                "naming_literal_lineage_rows": 3626,
+                "naming_carried_lineage_rows": 115140
+              },
+              "namingRootBytes": 1101210
+            },
+            {
+              "kind": "tip",
+              "steps": 120,
+              "elapsedMS": 587.849,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.088706,
+                "exact_ms": 129.051171,
+                "naming_ms": 83.604155,
+                "display_ms": 57.909083,
+                "artifact_io_ms": 16.020937,
+                "stage_cache_bytes": 133923415,
+                "stage_evictions": 1,
+                "input_prepare_ms": 7.364638,
+                "peak_rss_bytes": 534609920,
+                "mesh_ms": 22.104913,
+                "encoding_ms": 1.209723,
+                "response_cache_bytes": 35052532,
+                "visual_cache_bytes": 62010072,
+                "base_ms": 2.856327,
+                "adjacency_ms": 1.3517,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 66.776256,
+                "naming_artifact_ms": 16.827899,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.147,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.791163999999981,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 120,
+                "naming_block_bytes_written": 518767,
+                "naming_root_bytes": 1101210,
+                "naming_full_lineage_rows": 118766,
+                "naming_literal_lineage_rows": 3626,
+                "naming_carried_lineage_rows": 115140
+              }
+            }
+          ],
+          "selectionMS": [
+            1.694,
+            1.108,
+            1.18
+          ],
+          "reopenedSelectionMS": [
+            82.252,
+            1.415,
+            1.27
+          ]
+        },
+        {
+          "log": "build/performance/naming-history/current/router-3.log",
+          "report": "build/agent-check/20261115T084752.753497112/report.json",
+          "phases": [
+            {
+              "kind": "append",
+              "steps": 20,
+              "elapsedMS": 140.781,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 20,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.076808,
+                "exact_ms": 23.325295,
+                "naming_ms": 13.005073,
+                "display_ms": 8.239498,
+                "artifact_io_ms": 3.8245750000000003,
+                "stage_cache_bytes": 111263185,
+                "input_prepare_ms": 1.342851,
+                "peak_rss_bytes": 76324864,
+                "mesh_ms": 3.921205,
+                "encoding_ms": 0.302342,
+                "response_cache_bytes": 15564937,
+                "visual_cache_bytes": 11351720,
+                "base_ms": 0.505808,
+                "adjacency_ms": 0.194496,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 70,
+                "naming_kernel_ms": 10.257374,
+                "naming_artifact_ms": 2.747699,
+                "cancellation_polls": 6,
+                "cancellation_poll_ms": 0.506,
+                "mesh_reused_faces": 69,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 0.9441980000000001,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 20,
+                "naming_block_bytes_written": 103656,
+                "naming_root_bytes": 191071,
+                "naming_full_lineage_rows": 3816,
+                "naming_literal_lineage_rows": 626,
+                "naming_carried_lineage_rows": 3190
+              },
+              "namingRootBytes": 191071
+            },
+            {
+              "kind": "append",
+              "steps": 50,
+              "elapsedMS": 260.244,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 50,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.078579,
+                "exact_ms": 50.506723,
+                "naming_ms": 35.355799000000005,
+                "display_ms": 20.722682,
+                "artifact_io_ms": 8.348946,
+                "stage_cache_bytes": 80835611,
+                "input_prepare_ms": 4.015721,
+                "peak_rss_bytes": 215920640,
+                "mesh_ms": 8.822145,
+                "encoding_ms": 0.517439,
+                "response_cache_bytes": 62909383,
+                "visual_cache_bytes": 62970672,
+                "base_ms": 1.170144,
+                "adjacency_ms": 0.492019,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 175,
+                "naming_kernel_ms": 28.205857,
+                "naming_artifact_ms": 7.149942,
+                "cancellation_polls": 8,
+                "cancellation_poll_ms": 0.619,
+                "mesh_reused_faces": 174,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 2.0650740000000027,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 50,
+                "naming_block_bytes_written": 227950,
+                "naming_root_bytes": 463954,
+                "naming_full_lineage_rows": 21501,
+                "naming_literal_lineage_rows": 1526,
+                "naming_carried_lineage_rows": 19975
+              },
+              "namingRootBytes": 463954
+            },
+            {
+              "kind": "append",
+              "steps": 100,
+              "elapsedMS": 480.357,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 100,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.091788,
+                "exact_ms": 103.680329,
+                "naming_ms": 68.2538,
+                "display_ms": 46.084382,
+                "artifact_io_ms": 13.969320999999999,
+                "stage_cache_bytes": 133131881,
+                "stage_evictions": 2,
+                "input_prepare_ms": 6.400839,
+                "peak_rss_bytes": 427909120,
+                "mesh_ms": 17.452284,
+                "encoding_ms": 1.182673,
+                "response_cache_bytes": 49677639,
+                "visual_cache_bytes": 64639456,
+                "base_ms": 2.26141,
+                "adjacency_ms": 0.976058,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 350,
+                "naming_kernel_ms": 54.2652,
+                "naming_artifact_ms": 13.9886,
+                "cancellation_polls": 12,
+                "cancellation_poll_ms": 0.974,
+                "mesh_reused_faces": 349,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.071719999999999,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 100,
+                "naming_block_bytes_written": 435716,
+                "naming_root_bytes": 919043,
+                "naming_full_lineage_rows": 82976,
+                "naming_literal_lineage_rows": 3026,
+                "naming_carried_lineage_rows": 79950
+              },
+              "namingRootBytes": 919043
+            },
+            {
+              "kind": "append",
+              "steps": 120,
+              "elapsedMS": 578.562,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.087918,
+                "exact_ms": 132.644316,
+                "naming_ms": 80.066389,
+                "display_ms": 55.880485,
+                "artifact_io_ms": 16.201612,
+                "stage_cache_bytes": 132584363,
+                "stage_evictions": 2,
+                "input_prepare_ms": 8.308196,
+                "peak_rss_bytes": 519831552,
+                "mesh_ms": 20.378449,
+                "encoding_ms": 1.225663,
+                "response_cache_bytes": 35054823,
+                "visual_cache_bytes": 61875720,
+                "base_ms": 2.668991,
+                "adjacency_ms": 1.391849,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 61.94792,
+                "naming_artifact_ms": 18.118469,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 0.994,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 4.9619089999999915,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 120,
+                "naming_block_bytes_written": 518669,
+                "naming_root_bytes": 1101231,
+                "naming_full_lineage_rows": 118766,
+                "naming_literal_lineage_rows": 3626,
+                "naming_carried_lineage_rows": 115140
+              },
+              "namingRootBytes": 1101231
+            },
+            {
+              "kind": "tip",
+              "steps": 120,
+              "elapsedMS": 597.097,
+              "worker": {
+                "stages_executed": 1,
+                "stages_reused": 120,
+                "generator_calls": 1,
+                "body_operation_calls": 1,
+                "queue_ms": 0.091399,
+                "exact_ms": 130.300447,
+                "naming_ms": 80.46742900000001,
+                "display_ms": 57.526378,
+                "artifact_io_ms": 15.575915,
+                "stage_cache_bytes": 133919863,
+                "stage_evictions": 1,
+                "input_prepare_ms": 9.02243,
+                "peak_rss_bytes": 519831552,
+                "mesh_ms": 21.360677,
+                "encoding_ms": 1.660404,
+                "response_cache_bytes": 35054827,
+                "visual_cache_bytes": 62010072,
+                "base_ms": 2.663262,
+                "adjacency_ms": 1.32085,
+                "volume_integrations": 1,
+                "face_evidence_computed": 7,
+                "face_evidence_reused": 420,
+                "naming_kernel_ms": 62.913988,
+                "naming_artifact_ms": 17.553441,
+                "cancellation_polls": 13,
+                "cancellation_poll_ms": 1.175,
+                "mesh_reused_faces": 419,
+                "mesh_computed_faces": 7,
+                "cache_accounting_ms": 5.014949000000001,
+                "cache_accounting_serializations": 2,
+                "naming_blocks_computed": 1,
+                "naming_blocks_reused": 120,
+                "naming_block_bytes_written": 518669,
+                "naming_root_bytes": 1101231,
+                "naming_full_lineage_rows": 118766,
+                "naming_literal_lineage_rows": 3626,
+                "naming_carried_lineage_rows": 115140
+              }
+            }
+          ],
+          "selectionMS": [
+            1.776,
+            1.079,
+            1.304
+          ],
+          "reopenedSelectionMS": [
+            82.369,
+            1.436,
+            1.215
+          ]
+        }
+      ],
+      "medianAppend120MS": 576.725,
+      "medianTipEditMS": 587.849,
+      "medianNamingArtifactMS": 17.405125,
+      "medianRecordedWorkerPeakRSSBytes": 519831552,
+      "medianHotSelectionMS": 1.297,
+      "medianNamingPublicationBytes": 1619900,
+      "medianFirstReopenedSelectionMS": 82.252,
+      "storageFootprint": [
+        {
+          "documentID": "01a1de64-4760-7014-a107-1c2056d152e1",
+          "features": 242,
+          "rootSHA256": "c06b626d6b7030a8df2728e6f06c97380db0c694ed89697ba2016f46ce35edcf",
+          "currentRootBytes": 1101231,
+          "currentHistoryBlocks": 121,
+          "currentHistoryBlockBytes": 31904042,
+          "currentClosureBytes": 33005273,
+          "allRevisionUniqueRoots": 122,
+          "allRevisionRootBytes": 67938172,
+          "allRevisionUniqueHistoryBlocks": 122,
+          "allRevisionHistoryBlockBytes": 32422711
+        },
+        {
+          "documentID": "01a1de63-1ffc-7b29-8ce1-19caf34f7418",
+          "features": 242,
+          "rootSHA256": "54db0bda91efb1b7e6fd0ee8447b3425ffc96b4508cbb291e5cb473ebd1fef81",
+          "currentRootBytes": 1101210,
+          "currentHistoryBlocks": 121,
+          "currentHistoryBlockBytes": 31901768,
+          "currentClosureBytes": 33002978,
+          "allRevisionUniqueRoots": 122,
+          "allRevisionRootBytes": 67945965,
+          "allRevisionUniqueHistoryBlocks": 122,
+          "allRevisionHistoryBlockBytes": 32420535
+        },
+        {
+          "documentID": "01a1de61-f8ec-70b7-96f0-da13ffd40869",
+          "features": 242,
+          "rootSHA256": "b53a3ed0ecbe56b4041ded4ffff86f66f93e4d11d4b14a85286aacc506ba9897",
+          "currentRootBytes": 1101235,
+          "currentHistoryBlocks": 121,
+          "currentHistoryBlockBytes": 31897239,
+          "currentClosureBytes": 32998474,
+          "allRevisionUniqueRoots": 122,
+          "allRevisionRootBytes": 67943850,
+          "allRevisionUniqueHistoryBlocks": 122,
+          "allRevisionHistoryBlockBytes": 32415667
+        }
+      ]
+    }
+  },
+  "measuredAtUTC": "2026-11-15",
+  "boundaries": {
+    "native": "Three separate serial Release processes per side, 130 additions after one base; elapsed evaluateProfilePadsWithHistory only. No mesh, protobuf encoding, Service, HTTP or browser. Current timed validation counts compact metadata; explicit full-reader and cold digest checks follow timings. Recorded checkpoints, not every cross-build transition, are compared.",
+    "baselineNativeStatus": "FAIL for expected checkpoint-reuse/pointer assertions (2 executed,129 reused), geometry/history recorded checkpoints and complete cold equality checks passed. This is the reproduced performance defect, not a passing baseline test.",
+    "service": "Three separate serial generated-document recipes per side, SQLite/LOCAL and real Router/Worker; ApplyCommand through Revision/CAS and DocumentView return. Each has 121 3D stages and121 sketches. Different document/Feature IDs between runs: recipe-level timing, not cross-document byte equality. Every run separately checks exact volume, old references, Undo/Redo, cold BREP/Naming SHA and preview does not move Head.",
+    "baselineGoBuild": "Frozen HEAD24b7e806 control/workspace/artifact sources plus additive unused generated Proto fields only; frozen baseline Worker. Baseline ran before development data reset.",
+    "recordedRSS": "ru_maxrss high water recorded by final addition, includes preceding process lifetime; not isolated operation allocation, live heap, steady-state memory or all later cold-read peaks.",
+    "namingBytes": "Old publication is the entire v2 file. Current publication is v3 root plus newly published block; reused prefix files are not included. Current root dependency closure is separately measured and is larger than a single old v2 file.",
+    "queries": "SelectionMS is three different anchors after modeling has populated views. ReopenedSelectionMS uses a fresh Service with empty parsed-root/block caches; its first lookup is cold, remaining lookups warm. No baseline reopened comparison was collected.",
+    "statistics": "Three serial samples are not P95, industrial capacity, GPU frame rate, original remote B-pillar or CATIA equivalence."
+  },
+  "cacheBudgetsBytes": {
+    "stage": 134217728,
+    "workerNamingMemo": 33554432,
+    "queryRoots": 67108864,
+    "queryBlocks": 67108864
+  },
+  "binaryFingerprints": [
+    {
+      "path": "build/performance/naming-history/baseline/occcad_geometry_scenarios",
+      "sha256": "ba04921517df4ae8a61476d54a8e78918ad70e7422207d9890c05a27d292a934",
+      "bytes": 50469416
+    },
+    {
+      "path": "build/performance/naming-history/baseline/occccad_geometry_worker",
+      "sha256": "6ab64e74c3528543588491ff4ccc9f14f0846828065d97eef9bd9447ae5cf2ca",
+      "bytes": 76474768
+    },
+    {
+      "path": "build/performance/naming-history/baseline/control.test",
+      "sha256": "e79efe66f4942a373d5577d291a749d037d86f9d4408884570e36bf6daef10dc",
+      "bytes": 56152924
+    },
+    {
+      "path": "build/cmake/linux-gcc15-x86_64/release/kernel/occt/tests/occcad_geometry_scenarios",
+      "sha256": "65c3e5f20ca6779893a5c49bf0e5818e11049a34e3bdae023e5fe025146ea213",
+      "bytes": 50664064
+    },
+    {
+      "path": "build/cmake/linux-gcc15-x86_64/release/workers/geometry/occccad_geometry_worker",
+      "sha256": "1cbe706035adcf01e66c914d3a2b98a1af3aab2567c9082014f7151f4bcdf0ad",
+      "bytes": 76583096
+    }
+  ],
+  "sourceFingerprints": [
+    {
+      "path": "kernel/api/include/occccad/kernel/feature_history.hpp",
+      "sha256": "29b0c14632697f7d3f876d27c586230dd884a07752975cfc8bd9adff20296ebd",
+      "bytes": 21408
+    },
+    {
+      "path": "kernel/api/include/occccad/kernel/immutable_sequence.hpp",
+      "sha256": "1f555fdb186df9517122b21601fdb89dca5ccec72682d6332467dc1f3bde536c",
+      "bytes": 9143
+    },
+    {
+      "path": "kernel/api/include/occccad/kernel/shared_vector.hpp",
+      "sha256": "68f1a3e2abae0f7b4ef14d9853bb1953e268a9d714b5c307739b196e3ec23e98",
+      "bytes": 5005
+    },
+    {
+      "path": "kernel/api/include/occccad/kernel/topology_naming.hpp",
+      "sha256": "54409e83c0650361b63e52a8a9fe61d016d2855f55c5793b4a45dd6cc0f7c380",
+      "bytes": 803
+    },
+    {
+      "path": "kernel/api/include/occccad/kernel/topology_naming_values.hpp",
+      "sha256": "72ff251048f73a6d8a927e4d71f835b264ec968097f1c32737a8928890c22cb5",
+      "bytes": 6014
+    },
+    {
+      "path": "kernel/api/include/occccad/kernel/topology_value_key.hpp",
+      "sha256": "e48560340dc4496e0f9c098a5fbab4b4eacb53ea4a1702332a30c963100d604d",
+      "bytes": 4359
+    },
+    {
+      "path": "kernel/occt/src/occt_kernel.cpp",
+      "sha256": "c8d261bc1f980705c382ffa514e6151e932954b7d234067c91c6d4f23a2d696f",
+      "bytes": 347821
+    },
+    {
+      "path": "kernel/occt/tests/geometry_exchange_scenarios.cpp",
+      "sha256": "f7647fe3d392de28f38b5fb694e57c9860602d3924d1f722107cccfe52a15f0b",
+      "bytes": 274450
+    },
+    {
+      "path": "kernel/occt/tests/naming_growth_scenarios.cpp",
+      "sha256": "d7f9c9cfd38132c39fb4f1112787a09792510ede77e15c5691b040bbebe8d927",
+      "bytes": 21204
+    },
+    {
+      "path": "proto/occccad/worker/v1/geometry_worker.proto",
+      "sha256": "5e2eda76036111dc3887cc30ff8ae9fbdb7d2970b96ba5ea1811b8ffa89d6e62",
+      "bytes": 58307
+    },
+    {
+      "path": "services/gen/worker/v1/geometry_worker.pb.go",
+      "sha256": "0c1b8c1198182df10f9a7327fe86e4e8b20c16f84307c2abe8f8bff7a3a98998",
+      "bytes": 646582
+    },
+    {
+      "path": "services/internal/artifact/dependencies.go",
+      "sha256": "0c547d754b08c7b5634fcc08866ac20642876efeffa54f8b915c64dc393003cb",
+      "bytes": 8064
+    },
+    {
+      "path": "services/internal/artifact/dependencies_test.go",
+      "sha256": "1370120061e0fc1870c8cb3a77d3dccbcd3419e602027be9ea3fa2699d0e194d",
+      "bytes": 2111
+    },
+    {
+      "path": "services/internal/artifact/local.go",
+      "sha256": "ff333c7c108caa3722934a0c393adffc74eb9dbd5c9736fdb15fcfce15a3e01a",
+      "bytes": 4115
+    },
+    {
+      "path": "services/internal/artifact/store.go",
+      "sha256": "9eecbffdc8145f0e4183bf3ca88cade630d6e10bd8720b9561a00ae15bf5004c",
+      "bytes": 1179
+    },
+    {
+      "path": "services/internal/control/geometry_representations_test.go",
+      "sha256": "db803bfddd05cb7a60e8df37e69561c6a7fd15057dcee73fe73b1b04cd45016c",
+      "bytes": 5702
+    },
+    {
+      "path": "services/internal/control/part_feature_performance_integration_test.go",
+      "sha256": "098a06bd764386aee10fc29262048017bb5b1bdeea93e58d5bc493e2a88b163e",
+      "bytes": 35188
+    },
+    {
+      "path": "services/internal/geometry/artifact_staging_test.go",
+      "sha256": "724139a90de6db7cebcddf116b191e5e3e3eacacf5c3ebd5b223e19036e880f0",
+      "bytes": 6859
+    },
+    {
+      "path": "services/internal/geometry/client.go",
+      "sha256": "f3afe6084de762572d84548124263868203cea08084adf1e231e90895421e06d",
+      "bytes": 63550
+    },
+    {
+      "path": "services/internal/geometry/corner_fillet_worker_integration_test.go",
+      "sha256": "0fc283a534f979958029c243ca66635c95f3d488159884960848496b8e2680c6",
+      "bytes": 4046
+    },
+    {
+      "path": "services/internal/geometry/fillet_boundary_worker_integration_test.go",
+      "sha256": "4d7f5ee2b6006826916976817d48e0fb5f4e62d22e51d4444966967ed61be467",
+      "bytes": 4990
+    },
+    {
+      "path": "services/internal/geometry/part_runtime.go",
+      "sha256": "f058c9fb13f06b2aa26b96104254c04d4daef889337c40120b821b27362cdffa",
+      "bytes": 628
+    },
+    {
+      "path": "services/internal/geometry/pattern_worker_integration_test.go",
+      "sha256": "bb38b2c1ab630016e9b5b4ec726854d5b204c4ae8b7e5eccb0a86dbbc0dbb7e5",
+      "bytes": 5862
+    },
+    {
+      "path": "services/internal/geometry/shell_worker_integration_test.go",
+      "sha256": "d96795687e8ca7c5dcab42cf2536680e4140a1b51449ea435b18c4bcaa795cf0",
+      "bytes": 8550
+    },
+    {
+      "path": "services/internal/geometry/topology_contract_test.go",
+      "sha256": "df954622cb6d1eaa0c965f5d6ef58427eaa444473e16fb33559ef20641ea286f",
+      "bytes": 3803
+    },
+    {
+      "path": "services/internal/geometry/topology_worker_integration_test.go",
+      "sha256": "39c647d4248c72b37e8228a6da139f3338604a093c66413ec8af6b638a9848b6",
+      "bytes": 6802
+    },
+    {
+      "path": "services/internal/workspace/geometry_artifacts.go",
+      "sha256": "a85b9fed3e276ab047ba13d2452c8ee78d0ad8a062735867c04f7c9d2370d4d2",
+      "bytes": 14913
+    },
+    {
+      "path": "services/internal/workspace/naming_artifact.go",
+      "sha256": "2e5ca98dd32897a9b71bdc2884754d95f85b203233ef11912ae77e66e4a78e0e",
+      "bytes": 9097
+    },
+    {
+      "path": "services/internal/workspace/naming_artifact_test.go",
+      "sha256": "fb1474fcab1c0d5c40ad8176e9076c184e37ac12780b3ac1f1f9889cd845a274",
+      "bytes": 8393
+    },
+    {
+      "path": "services/internal/workspace/naming_history.go",
+      "sha256": "67de867b629f2b61a5122cd077a795ebdbfebd9cf8e62fdbfb04124e95bf33e6",
+      "bytes": 11635
+    },
+    {
+      "path": "services/internal/workspace/naming_history_artifacts.go",
+      "sha256": "3d85094cec5a3b9aad773fe72ae3dbd2a615bd3f77f5cbb7f42a6c9b53510746",
+      "bytes": 6916
+    },
+    {
+      "path": "services/internal/workspace/naming_history_test.go",
+      "sha256": "9c7c0444b59e470c995d0fbeaf17433efeb75ba078edf1ca1d19eb9ba279bff1",
+      "bytes": 8311
+    },
+    {
+      "path": "services/internal/workspace/naming_query_charge.go",
+      "sha256": "75fd5db83eb25b4fcf6b8a708fbe0ff2402b34cc0d9d675eb9a03044e37e3635",
+      "bytes": 2391
+    },
+    {
+      "path": "services/internal/workspace/naming_query_charge_test.go",
+      "sha256": "5c5390ecacbc63243926619e45ac43ba9e1cbf40de5899354b1e706e60b1ff6a",
+      "bytes": 1169
+    },
+    {
+      "path": "services/internal/workspace/naming_search_test.go",
+      "sha256": "c29c9ff58ae964e06cf20334fe56d1a64fcb192ec9e082a5d747fc0a24d59d23",
+      "bytes": 6024
+    },
+    {
+      "path": "services/internal/workspace/naming_view_cache.go",
+      "sha256": "f84863e72eca9387bf3e16b7d3994ba3ad0cc45e486f35b5dc5adf328c67994e",
+      "bytes": 2556
+    },
+    {
+      "path": "services/internal/workspace/part_base_stage.go",
+      "sha256": "9e41fe00add1472a6b77a803af02ce6e6030015a037170b4dd112450e6163bf4",
+      "bytes": 2558
+    },
+    {
+      "path": "services/internal/workspace/part_execution_plan.go",
+      "sha256": "3088b4d9f96da74063712dfc8c10101d7a84560390fc2506e9787aac088ff2e4",
+      "bytes": 5367
+    },
+    {
+      "path": "services/internal/workspace/service.go",
+      "sha256": "4da317932e3d1c7ff0842acf0c5e39aca2dbc7905f4bc9849134d57808f59652",
+      "bytes": 131871
+    },
+    {
+      "path": "services/internal/workspace/topology_naming_diagnostics.go",
+      "sha256": "61959fbb9f0534a938d3cc3d57c848cc16db70a13350dd0df6850884976006ca",
+      "bytes": 5970
+    },
+    {
+      "path": "services/internal/workspace/topology_naming_diagnostics_test.go",
+      "sha256": "3423162b57c24ab57823fcad203f3104a6840a30a49f4a14aa102d11c082fc30",
+      "bytes": 4946
+    },
+    {
+      "path": "workers/geometry/src/main.cpp",
+      "sha256": "065e983b3e60125d47fd9e032f430ea2207d2331c6be737b7c3a6e4f9600c860",
+      "bytes": 186939
+    },
+    {
+      "path": "workers/geometry/src/naming_artifact.hpp",
+      "sha256": "43257916e3c71fd579956337ad95c76f9f1771e2d4ea83da5473ef1df7d2f83a",
+      "bytes": 12263
+    },
+    {
+      "path": "workers/geometry/src/naming_history.hpp",
+      "sha256": "3d8d834e28533cc3518f9803848584bfb4bf18f3fa7f8ef220fc752c8c6217b8",
+      "bytes": 11769
+    },
+    {
+      "path": "workers/geometry/src/naming_value_access.hpp",
+      "sha256": "d9bf7f9d482c1e34d487678788eea374fccfeb8ff32fba5f8f24d6e4768a580d",
+      "bytes": 6625
+    },
+    {
+      "path": "workers/geometry/tests/naming_artifact_test.cpp",
+      "sha256": "4a927bda5593e7de202c1f02a939cc9f636f7b190e88e86846fb697e79f403ff",
+      "bytes": 23817
+    },
+    {
+      "path": "workers/geometry/tests/naming_legacy_reference.hpp",
+      "sha256": "9e98d71d8ab9a0fb6c426fc10157435dd55da66a923438661ba0bfca347eee60",
+      "bytes": 12350
+    }
+  ],
+  "validation": {
+    "reports": [
+      {
+        "path": "build/agent-check/20261115T081153.340950042/report.json",
+        "status": "PASS",
+        "source": {
+          "commit": "24b7e806f4c3bcfbeca7dc7569c91e4941c81649",
+          "dirty": true,
+          "files": 1711,
+          "sha256": "1398040a906c34ea13abdc2da0a3cddadbf3acad7e659a35afa6af15e803bf0d"
+        },
+        "sourceAfter": {
+          "commit": "24b7e806f4c3bcfbeca7dc7569c91e4941c81649",
+          "dirty": true,
+          "files": 1711,
+          "sha256": "1398040a906c34ea13abdc2da0a3cddadbf3acad7e659a35afa6af15e803bf0d"
+        },
+        "steps": [
+          {
+            "id": "geometry-build-occcad_geometry_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-build-occccad_naming_artifact_tests",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-native",
+            "status": "PASS",
+            "counts": {
+              "started": 16,
+              "passed": 16,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "notApplicable": []
+      },
+      {
+        "path": "build/agent-check/20261115T083732.245386620/report.json",
+        "status": "PASS",
+        "source": {
+          "commit": "24b7e806f4c3bcfbeca7dc7569c91e4941c81649",
+          "dirty": true,
+          "files": 1711,
+          "sha256": "f36bca0ce5e262889f5e9c372af576cb14e3966ce00e2e61a35d26a668edf705"
+        },
+        "sourceAfter": {
+          "commit": "24b7e806f4c3bcfbeca7dc7569c91e4941c81649",
+          "dirty": true,
+          "files": 1711,
+          "sha256": "f36bca0ce5e262889f5e9c372af576cb14e3966ce00e2e61a35d26a668edf705"
+        },
+        "steps": [
+          {
+            "id": "integration-native-occccad_geometry_worker",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occcad_geometry_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occccad_naming_artifact_tests",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "router-integration",
+            "status": "PASS",
+            "counts": {
+              "started": 31,
+              "passed": 31,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "notApplicable": []
+      },
+      {
+        "path": "build/agent-check/20261115T084242.869363215/report.json",
+        "status": "PASS",
+        "source": {
+          "commit": "24b7e806f4c3bcfbeca7dc7569c91e4941c81649",
+          "dirty": true,
+          "files": 1711,
+          "sha256": "f36bca0ce5e262889f5e9c372af576cb14e3966ce00e2e61a35d26a668edf705"
+        },
+        "sourceAfter": {
+          "commit": "24b7e806f4c3bcfbeca7dc7569c91e4941c81649",
+          "dirty": true,
+          "files": 1711,
+          "sha256": "f36bca0ce5e262889f5e9c372af576cb14e3966ce00e2e61a35d26a668edf705"
+        },
+        "steps": [
+          {
+            "id": "integration-native-occccad_geometry_worker",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occcad_geometry_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "integration-native-occccad_naming_artifact_tests",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "workspace-integration",
+            "status": "PASS",
+            "counts": {
+              "started": 22,
+              "passed": 22,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "notApplicable": []
+      },
+      {
+        "path": "build/agent-check/20261115T085417.967716337/report.json",
+        "status": "PASS",
+        "source": {
+          "commit": "24b7e806f4c3bcfbeca7dc7569c91e4941c81649",
+          "dirty": true,
+          "files": 1711,
+          "sha256": "f36bca0ce5e262889f5e9c372af576cb14e3966ce00e2e61a35d26a668edf705"
+        },
+        "sourceAfter": {
+          "commit": "24b7e806f4c3bcfbeca7dc7569c91e4941c81649",
+          "dirty": true,
+          "files": 1711,
+          "sha256": "f36bca0ce5e262889f5e9c372af576cb14e3966ce00e2e61a35d26a668edf705"
+        },
+        "steps": [
+          {
+            "id": "assembly-build-occcad_assembly_solver_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "assembly-build-occcad_assembly_solver_corpus",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-build-occcad_geometry_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-build-occccad_naming_artifact_tests",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "sketch-build-occcad_sketch_solver_scenarios",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "web-production",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "assembly-native",
+            "status": "PASS",
+            "counts": {
+              "started": 233,
+              "passed": 233,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "geometry-native",
+            "status": "PASS",
+            "counts": {
+              "started": 209,
+              "passed": 209,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "sketch-native",
+            "status": "PASS",
+            "counts": {
+              "started": 67,
+              "passed": 67,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "workspace-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 764,
+              "passed": 764,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "services-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 1028,
+              "passed": 1026,
+              "failed": 0,
+              "skipped": 2
+            }
+          },
+          {
+            "id": "tooling-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 92,
+              "passed": 92,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "web-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 171,
+              "passed": 171,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "docs",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "contract-tools",
+            "status": "PASS",
+            "counts": {
+              "started": 41,
+              "passed": 41,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "go-conformance-unit",
+            "status": "PASS",
+            "counts": {
+              "started": 2,
+              "passed": 2,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "id": "codegen-drift",
+            "status": "PASS",
+            "counts": {
+              "started": 0,
+              "passed": 0,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "notApplicable": []
+      }
+    ],
+    "race": {
+      "status": "PASS",
+      "log": "build/performance/naming-history/current/query-final-race-validation.log",
+      "scope": "Naming query projection, ordered oracle, cache budget/lease/cancellation and source qualification"
+    },
+    "browser": {
+      "report": "build/performance/naming-history/current/browser-report.json",
+      "stats": {
+        "startTime": "2026-11-15T09:09:14.378Z",
+        "duration": 73809.076,
+        "expected": 6,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "cases": [
+        {
+          "title": "Extracted faces sew and close from viewport as a whole skin while source faces stay visible",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMS": 13165
+            }
+          ]
+        },
+        {
+          "title": "Engineering surface display: curved sheets, point glyphs, dark theme and real thumbnails",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMS": 13468
+            }
+          ]
+        },
+        {
+          "title": "face sketch drawing retains accepted Body buffers and BVH",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMS": 6445
+            }
+          ]
+        },
+        {
+          "title": "Hole preview keeps one shaded result through picking and cancel",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMS": 14246
+            }
+          ]
+        },
+        {
+          "title": "unified patterns preserve mirrored cut tools and highlight each actual owner",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMS": 16261
+            }
+          ]
+        },
+        {
+          "title": "solid and face highlights retain material appearance and use spatial contour lines",
+          "status": "expected",
+          "results": [
+            {
+              "status": "passed",
+              "durationMS": 8254
+            }
+          ]
+        }
+      ],
+      "renderer": "Chromium/SwiftShader, selected workflows; no capacity or GPU timing claim"
+    },
+    "runtimeDoctor": {
+      "report": "build/performance/naming-history/current/doctor-live.json",
+      "checks": [
+        {
+          "detail": "ready",
+          "name": "git",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "go",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "node",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "pnpm",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "cmake",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "ninja",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "conan",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "ccache",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "protoc",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "protoc-gen-go",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "protoc-gen-go-grpc",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "dependencies",
+          "prepare": "mise run cpp:deps --profile release",
+          "status": "PASS"
+        },
+        {
+          "detail": "Ninja dry run requests a configure/glob check; freshness needs an actual build/check. --live separately verifies loaded code and artifacts.",
+          "name": "native-freshness",
+          "required": false,
+          "status": "NOT_RUN"
+        },
+        {
+          "detail": "ready",
+          "name": "occccad_geometry_worker",
+          "prepare": "mise run cpp:build --target occccad_geometry_worker --profile release",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "occcad_geometry_scenarios",
+          "prepare": "mise run cpp:build --target occcad_geometry_scenarios --profile release",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "occccad_naming_artifact_tests",
+          "prepare": "mise run cpp:build --target occccad_naming_artifact_tests --profile release",
+          "status": "PASS"
+        },
+        {
+          "detail": "configured database accepts queries",
+          "name": "database",
+          "status": "PASS"
+        },
+        {
+          "detail": "migration records present; actual migration validation remains enforced at startup",
+          "name": "schema",
+          "status": "PASS"
+        },
+        {
+          "detail": "configured LOCAL directory exists",
+          "name": "artifact-store",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "running-build",
+          "prepare": "restart mise run dev",
+          "status": "PASS"
+        }
+      ]
+    },
+    "runtimeObservations": {
+      "log": "build/performance/naming-history/current/dev-runtime.log",
+      "detail": "Startup Jobs SQLITE_BUSY claim logs were observed; subsequent live doctor and six selected browser workflows passed. No causal attribution or all-request zero-error claim."
+    },
+    "runtimeDoctorFinal": {
+      "report": "build/performance/naming-history/current/doctor-live-final.json",
+      "status": "PASS",
+      "checks": [
+        {
+          "detail": "ready",
+          "name": "git",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "go",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "node",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "pnpm",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "cmake",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "ninja",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "conan",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "ccache",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "protoc",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "protoc-gen-go",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "protoc-gen-go-grpc",
+          "prepare": "mise install --locked",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "dependencies",
+          "prepare": "mise run cpp:deps --profile release",
+          "status": "PASS"
+        },
+        {
+          "detail": "Ninja dry run requests a configure/glob check; freshness needs an actual build/check. --live separately verifies loaded code and artifacts.",
+          "name": "native-freshness",
+          "required": false,
+          "status": "NOT_RUN"
+        },
+        {
+          "detail": "ready",
+          "name": "occccad_geometry_worker",
+          "prepare": "mise run cpp:build --target occccad_geometry_worker --profile release",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "occcad_geometry_scenarios",
+          "prepare": "mise run cpp:build --target occcad_geometry_scenarios --profile release",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "occccad_naming_artifact_tests",
+          "prepare": "mise run cpp:build --target occccad_naming_artifact_tests --profile release",
+          "status": "PASS"
+        },
+        {
+          "detail": "configured database accepts queries",
+          "name": "database",
+          "status": "PASS"
+        },
+        {
+          "detail": "migration records present; actual migration validation remains enforced at startup",
+          "name": "schema",
+          "status": "PASS"
+        },
+        {
+          "detail": "configured LOCAL directory exists",
+          "name": "artifact-store",
+          "status": "PASS"
+        },
+        {
+          "detail": "ready",
+          "name": "running-build",
+          "prepare": "restart mise run dev",
+          "status": "PASS"
+        }
+      ]
+    },
+    "documentation": {
+      "status": "PASS",
+      "log": "build/performance/naming-history/current/docs-validation.log",
+      "pages": 98
+    },
+    "contracts": {
+      "status": "PASS",
+      "log": "build/performance/naming-history/current/contract-validation.log",
+      "cases": 41
+    },
+    "diffCheck": "PASS git diff --check",
+    "measurementSourceRecheck": "PASS all recorded production/test source fingerprints unchanged; later changes are documentation/evidence only"
+  },
+  "developmentReset": {
+    "database": "configured SQLite services/data/occccad-local.db all tables/views/migration records",
+    "artifacts": "configured LOCAL services/data artifacts/staging",
+    "bucket": "none (LOCAL backend)",
+    "reason": "unpublished baseline migration and Naming v3 layout; no production compatibility adapter",
+    "resetLog": "build/performance/naming-history/current/data-reset-fresh.log"
+  },
+  "remaining": [
+    "Cross-block ref/evidence dictionaries and smaller cold dependency closures; bounded prefetch/grouping unmeasured on S3",
+    "Fixed root/block cache partition and conservative ownership estimates can limit larger models; no constant-time/unbounded capacity guarantee",
+    "Generic persisted Body/tool checkpoint recovery and full model/Revision incremental projection not implemented",
+    "Physical GC not enabled; Revision/cross-document/preview/active Job roots need complete lifecycle policy",
+    "Original remote B-pillar, live PostgreSQL and S3 behavior not validated in this configured SQLite/LOCAL run"
+  ]
+}

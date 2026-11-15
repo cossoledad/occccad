@@ -13,12 +13,17 @@ import (
 )
 
 func TestTopologyManifestDiagnostics(t *testing.T) {
-	ready := &workerv1.PartTopologyManifest{GeometryId: "geometry", SchemaVersion: 2, PolicyDigest: modelcore.TopologyNamingPolicyDigest, CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", Transitions: []*workerv1.NamingTransition{{FeatureId: "extrude", BodyId: "body-main", Complete: true}}, Bodies: []*workerv1.NamingBody{{BodyId: "body-main", Transitions: []uint32{1}, TipTransition: 1}}}
-	valid, _ := proto.Marshal(ready)
+	ready := &workerv1.PartTopologyManifest{GeometryId: "geometry", SchemaVersion: 3, PolicyDigest: modelcore.TopologyNamingPolicyDigest, CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", Transitions: []*workerv1.NamingTransition{{FeatureId: "extrude", BodyId: "body-main", Complete: true}}, Bodies: []*workerv1.NamingBody{{BodyId: "body-main", Transitions: []uint32{1}, TipTransition: 1}}}
+	readyRoot, files := namingRootFixture(t, ready, nil)
+	valid, _ := proto.Marshal(readyRoot)
 	incomplete := proto.Clone(ready).(*workerv1.PartTopologyManifest)
 	incomplete.Transitions[0].Complete = false
-	failed, _ := proto.Marshal(incomplete)
-	incompatible := proto.Clone(ready).(*workerv1.PartTopologyManifest)
+	incompleteRoot, failedFiles := namingRootFixture(t, incomplete, nil)
+	for key, data := range failedFiles {
+		files[key] = data
+	}
+	failed, _ := proto.Marshal(incompleteRoot)
+	incompatible := proto.Clone(readyRoot).(*workerv1.PartTopologyManifest)
 	incompatible.PolicyDigest = "other-policy"
 	old, _ := proto.Marshal(incompatible)
 	digestOf := func(data []byte) *string {
@@ -46,7 +51,13 @@ func TestTopologyManifestDiagnostics(t *testing.T) {
 	service := &Service{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manifest, _, err := service.readTopologyManifest(t.Context(), tt.data, nil, tt.digest)
+			var manifest *topologyManifest
+			var err error
+			if len(tt.data) > 0 && tt.digest != nil {
+				manifest, err = decodeTopologyManifestContext(t.Context(), tt.data, *tt.digest, fixtureHistoryLoader(files))
+			} else {
+				manifest, _, err = service.readTopologyManifest(t.Context(), tt.data, nil, tt.digest)
+			}
 			if tt.status == "" {
 				if err != nil || !topologyHistoryComplete(manifest) {
 					t.Fatalf("ready manifest: %v", err)

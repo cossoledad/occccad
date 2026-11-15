@@ -17,6 +17,7 @@ type partExecutionPlan struct {
 	bodies         map[string]bool
 	inputs         map[modelcore.DependencyKey][]modelcore.DependencyKey
 	acceptedStages map[string]string
+	acceptedBodies map[string]string
 }
 type partExecutionPlanKey struct{}
 
@@ -41,7 +42,7 @@ func preparePartExecution(ctx context.Context, before, model PartModel, prior *m
 			}
 		}
 	}
-	plan := &partExecutionPlan{graph: graph, dirty: map[modelcore.DependencyKey]bool{}, before: map[string]Feature{}, bodies: map[string]bool{}, inputs: map[modelcore.DependencyKey][]modelcore.DependencyKey{}, acceptedStages: map[string]string{}}
+	plan := &partExecutionPlan{graph: graph, dirty: map[modelcore.DependencyKey]bool{}, before: map[string]Feature{}, bodies: map[string]bool{}, inputs: map[modelcore.DependencyKey][]modelcore.DependencyKey{}, acceptedStages: map[string]string{}, acceptedBodies: map[string]string{}}
 	for _, edge := range graph.Edges {
 		plan.inputs[edge.Target] = append(plan.inputs[edge.Target], edge.Source)
 	}
@@ -61,6 +62,9 @@ func preparePartExecution(ctx context.Context, before, model PartModel, prior *m
 		}
 	}
 	for _, body := range before.Bodies {
+		if body.GeometryKey != "" {
+			plan.acceptedBodies[body.ID] = body.GeometryKey
+		}
 		if tip := tips[body.ID]; tip != "" && body.GeometryKey != "" {
 			plan.acceptedStages[tip] = body.GeometryKey
 		}

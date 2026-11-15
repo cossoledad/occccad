@@ -14,7 +14,7 @@ import (
 
 func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 	refs := []*workerv1.SemanticTopologyRef{testRef("extrude-1", "END_CAP/region-1"), testRef("cut", "left"), testRef("cut", "right"), testRef("other-body", "face")}
-	m := &workerv1.PartTopologyManifest{SchemaVersion: 2, GeometryId: "frozen", CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", SemanticRefs: refs,
+	m := &workerv1.PartTopologyManifest{SchemaVersion: 3, GeometryId: "frozen", CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", SemanticRefs: refs,
 		Evidence: []*workerv1.NamingEvidence{{EvidenceDigest: "plane", MeasureDimension: "AREA", Adjacent: []uint32{4}, Geometry: &workerv1.NamingEvidence_Plane{Plane: &workerv1.NamingFrame{Direction: &workerv1.Vec3{Z: 1}}}}},
 		Transitions: []*workerv1.NamingTransition{
 			{FeatureId: "extrude-1", BodyId: "body-main", Complete: true, Lineage: []*workerv1.NamingLineage{{Result: 1, Evidence: 1}}},
@@ -23,7 +23,7 @@ func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 		Bodies: []*workerv1.NamingBody{{BodyId: "body-main", Transitions: []uint32{1, 2}, TipTransition: 2, Tip: []*workerv1.NamingTopologyLocator{{TopologyType: 1, LocalId: 2, SemanticRef: 2, Evidence: 1}, {TopologyType: 1, LocalId: 3, SemanticRef: 3, Evidence: 1}}}, {BodyId: "body-b", Transitions: []uint32{3}, TipTransition: 3, Tip: []*workerv1.NamingTopologyLocator{{TopologyType: 1, LocalId: 4, SemanticRef: 4, Evidence: 1}}}}}
 	// Each body is now its own authoritative artifact.
 	crossBody := proto.Clone(m).(*workerv1.PartTopologyManifest)
-	if _, err := unpackNaming(crossBody); err == nil {
+	if _, err := unpackNamingValues(crossBody); err == nil {
 		t.Fatal("cross-body naming accepted")
 	}
 	m.Transitions = m.Transitions[:2]
@@ -36,7 +36,7 @@ func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 	if err = proto.Unmarshal(data, decoded); err != nil || !proto.Equal(m, decoded) {
 		t.Fatal("protobuf roundtrip", err)
 	}
-	domain, err := unpackNaming(decoded)
+	domain, err := unpackNamingValues(decoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 	merged.Transitions[1].Ambiguous = nil
 	merged.Transitions[1].Lineage = []*workerv1.NamingLineage{{Sources: []uint32{1, 3}, Result: 2, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MERGED}}
 	merged.Bodies[0].Tip = merged.Bodies[0].Tip[:1]
-	domain, err = unpackNaming(merged)
+	domain, err = unpackNamingValues(merged)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 	deleted.Transitions[1].Ambiguous = nil
 	deleted.Transitions[1].Deleted = []*workerv1.NamingDeleted{{Source: 1, Evidence: 1, Reason: "removed"}}
 	deleted.Bodies[0].Tip = nil
-	domain, err = unpackNaming(deleted)
+	domain, err = unpackNamingValues(deleted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			bad := proto.Clone(m).(*workerv1.PartTopologyManifest)
 			mutate(bad)
-			if _, err := unpackNaming(bad); err == nil {
+			if _, err := unpackNamingValues(bad); err == nil {
 				t.Fatal("invalid artifact accepted")
 			}
 		})
@@ -98,7 +98,7 @@ func TestNamingV2NativeRoundTrip(t *testing.T) {
 	if err = proto.Unmarshal(data, m); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := unpackNaming(m)
+	domain, err := unpackNamingValues(m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestNamingV2TypedEvidenceReconstruction(t *testing.T) {
 		{Geometry: &workerv1.NamingEvidence_Spline{Spline: curve("BSPLINE", "NATIVE_CURVE_PARAMETER")}},
 		{Geometry: &workerv1.NamingEvidence_Other{Other: &workerv1.NamingOtherGeometry{Family: "ELLIPSE", Frame: frame, Range: curve("ELLIPSE", "ANGLE_RADIANS").Range}}},
 	}
-	m := &workerv1.PartTopologyManifest{SchemaVersion: 2, GeometryId: "geometry", CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", Evidence: evidence, SemanticRefs: []*workerv1.SemanticTopologyRef{testRef("f", "face")}, Transitions: []*workerv1.NamingTransition{{FeatureId: "f", BodyId: "body", Complete: true}}, Bodies: []*workerv1.NamingBody{{BodyId: "body", Transitions: []uint32{1}, TipTransition: 1}}}
+	m := &workerv1.PartTopologyManifest{SchemaVersion: 3, GeometryId: "geometry", CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", Evidence: evidence, SemanticRefs: []*workerv1.SemanticTopologyRef{testRef("f", "face")}, Transitions: []*workerv1.NamingTransition{{FeatureId: "f", BodyId: "body", Complete: true}}, Bodies: []*workerv1.NamingBody{{BodyId: "body", Transitions: []uint32{1}, TipTransition: 1}}}
 	for i := range evidence {
 		m.Bodies[0].Tip = append(m.Bodies[0].Tip, &workerv1.NamingTopologyLocator{TopologyType: 1, LocalId: uint64(i + 1), SemanticRef: 1, Evidence: uint32(i + 1)})
 	}
@@ -138,7 +138,7 @@ func TestNamingV2TypedEvidenceReconstruction(t *testing.T) {
 	if err = proto.Unmarshal(data, roundTrip); err != nil {
 		t.Fatal(err)
 	}
-	domain, err := unpackNaming(roundTrip)
+	domain, err := unpackNamingValues(roundTrip)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestNamingV2TypedEvidenceReconstruction(t *testing.T) {
 		}
 	}
 	roundTrip.Evidence[2].GetLine().Range.Convention = "ANGLE_RADIANS"
-	if _, err = unpackNaming(roundTrip); err == nil {
+	if _, err = unpackNamingValues(roundTrip); err == nil {
 		t.Fatal("line parameter with angular unit accepted")
 	}
 }

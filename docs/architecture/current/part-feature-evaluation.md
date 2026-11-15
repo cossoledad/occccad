@@ -43,9 +43,9 @@ Body、Stage 和按面网格缓存的费用复用已序列化 BREP 的保守估�
 
 一次请求内按精确 OCCT occurrence（包含朝向）复用质量与几何证据；同一语义引用且拓扑未变时可沿用已接纳证据，邻接按本次结果重建。最终邻接使用包含/共享边界索引，不做全部拓扑两两扫描。语义引用索引按完整 typed ref 查找，并保留重复候选的原顺序；不在每个输出/lineage 上线性扫描全部输入。上述索引不是持久身份，规则见 [Naming](persistent-naming.md)。
 
-前缀检查点带输入与策略 digest、历史、质量、命名及构造上下文。完成的 FeatureResult 冻结一次，返回的 `ImmutableSequence` 与检查点持有同一只读记录；恢复只展开共享句柄索引，记录在缓存淘汰后仍由读者持有。完整历史及每个阶段的 semantic outputs 继续可读。工具、Body 阶段及范围基底的构造上下文共享不可变 ToolBuild，复制阶段时只复制索引；实际需要重执行的工具再按需复制。持久 Naming 的完整历史、顺序和摘要保持原合同。缓存超预算时可仅保留经过验证的 Tip 检查点；缺少成员重执行上下文的检查点不得服务 `SOLID_PATTERN`，须重新建立完整上下文。取消后不接纳检查点；淘汰与冷重建不改变结果语义。
+前缀检查点带输入与策略 digest、历史、质量、命名及构造上下文。`FrozenFeatureResult` 用持久 AVL 序列共享完全相同的 lineage 行及连续片段，历史输出以紧凑绑定借用行中的完整引用/证据；例外输出原样保存。 完整有序 source ID 列表按值与前驱共享，只读复制不再深拷贝字符串数组；写访问分离，已有可变借用也不污染副本。历史计费按新保留的行、来源存储及最终树节点计算，不累计已释放的 join/rotation 临时节点。`FeatureResultSequence` 与检查点共享冻结记录，恢复仅读取 metadata 和借用证据，不展开全部历史。需要完整 `FeatureResult` 的读者按需展开并持有租借，检查点只保留弱展开引用；淘汰不使读者失效。完整历史、输出顺序、删除、歧义及每个阶段的 semantic outputs 继续可读。工具、Body 阶段及范围基底的构造上下文共享不可变 ToolBuild，复制阶段时只复制索引；实际需要重执行的工具再按需复制。持久 Naming 的完整历史、顺序和摘要保持原合同。完整工具上下文会挤出最近前驱时，优先精简当前检查点；必要时也精简前驱，使两者在原预算内共存。精简不改变 Shape、历史或质量。缺少的构造上下文状态随普通后续步骤传播，不能被误标为完整；只有尚未执行的后缀包含 `SOLID_PATTERN` 时才要求完整上下文，否则允许复用已完成阵列之后的精简检查点。新阵列确需缺失来源时仍重建完整上下文。取消后不接纳检查点；淘汰与冷重建不改变结果语义。
 
-历史摘要排序借用记录并预计算排序键，避免深拷贝证据/邻接；原 canonical 字节及顺序不变。Worker 的同一个 Naming v2 编码器接受原生只读记录及 protobuf 输入，只转换实际写出的字段。原生引用/证据以完整值记忆转换结果，再由原完整 protobuf 字节键决定共享表编号；不能只按 evidence digest 或地址合并。表仍按首次出现赋号，全部 transition、删除、歧义和当前 tip 保留，历史 semantic outputs 不先转成最终不会写出的 protobuf。新增 Evidence 编码字段时须同步完整值比较/散列及原字节对照；已有证据类型上的新 Feature 自动复用这条公共路径。当前仍输出完整 v2 文件。
+历史摘要排序借用记录并预计算排序键，避免深拷贝证据/邻接；canonical 历史摘要、身份、单位与匹配容差不变。Worker 的公共值编码器接受原生只读记录及 protobuf 输入，只按完整 typed ref/evidence 值 intern；新增 Evidence 字段必须同步完整值比较/散列和冻结旧编码器的逻辑字节对照。持久 Naming 已改为 v3 根及不可变历史块：根只保存当前 tip locator，块保存变化行及无损 CARRY 布局，见[文件合同](visual-naming-artifacts.md#naming-parttopologymanifest-schema_version-3)。新增或编辑末端共享既有块，Worker 的 32 MiB 编码 memo 仅优化转换；`naming_source` 是已接纳根的发布复用提示，校验归属后省去已持久块的重复写入，不能参与或替代精确求值。
 
 Boolean 和剖分通过 OCCT progress 协作取消，算法内观察本地单调取消标记，真实 transport 状态至多每 16 ms 轮询一次；检查点/网格接纳和结果发布边界强制查询真实状态，制品提交仍检查取消和过期资格。单次几何积分及部分构造器仍可能在返回后才响应取消，不承诺所有原生算法立即中断。
 
@@ -55,9 +55,11 @@ Boolean 和剖分通过 OCCT progress 协作取消，算法内观察本地单调
 
 新增 Feature 应接入既有依赖执行计划、规范输入/策略键、不可变结果、完整 Naming、显示制品及接纳门。Body 链共享前驱检查点；独立曲线/曲面共享结果容器、摘要、编码与服务端解析。公共层不按“孔/切除”选择是否优化；具体生成器仍拥有精确算法及真实 history。冷算、取消、淘汰、上游修改、重排/删除、阵列上下文、补偿历史及过期候选必须分别验证。公共层优化不意味着每类精确构造具有相同加速比。
 
-设第 i 步最终拓扑数为 Tᵢ，目前内存历史输出及显式 UNCHANGED transition 的行数仍约为 H=ΣTᵢ；若持续新增拓扑，H 可为平方增长。值共享降低复制/转换成本，服务端[按需索引](persistent-naming.md#有界解析视图与按需查询)降低重复查询成本，但首次加载仍读取全文件。Part 参数规范化、模型 JSON/digest、视图投影及 Revision 快照也尚未全面共享。
+设第 i 步最终拓扑数为 Tᵢ，完整逻辑历史仍有 H=ΣTᵢ 行。原生层共享未变化的行/片段，文件层用 CARRY 表达同引用、同完整证据的自延续；只读查询使用有序事件及独立当前 tip，不先展开 H 行。新增 Feature 自动复用结果容器、编码、发布、依赖闭包与查询设施；精确构造和本步完整拓扑验证仍随本步几何量增长，不承诺常数时间。
 
-后续存储设计优先采用不可变历史块、显式变化量和独立当前 tip 索引，跨 Revision 共享前缀；查询直接沿块与索引读取，避免先展开全部历史。变化量必须保留生成/修改/分裂/合并/删除/歧义及有序语义，checkpoint 应由冷恢复预算决定；GC 跟随 Revision、跨文档引用及活动作业的根可达性。它涉及新存储布局及 digest/完整性合同，**尚未实现**；不能通过丢弃旧来源、歧义、tombstone 或换用 localId 缩减数据。实施入口统一归[CAD 核心主线](../../../plans/cad-core-roadmap.md)。
+真正改变的证据、邻接、分裂/合并、删除和歧义均须保存；变化量本身可能很大。每块使用局部引用表，跨块仍重复一些引用和证据；首次完整读取要校验所有声明块，单个当前根的依赖总字节可能大于旧单文件，不能把根文件大小当成整个历史大小。当前一次一块的读取也未对 S3 冷 I/O 给出低延迟保证。跨块字典、分组/有界预取及按恢复预算设置的 checkpoint 仍待测量设计。
+
+数据库已记录 Naming 根→全部历史块、块→前驱的不可变依赖并提供可达性审计，共享前缀不会因删除另一个根而被直接回收。自动物理 GC **尚未启用**，须完整纳入 Revision、跨文档引用、预览及活动 Job 根。通用持久 Body/tool 检查点恢复、Part 参数规范化、模型 JSON/digest、视图投影及 Revision 快照也尚未全面增量化。实施入口统一归[CAD 核心主线](../../../plans/cad-core-roadmap.md)。
 
 ## Sketcher 的显示上下文
 
@@ -73,8 +75,9 @@ Boolean 和剖分通过 OCCT progress 协作取消，算法内观察本地单调
 - `services/internal/workspace/part_execution_plan.go`、`sketch_display.go`：依赖执行范围、支撑复用和 Revision 草图显示投影。
 - `services/internal/workspace/document_history_evaluation.go`：补偿求值、冻结支撑与原历史冲突门禁。
 - `services/internal/workspace/feature_association.go`：显示贡献的分步归并、未变集合复用；不承担持久拓扑解析。
-- `workers/geometry/src/naming_artifact.hpp`：流式装配及完整字节键去重；冻结序列化摘要的回归在邻近测试。
-- `kernel/api/include/occccad/kernel/immutable_sequence.hpp`、`kernel/occt/include/internal/retained_prefix_budget.hpp`：只读返回记录及共享历史计费。
+- `workers/geometry/src/naming_artifact.hpp`、`naming_history.hpp`：公共值表、历史块、当前根及编码 memo；冻结旧编码器检验完整展开后的逻辑字节。
+- `kernel/api/include/occccad/kernel/immutable_sequence.hpp`、`feature_history.hpp`、`shared_vector.hpp`、`kernel/occt/include/internal/retained_prefix_budget.hpp`：持久序列、紧凑冻结历史、读者租借及共享前缀计费。
+- `services/internal/workspace/naming_history*.go`、`naming_query_charge.go`、`services/internal/artifact/dependencies.go`：块/根校验、精简查询视图、所有权计费及制品依赖。
 - `kernel/occt/tests/naming_growth_scenarios.cpp`：持续新增拓扑的原生基准、旧摘要 oracle、分叉所有权及冷重建；120 步性能需显式设置 `OCCCCAD_TEST_NAMING_STEPS=120`。
 - `kernel/occt/src/occt_kernel.cpp`：精确构造、历史与门禁；先按操作符号搜索。
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp`：多区域/孔岛、ADD/REMOVE、boss/pocket、merge/split/delete、完整拓扑覆盖与冷重建。

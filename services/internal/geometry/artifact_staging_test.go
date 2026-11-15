@@ -76,6 +76,50 @@ func TestArtifactStagingNestedReferencesAndCleanup(t *testing.T) {
 	}
 }
 
+func TestArtifactStagingNamingRootAndImportHistoryReferences(t *testing.T) {
+	source, err := artifact.NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := artifact.NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	object, err := source.Put(ctx, artifact.KindNamingHistory, "application/octet-stream", strings.NewReader("immutable naming block"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := &workerv1.ArtifactReference{Backend: "TEST", ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size)}
+	request := &workerv1.EvaluatePartRequest{NamingSource: ref, BaseStage: &workerv1.PartBaseStage{RootHistory: ref}}
+	err = artifactStagingInterceptor(remoteTestStore{source}, local)(ctx, "EvaluatePart", request, nil, nil, func(ctx context.Context, _ string, req, _ any, _ *grpc.ClientConn, _ ...grpc.CallOption) error {
+		value := req.(*workerv1.EvaluatePartRequest)
+		if value.NamingSource.Backend != "LOCAL" || value.BaseStage.RootHistory.Backend != "LOCAL" || value.NamingSource.ObjectKey != value.BaseStage.RootHistory.ObjectKey {
+			t.Fatal("new naming inputs were not localized and deduplicated")
+		}
+		reader, err := local.Open(ctx, value.BaseStage.RootHistory.ObjectKey)
+		if err != nil {
+			return err
+		}
+		data, err := io.ReadAll(reader)
+		reader.Close()
+		if string(data) != "immutable naming block" {
+			t.Fatal("history payload changed")
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Backend != "TEST" || ref.ObjectKey != object.Key {
+		t.Fatal("localization mutated caller input")
+	}
+	entries, err := os.ReadDir(filepath.Join(local.Root(), "exchange", "inputs"))
+	if err != nil || len(entries) != 0 {
+		t.Fatal("naming input scratch leaked", err)
+	}
+}
+
 func TestS3WorkerExchangeRoundTrip(t *testing.T) {
 	if !strings.EqualFold(os.Getenv("OCCCCAD_ARTIFACT_BACKEND"), "S3") {
 		t.Skip("NOT_APPLICABLE: configured artifact backend is not S3")

@@ -957,3 +957,12 @@ $$;
 
 INSERT INTO occccad.users(id,email,display_name,status,platform_role,approved_at)
 VALUES ('00000000-0000-7000-8000-000000000001','admin@occccad.local','Administrator','ACTIVE','ADMIN',now());
+
+-- Immutable artifact closure. Shared history blocks remain reachable from roots.
+CREATE TABLE occccad.artifact_dependencies (
+    parent_id uuid NOT NULL REFERENCES occccad.artifact_objects(id) ON DELETE CASCADE,
+    child_id uuid NOT NULL REFERENCES occccad.artifact_objects(id) ON DELETE RESTRICT,
+    PRIMARY KEY (parent_id, child_id),
+    CHECK (parent_id <> child_id)
+);
+CREATE INDEX artifact_dependencies_child ON occccad.artifact_dependencies(child_id);

@@ -54,6 +54,15 @@ func TestNamingSearchMatchesTemporalOracle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		query := &topologyManifest{GeometryID: m.GeometryID, Tips: m.Tips, Results: m.Results}
+		for _, feature := range m.FeatureResults {
+			block := namingBlockForQueries(&decodedNamingBlock{view: &topologyManifest{FeatureResults: []*workerv1.FeatureResult{feature}}})
+			query.FeatureResults = append(query.FeatureResults, block.view.FeatureResults[0])
+		}
+		query.search, err = buildNamingSearchIndex(t.Context(), query)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, ref := range append(refs, testRef("absent", "face")) {
 			for _, owner := range []string{"body-main", "other-body", "missing-body"} {
 				selection := testSelection()
@@ -64,6 +73,9 @@ func TestNamingSearchMatchesTemporalOracle(t *testing.T) {
 					got, want := resolveManifest(selection, "key", m), resolveManifestLinearOracle(selection, "key", m)
 					if !reflect.DeepEqual(got, want) {
 						t.Fatalf("sample=%d owner=%s anchor=%v recipe=%s got=%+v want=%+v", sample, owner, selection.Anchor, recipe, got, want)
+					}
+					if projected := resolveManifest(selection, "key", query); !reflect.DeepEqual(projected, want) {
+						t.Fatalf("query projection changed ordered history: sample=%d owner=%s anchor=%v recipe=%s got=%+v want=%+v", sample, owner, selection.Anchor, recipe, projected, want)
 					}
 				}
 			}

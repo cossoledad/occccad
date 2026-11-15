@@ -1,4 +1,5 @@
-#include "../src/naming_artifact.hpp"
+#include "../src/naming_history.hpp"
+#include "naming_legacy_reference.hpp"
 #include "../src/cancellation.hpp"
 
 #include <gtest/gtest.h>
@@ -8,6 +9,89 @@
 #include <occccad/kernel/geometry_id.hpp>
 
 namespace api = occccad::worker::v1;
+
+namespace {
+api::SemanticTopologyRef stored_ref(const api::PartTopologyManifest& values,uint32_t id) {return values.semantic_refs(id-1);}
+api::SelectionEvidence stored_evidence(const api::PartTopologyManifest& values,uint32_t id) {
+    api::SelectionEvidence out;
+    occccad::worker::naming_detail::encode_evidence(occccad::worker::read_naming_evidence(values.evidence(id-1),values),&out);
+    return out;
+}
+std::vector<api::FeatureResult> expanded_history(const occccad::worker::EncodedNamingHistory& encoded) {
+    std::vector<api::FeatureResult> result;
+    for(const auto& payload:encoded.blocks) {
+        api::NamingHistoryBlock block;if(!block.ParseFromArray(payload->bytes.data(),static_cast<int>(payload->bytes.size())))throw std::runtime_error("invalid test block");
+        const auto& values=block.values();const auto& source=values.transitions(0);
+        api::FeatureResult feature;feature.set_feature_id(source.feature_id());feature.set_body_id(source.body_id());
+        if(source.has_result())*feature.mutable_result()=source.result();
+        feature.set_input_feature_id(source.input_feature_id());feature.set_profile_feature_id(source.profile_feature_id());feature.set_result_geometry_id(source.result_geometry_id());feature.set_topology_history_complete(source.complete());
+        for(const auto& diagnostic:source.diagnostics())feature.add_diagnostics(diagnostic);
+        auto* history=feature.mutable_topology_history();history->set_input_geometry_id(source.input_geometry_id());history->set_evidence_digest(source.evidence_digest());
+        for(const auto& span:block.layout())for(uint64_t i=0;i<span.count();++i) {
+            auto* row=history->add_lineage();
+            if(span.carry()) {
+                const auto& old=result.back().topology_history().lineage(static_cast<int>(span.offset()+i));
+                *row->mutable_result()=old.result();*row->add_sources()=old.result();*row->mutable_evidence()=old.evidence();row->set_kind(api::TOPOLOGY_LINEAGE_UNCHANGED);
+            } else {
+                const auto& old=source.lineage(static_cast<int>(span.offset()+i));
+                *row->mutable_result()=stored_ref(values,old.result());for(auto ref:old.sources())*row->add_sources()=stored_ref(values,ref);
+                *row->mutable_evidence()=stored_evidence(values,old.evidence());row->set_kind(old.kind());
+            }
+        }
+        for(const auto& d:source.deleted()){auto* row=history->add_deleted();*row->mutable_source()=stored_ref(values,d.source());*row->mutable_evidence()=stored_evidence(values,d.evidence());row->set_reason(d.reason());}
+        for(const auto& a:source.ambiguous()){auto* row=history->add_ambiguous();for(auto ref:a.sources())*row->add_sources()=stored_ref(values,ref);for(auto ref:a.candidates())*row->add_candidates()=stored_ref(values,ref);row->set_diagnostic_code(a.diagnostic_code());}
+        result.push_back(std::move(feature));
+    }
+    const auto& root=encoded.root;
+    const auto& tip=root.bodies(0).tip();
+    for(const auto& binding:tip){auto* row=result.back().add_semantic_outputs();*row->mutable_semantic_ref()=stored_ref(root,binding.semantic_ref());*row->mutable_evidence()=stored_evidence(root,binding.evidence());row->set_local_id(binding.local_id());row->set_topology_type(binding.topology_type());}
+    return result;
+}
+}
+
+TEST(NamingArtifact, HistoryBlocksKeepLegacyBytesAndSurviveEvictionAndColdRebuild) {
+    namespace native=occccad::kernel;
+    native::FeatureResult source;source.feature_id="base";source.body_id="body";source.topology_history_complete=true;
+    for(int i=0;i<30;++i){
+        native::SemanticTopologyRef ref{"base","face/"+std::to_string(i),{"a/b","a\nb"}};
+        native::SelectionEvidence evidence;evidence.geometry_type=i%2?"PLANE":"CIRCLE";evidence.centroid={double(i),2,3};evidence.direction={0,0,1};evidence.parameter_start=-0.;evidence.parameter_end=2.7;evidence.radius_mm=4;evidence.adjacent={ref};evidence.evidence_digest="evidence";
+        source.topology_history.lineage.push_back({{},ref,native::TopologyLineageKind::generated,evidence});
+        source.semantic_outputs.push_back({ref,native::PersistentTopologyType::face,uint64_t(i+1),evidence});
+    }
+    native::FeatureResultSequence features;
+    api::TopologyNamingPolicy policy;policy.set_policy_id("policy");policy.set_policy_digest("policy-digest");policy.set_evaluator_version("evaluator");
+    occccad::worker::NamingHistoryEncoder encoder;
+    occccad::worker::EncodedNamingHistory encoded;
+    for(int step=0;step<4;++step){
+        source.feature_id="step-"+std::to_string(step);source.result_geometry_id="geometry-"+std::to_string(step);source.topology_history.evidence_digest="history-"+std::to_string(step);
+        if(step)for(auto& row:source.topology_history.lineage){row.kind=native::TopologyLineageKind::unchanged;row.sources={row.result};}
+        if(step==2){source.topology_history.lineage[0].evidence.radius_mm=5;source.semantic_outputs[0].evidence.radius_mm=5;}
+        features.push_back(source);
+        encoded=encoder.encode(features,policy,source.result_geometry_id,"brep");
+        EXPECT_EQ(encoded.computed,1U);EXPECT_EQ(encoded.reused,static_cast<unsigned>(step));
+        auto restored=expanded_history(encoded);
+        api::PartTopologyManifest expected,actual;
+        occccad::worker::legacy_test_reference::pack_naming(features.size(),[&](size_t i)->const native::FeatureResult&{return features[i];},expected);
+        occccad::worker::legacy_test_reference::pack_naming(restored,actual);
+        EXPECT_EQ(expected.SerializeAsString(),actual.SerializeAsString());
+    }
+    EXPECT_GT(encoded.blocks.back()->carries,0U);
+    // The full prefix does not fit this memo. Rebuilding missing early blocks
+    // must not evict the tail before the same request can reuse it.
+    occccad::worker::NamingHistoryEncoder bounded(1024);
+    const auto first_bounded=bounded.encode(features,policy,source.result_geometry_id,"brep");
+    ASSERT_GT(bounded.bytes(),0U);ASSERT_LE(bounded.bytes(),1024U);
+    const auto replay_bounded=bounded.encode(features,policy,source.result_geometry_id,"brep");
+    EXPECT_GT(replay_bounded.reused,0U);
+    EXPECT_EQ(replay_bounded.computed+replay_bounded.reused,4U);
+    EXPECT_EQ(first_bounded.root.SerializeAsString(),replay_bounded.root.SerializeAsString());
+    for(size_t i=0;i<encoded.blocks.size();++i)EXPECT_EQ(encoded.blocks[i]->bytes,replay_bounded.blocks[i]->bytes);
+    const auto root_bytes=encoded.root.SerializeAsString();encoder.clear();EXPECT_EQ(encoder.bytes(),0U);
+    const auto cold=encoder.encode(features,policy,source.result_geometry_id,"brep",true);
+    EXPECT_EQ(cold.root.SerializeAsString(),root_bytes);EXPECT_EQ(cold.computed,4U);EXPECT_EQ(cold.reused,0U);
+    for(size_t i=0;i<cold.blocks.size();++i)EXPECT_EQ(cold.blocks[i]->bytes,encoded.blocks[i]->bytes);
+    EXPECT_THROW(encoder.encode(features,policy,source.result_geometry_id,"brep",false,[]{return true;}),std::runtime_error);
+}
 
 TEST(NamingArtifact, NativeImmutableRecordsRetainExactWireInterningAndOwners) {
     namespace native = occccad::kernel;
@@ -104,7 +188,8 @@ TEST(NamingArtifact, StoredLayoutRetainsTypedEvidenceAndFirstOccurrenceOrder) {
     ASSERT_EQ(manifest.transitions_size(),3);ASSERT_EQ(manifest.bodies(0).tip_size(),kinds.size());
     // Frozen with the original vector/tree-map encoder before the streaming
     // implementation: this checks the stored layout, not just two new paths.
-    EXPECT_EQ(occccad::kernel::make_geometry_id(manifest.SerializeAsString()),
+    auto legacy_projection=manifest;legacy_projection.set_schema_version(2);
+    EXPECT_EQ(occccad::kernel::make_geometry_id(legacy_projection.SerializeAsString()),
               "sha256:0bb66a9d6524445feea778e8e15c03e42ba5e1b8d9fd6c336069c0d8186f0791");
     api::PartTopologyManifest streamed;streamed.set_policy_digest("policy");streamed.set_geometry_id("geometry");streamed.set_brep_sha256("brep");
     api::FeatureResult scratch;
@@ -156,7 +241,7 @@ TEST(NamingArtifact, InternsEvidenceAndKeepsExplicitBodyTips) {
     api::PartTopologyManifest packed;
     packed.set_geometry_id("geometry");
     occccad::worker::pack_naming(features, packed);
-    EXPECT_EQ(packed.schema_version(), 2);
+    EXPECT_EQ(packed.schema_version(), 3);
     EXPECT_EQ(packed.evidence_size(), 1);
     ASSERT_EQ(packed.bodies_size(), 1);
     EXPECT_EQ(packed.bodies(0).tip_transition(), 2);

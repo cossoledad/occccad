@@ -8,7 +8,7 @@
 |---|---|---|
 | 工程曲面扩展 | A–D 的独立 Part 有界能力：关联曲线、工程曲面编辑/实体化/交换；姿态/有界边界导向、spine、显式点对应、Boundary/Blend、逐边多项式支撑 G1/受限 G2、只读曲率分析。后续按 current 限制推进通用导向/支撑、一般曲面编辑及测量/发布/Product 互用 | [当前边界](../docs/architecture/current/wireframe-surfaces.md)、[阶段设计](wireframe-surface-design.md)、[商业 CAD 对照](../docs/references/surface-modeling.md) |
 | 几何测量交互 | 依据实机反馈完善专用上下文来源、标签排布和选择语义；保持临时计算、保留/更新及标注历史边界 | [几何测量](../docs/architecture/current/geometric-measurement.md) |
-| 零件持续建模性能 | 扩大持续新增拓扑的混合 Feature、复杂 STEP/曲面及早期编辑样本；在共享历史计费、只读结果和按需 Naming 查询基础上，设计跨 Revision 的不可变历史块/变化量、tip 索引、恢复预算及根可达 GC，消除显式 UNCHANGED 的累计重复。继续细分精确构造/Boolean/同域合并/有效性、模型规范化/Revision 分配、RSS 峰值及不可中断片段；首次新操作、改参数、冷恢复分别测量 | [增长边界与存储设计](../docs/architecture/current/part-feature-evaluation.md#通用特征性能与增长边界)、[测量边界](../docs/validation/part-feature-performance.md) |
+| 零件持续建模性能 | 扩大持续新增拓扑的混合 Feature、复杂 STEP/曲面及早期编辑样本；在已交付的紧凑原生历史、跨 Revision 历史块、tip 索引及精简查询视图基础上，继续优化跨块引用/证据重复、首次冷读取、分组/预取、恢复预算及完整根集合的物理 GC。继续细分精确构造/Boolean/同域合并/有效性、模型规范化/Revision 分配、RSS 峰值及不可中断片段；首次新操作、改参数、冷恢复分别测量 | [增长边界与存储设计](../docs/architecture/current/part-feature-evaluation.md#通用特征性能与增长边界)、[测量边界](../docs/validation/part-feature-performance.md) |
 | 空间分析与干涉性能 | 优化持续变化构型的精确交集成本及大装配规模；分别验证复杂实体、显示精度、失效、取消与只读边界 | [空间分析](../docs/architecture/current/product-assembly.md#空间分析对象与手动更新) |
 | Part 关联更新扩展 | 在已交付的[对象生命周期](../docs/architecture/current/part-object-lifecycle.md)基础上，扩大跨文档影响定位、复杂拓扑修复和大删除闭包的并发/容量验收；保持当前显式失败及 Naming 边界 | [持续建模](../docs/architecture/current/part-design-workflow.md) |
 | 历史与上下文扩展 | 跨 Body 历史创建、更多受约束移动、深层上下文编辑及跨层更新编排；逐项明确合法来源、默认构型与 occurrence 一致性 | [实体 Feature](../docs/architecture/current/solid-features.md)、[编辑上下文](../docs/architecture/current/product-edit-context.md) |

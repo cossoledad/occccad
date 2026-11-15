@@ -59,7 +59,7 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
     const auto body_id=naming_detail::body_id(first);
     const auto result_owner=naming_detail::owner_result(first);
     const auto result_identity=result_owner.SerializeAsString();
-    out.set_schema_version(2);
+    out.set_schema_version(3);
     out.set_coordinate_space("PART_LOCAL");
     out.set_length_unit("mm");
     std::unordered_map<std::string, uint32_t> refs, evidence;

@@ -2,22 +2,24 @@ package workspace
 
 import (
 	"fmt"
-	"github.com/occccad/occccad/internal/modelcore"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/modelcore"
 )
 
 // Consumer-local domain view, never marshaled to an artifact or database.
 // Historical features carry transitions only; full output locators exist at explicit body tips.
 type topologyManifest struct {
-	BRepSHA256     string
-	GeometryID     string
-	Locators       map[string]namingLocator
-	FeatureResults []*workerv1.FeatureResult
-	Tips           map[string]*workerv1.FeatureResult
-	Results        map[modelcore.GeometryResultReference]*workerv1.FeatureResult
-	search         *namingSearchIndex
-	encodedBytes   int
+	BRepSHA256        string
+	GeometryID        string
+	Locators          map[string]namingLocator
+	FeatureResults    []*workerv1.FeatureResult
+	Tips              map[string]*workerv1.FeatureResult
+	Results           map[modelcore.GeometryResultReference]*workerv1.FeatureResult
+	search            *namingSearchIndex
+	retainedBytes     int
+	history           []*decodedNamingBlock
+	historyReferences []*workerv1.NamingHistoryReference
 }
 
 type namingLocator struct {
@@ -34,8 +36,8 @@ func (m *topologyManifest) GetFeatureResults() []*workerv1.FeatureResult {
 }
 func (m *topologyManifest) bodyTips() map[string]*workerv1.FeatureResult { return m.Tips }
 
-func unpackNaming(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
-	if len(m.Bodies)+len(m.Results) != 1 || m.GeometryId == "" || m.SchemaVersion != 2 || m.CoordinateSpace != "PART_LOCAL" || m.LengthUnit != "mm" {
+func unpackNamingValues(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
+	if len(m.Bodies)+len(m.Results) != 1 || m.GeometryId == "" || m.SchemaVersion != 3 || m.CoordinateSpace != "PART_LOCAL" || m.LengthUnit != "mm" {
 		return nil, fmt.Errorf("unsupported naming artifact contract")
 	}
 	var ownerBody string

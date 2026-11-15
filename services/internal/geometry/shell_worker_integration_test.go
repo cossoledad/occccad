@@ -5,8 +5,6 @@ package geometry
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -31,19 +29,7 @@ func TestCppWorkerShellAfterFilletAndMixedLoft(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		data, err := os.ReadFile(filepath.Join(root, response.GetEvaluationManifest().GetTopologyManifestArtifact().GetObjectKey()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		manifest := new(workerv1.PartTopologyManifest)
-		if err := proto.Unmarshal(data, manifest); err != nil {
-			t.Fatal(err)
-		}
-		for _, transition := range manifest.GetTransitions() {
-			if !transition.GetComplete() {
-				t.Fatalf("incomplete history: %s", transition.GetFeatureId())
-			}
-		}
+		manifest, _ := readWorkerNamingArtifact(t, root, response)
 		if response.GetTriangleCount() == 0 || response.GetBrepArtifact().GetSizeBytes() == 0 || response.GetGlbArtifact().GetSizeBytes() == 0 {
 			t.Fatal("missing exact or display artifact")
 		}

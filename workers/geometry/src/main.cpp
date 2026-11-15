@@ -3,7 +3,7 @@
 #include <unistd.h>
 #endif
 #include <Standard_Version.hxx>
-#include "naming_artifact.hpp"
+#include "naming_history.hpp"
 #include "cancellation.hpp"
 
 #include <internal/occt_kernel.hpp>
@@ -40,6 +40,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <numeric>
 #include <vector>
 
 namespace worker_api = occccad::worker::v1;
@@ -1493,22 +1494,20 @@ public:
     const auto bytes = read(source.naming());
     worker_api::PartTopologyManifest naming;
     if (!naming.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())) ||
-        naming.schema_version() != 2 || naming.brep_sha256() != source.brep().sha256())
+        naming.schema_version() != 3 || naming.brep_sha256() != source.brep().sha256() || naming.policy_digest()!=occccad::kernel::topology_naming_policy_digest)
         throw std::invalid_argument("GEOMETRY_INPUT_NAMING_SNAPSHOT_MISMATCH");
-    uint32_t tip_transition=0;
+    std::string tip_feature;bool complete=false;
     const google::protobuf::RepeatedPtrField<worker_api::NamingTopologyLocator>* tip_outputs=nullptr;
     if(source.has_result()) {
         if(!tool.body_id.empty() || source.result().feature_id()!=tool.feature_id || tool.result_id.empty() || naming.bodies_size()!=0 || naming.results_size()!=1 || naming.results(0).reference().SerializeAsString()!=source.result().SerializeAsString())
             throw std::invalid_argument("GEOMETRY_INPUT_RESULT_MISMATCH");
-        tip_transition=naming.results(0).tip_transition();tip_outputs=&naming.results(0).tip();
+        tip_feature=naming.results(0).tip_feature_id();complete=naming.results(0).complete();tip_outputs=&naming.results(0).tip();
     } else {
         if(tool.body_id.empty() || naming.results_size()!=0 || naming.bodies_size()!=1 || naming.bodies(0).body_id()!=tool.body_id)
             throw std::invalid_argument("BOOLEAN_TOOL_NAMING_SNAPSHOT_MISMATCH");
-        tip_transition=naming.bodies(0).tip_transition();tip_outputs=&naming.bodies(0).tip();
+        tip_feature=naming.bodies(0).tip_feature_id();complete=naming.bodies(0).complete();tip_outputs=&naming.bodies(0).tip();
     }
-    if(tip_transition==0 || tip_transition>static_cast<unsigned>(naming.transitions_size()))throw std::invalid_argument("GEOMETRY_INPUT_STAGE_INVALID");
-    const auto& tip=naming.transitions(static_cast<int>(tip_transition)-1);
-    if(tip.feature_id()!=tool.feature_id || !tip.complete() || tip.body_id()!=tool.body_id || tip.result().SerializeAsString()!=source.result().SerializeAsString())
+    if(naming.history_size()==0 || naming.transitions_size()!=0 || tip_feature!=tool.feature_id || !complete || naming.history(naming.history_size()-1).feature_id()!=tip_feature)
         throw std::invalid_argument("GEOMETRY_INPUT_STAGE_MISMATCH");
     tool.geometry_id=naming.geometry_id();
     for (const auto& output : *tip_outputs) {
@@ -1651,12 +1650,38 @@ public:
             double input_io_ms=0;
             const auto input_artifact=[&](const auto& ref){const auto began=std::chrono::steady_clock::now();auto bytes=read_input(ref,request->force_cold());input_io_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count();return bytes;};
             const auto publish=[&](const auto& key,const auto& bytes,const auto& type,auto* ref){const auto began=std::chrono::steady_clock::now();if(context->IsCancelled())throw std::runtime_error("EVALUATION_CANCELLED");write_artifact(key,bytes,type,ref);auto* timings=response->mutable_runtime_stats();timings->set_artifact_io_ms(timings->artifact_io_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count());};
+            std::unordered_set<std::string> known_naming_blocks;
+            if(!request->force_cold() && request->has_naming_source()) {
+                const auto bytes=input_artifact(request->naming_source());
+                worker_api::PartTopologyManifest source;
+                if(!source.ParseFromArray(bytes.data(),static_cast<int>(bytes.size())) || source.schema_version()!=3 ||
+                   source.policy_digest()!=request->topology_policy().policy_digest() || source.coordinate_space()!="PART_LOCAL" || source.length_unit()!="mm" || source.transitions_size()!=0)
+                    throw std::invalid_argument("NAMING_SOURCE_CONTRACT_MISMATCH");
+                const auto body=request->profile_pads_size()?request->profile_pads(0).body_id():request->import_seed().body_id();
+                if(!body.empty() && (source.bodies_size()!=1 || source.results_size()!=0 || source.bodies(0).body_id()!=body))
+                    throw std::invalid_argument("NAMING_SOURCE_OWNER_MISMATCH");
+                for(const auto& block:source.history()) {
+                    if(block.sha256().size()!=64)throw std::invalid_argument("NAMING_SOURCE_DIGEST_INVALID");
+                    known_naming_blocks.insert(block.sha256());
+                }
+            }
+            const auto publish_history=[&](const auto& blocks,auto* manifest){
+                manifest->clear_naming_history_artifacts();
+                for(const auto& block:blocks) {
+                    if(known_naming_blocks.count(block->reference.sha256()))continue;
+                    auto* ref=manifest->add_naming_history_artifacts();
+                    publish(request->brep_output_key()+".history/"+block->reference.sha256()+".pb",block->bytes,
+                        "application/vnd.occccad.naming-history.v1+protobuf",ref);
+                    auto* stats=response->mutable_runtime_stats();
+                    stats->set_naming_block_bytes_written(stats->naming_block_bytes_written()+block->bytes.size());
+                }
+            };
             // The lock coalesces in-flight work; the key includes the actual frozen
             // inputs, naming policy and precision, never only a caller-supplied key.
             auto canonical = *request;
             canonical.clear_request_id(); canonical.clear_geometry_key();
             canonical.clear_brep_output_key(); canonical.clear_glb_output_key();
-            canonical.clear_force_cold();canonical.clear_runtime_affinity();
+            canonical.clear_force_cold();canonical.clear_runtime_affinity();canonical.clear_naming_source();
             const auto request_key = occccad::kernel::make_geometry_id(canonical.SerializeAsString()) + (external_outputs ? ":persistent" : ":transient");
             const auto cached = cache_.find(request_key);
             if (!request->force_cold() && cached != cache_.end()) {
@@ -1668,7 +1693,8 @@ public:
                     publish(request->brep_output_key(), *cached->second.brep, "application/vnd.opencascade.brep", response->mutable_brep_artifact());
                     if(!request->exact_only())publish(request->glb_output_key(), *cached->second.glb, "model/gltf-binary", response->mutable_glb_artifact());
                     if (!cached->second.naming.empty()) publish(request->brep_output_key()+".naming.pb", cached->second.naming,
-                        "application/vnd.occccad.topology-manifest.v2+protobuf", response->mutable_evaluation_manifest()->mutable_topology_manifest_artifact());
+                        "application/vnd.occccad.topology-manifest.v3+protobuf", response->mutable_evaluation_manifest()->mutable_topology_manifest_artifact());
+                    if(!cached->second.history_blocks.empty())publish_history(cached->second.history_blocks,response->mutable_evaluation_manifest());
                     response->set_representation_kind(request->exact_only()?"EXACT_STAGE":"PERSISTENT"); response->clear_preview_mesh();
                 }
                 if (!response->geometry_id().empty()) {
@@ -1863,11 +1889,22 @@ public:
                 const auto data=input_artifact(source.naming());
                 worker_api::PartTopologyManifest snapshot;
                 const auto geometry=occccad::kernel::make_geometry_id(base_brep.data(),base_brep.size());
-                if(!snapshot.ParseFromArray(data.data(),static_cast<int>(data.size())) || snapshot.schema_version()!=2 ||
+                if(!snapshot.ParseFromArray(data.data(),static_cast<int>(data.size())) || snapshot.schema_version()!=3 ||
                    source.geometry_id()!=geometry ||
                    snapshot.policy_digest()!=request->topology_policy().policy_digest() || snapshot.length_unit()!="mm" || snapshot.coordinate_space()!="PART_LOCAL" ||
                    snapshot.bodies_size()!=1 || snapshot.results_size()!=0 || snapshot.bodies(0).body_id()!=seed.body_id)
                     throw std::invalid_argument("BASE_STAGE_SNAPSHOT_MISMATCH");
+                if(std::count_if(snapshot.history().begin(),snapshot.history().end(),[&](const auto& r){return r.feature_id()==seed.feature_id;})!=1)throw std::invalid_argument("BASE_STAGE_DUPLICATE_OR_MISSING_ROOT");
+                const auto selected=std::find_if(snapshot.history().begin(),snapshot.history().end(),[&](const auto& r){return r.feature_id()==seed.feature_id;});
+                if(selected==snapshot.history().end() || !source.has_root_history() || selected->sha256()!=source.root_history().sha256() || selected->size_bytes()!=source.root_history().size_bytes())
+                    throw std::invalid_argument("BASE_STAGE_ROOT_REFERENCE_MISMATCH");
+                const auto root_bytes=input_artifact(source.root_history());
+                worker_api::NamingHistoryBlock root_block;
+                if(!root_block.ParseFromArray(root_bytes.data(),static_cast<int>(root_bytes.size())) || root_block.schema_version()!=1 || !root_block.previous_sha256().empty() || root_block.previous_lineage_count()!=0 ||
+                   root_block.values().schema_version()!=3 || root_block.values().policy_digest()!=snapshot.policy_digest() || root_block.values().history_size()!=0 || root_block.values().transitions_size()!=1 ||
+                   root_block.full_lineage_count()!=static_cast<uint64_t>(root_block.values().transitions(0).lineage_size()))throw std::invalid_argument("BASE_STAGE_ROOT_BLOCK_INVALID");
+                for(const auto& span:root_block.layout())if(span.carry())throw std::invalid_argument("BASE_STAGE_ROOT_CARRY_INVALID");
+                snapshot=*root_block.mutable_values();
                 const worker_api::NamingTransition* found_root=nullptr;
                 for(const auto& candidate:snapshot.transitions())if(candidate.feature_id()==seed.feature_id) {
                     if(found_root)throw std::invalid_argument("BASE_STAGE_DUPLICATE_ROOT");
@@ -1933,6 +1970,7 @@ public:
             if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled before display"};
             std::shared_ptr<const std::vector<uint8_t>> cached_brep,cached_glb;
             std::vector<uint8_t> cached_naming;
+            std::vector<std::shared_ptr<const occccad::worker::EncodedNamingBlock>> cached_history_blocks;
             auto* stats=response->mutable_runtime_stats();
             stats->set_artifact_io_ms(input_io_ms);
             stats->set_queue_ms(queue_ms);
@@ -1987,39 +2025,15 @@ public:
                 }
                 const auto naming_started=std::chrono::steady_clock::now();
                 std::string topology_bytes;
-                const auto naming_key=prefix+request->geometry_feature().SerializeAsString()+"|"+response->brep_artifact().sha256();
-                const auto naming_hit=naming_cache_.find(naming_key);
-                if(!request->force_cold()&&naming_hit!=naming_cache_.end()&&naming_hit->second.geometry_id==geometry_id) {
-                    topology_bytes=naming_hit->second.bytes;naming_hit->second.used=++cache_clock_;
-                } else {
-                worker_api::PartTopologyManifest topology_manifest;
-                topology_manifest.set_schema_version(
-                    occccad::kernel::topology_naming_schema_version);
-                topology_manifest.set_policy_id(request->topology_policy().policy_id());
-                topology_manifest.set_evaluator_version(
-                    request->topology_policy().evaluator_version());
-                topology_manifest.set_policy_digest(request->topology_policy().policy_digest());
-                occccad::worker::pack_naming(profile_evaluation.feature_results.size(),
-                    [&](size_t index)->const occccad::kernel::FeatureResult&{
-                        return profile_evaluation.feature_results[index];
-                    },topology_manifest);
-                topology_manifest.set_geometry_id(geometry_id);
-                topology_manifest.set_brep_sha256(response->brep_artifact().sha256());
-                if (!topology_manifest.SerializeToString(&topology_bytes)) {
-                    throw std::runtime_error("topology manifest serialization failed");
-                }
-
-                    if(!request->force_cold()&&topology_bytes.size()<=cache_budget_/2) {
-                        const auto bytes=topology_bytes.capacity()+naming_key.capacity()+geometry_id.capacity()+sizeof(NamingSnapshot);
-                        if (auto existing=naming_cache_.find(naming_key);existing!=naming_cache_.end()) {
-                            naming_bytes_-=existing->second.charge;naming_cache_.erase(existing);
-                        }
-                        while(!naming_cache_.empty()&&naming_bytes_+bytes>cache_budget_/2) {
-                            auto oldest=std::min_element(naming_cache_.begin(),naming_cache_.end(),[](const auto& a,const auto& b){return a.second.used<b.second.used;});
-                            naming_bytes_-=oldest->second.charge;naming_cache_.erase(oldest);
-                        }
-                        if(bytes<=cache_budget_/2){naming_bytes_+=bytes;naming_cache_.emplace(naming_key,NamingSnapshot{geometry_id,topology_bytes,bytes,++cache_clock_});}
-                    }
+                auto encoded=naming_encoder_.encode(profile_evaluation.feature_results,request->topology_policy(),geometry_id,response->brep_artifact().sha256(),request->force_cold(),[&](){return cancellation->poll();});
+                cached_history_blocks=std::move(encoded.blocks);
+                encoded.root.SerializeToString(&topology_bytes);
+                stats->set_naming_blocks_computed(encoded.computed);stats->set_naming_blocks_reused(encoded.reused);
+                stats->set_naming_root_bytes(topology_bytes.size());
+                for(const auto& block:cached_history_blocks) {
+                    stats->set_naming_full_lineage_rows(stats->naming_full_lineage_rows()+block->reference.full_lineage_count());
+                    stats->set_naming_literal_lineage_rows(stats->naming_literal_lineage_rows()+block->literals);
+                    stats->set_naming_carried_lineage_rows(stats->naming_carried_lineage_rows()+block->carries);
                 }
                 const auto packing_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-naming_started).count();
                 stats->set_naming_artifact_ms(packing_ms);stats->set_naming_ms(stats->naming_ms()+packing_ms);
@@ -2031,19 +2045,21 @@ public:
                 if (external_outputs) {
                     const std::vector<uint8_t>& bytes=cached_naming;
                     publish(request->brep_output_key() + ".naming.pb", bytes,
-                                   "application/vnd.occccad.topology-manifest.v2+protobuf",
+                                   "application/vnd.occccad.topology-manifest.v3+protobuf",
                                    manifest->mutable_topology_manifest_artifact());
+                    publish_history(cached_history_blocks,manifest);
                 }
             }
 
             if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled before result admission"};
             const auto bytes = response->ByteSizeLong() + response->brep_artifact().size_bytes()
-                + response->glb_artifact().size_bytes() + response->evaluation_manifest().topology_manifest_artifact().size_bytes();
+                + response->glb_artifact().size_bytes() + response->evaluation_manifest().topology_manifest_artifact().size_bytes()
+                + std::accumulate(cached_history_blocks.begin(),cached_history_blocks.end(),size_t{0},[](size_t n,const auto& b){return n+b->bytes.size();});
             if (!request->force_cold() && bytes <= cache_budget_) {
                 EvaluationCache entry;
                 entry.response = *response;
                 if (external_outputs) {
-                    entry.brep=std::move(cached_brep);entry.glb=std::move(cached_glb);entry.naming=std::move(cached_naming);
+                    entry.brep=std::move(cached_brep);entry.glb=std::move(cached_glb);entry.naming=std::move(cached_naming);entry.history_blocks=std::move(cached_history_blocks);
                 }
                 // Reject oversized entries before reading artifacts back. A hit
                 // never depends on prior attempt files remaining on disk.
@@ -2645,9 +2661,7 @@ private:
     }
 
     std::atomic<uint32_t> resident_snapshot_{0};
-    struct NamingSnapshot {std::string geometry_id,bytes;size_t charge=0;uint64_t used=0;};
-    size_t naming_bytes_=0;
-    std::unordered_map<std::string,NamingSnapshot> naming_cache_;
+    occccad::worker::NamingHistoryEncoder naming_encoder_;
     struct InputArtifact {std::shared_ptr<const std::vector<uint8_t>> bytes;uint64_t used=0;size_t charge=0;};
     size_t input_bytes_=0;
     std::unordered_map<std::string,InputArtifact> inputs_;
@@ -2678,6 +2692,7 @@ private:
         worker_api::EvaluatePartResponse response;
         std::shared_ptr<const std::vector<uint8_t>> brep, glb;
         std::vector<uint8_t> naming;
+        std::vector<std::shared_ptr<const occccad::worker::EncodedNamingBlock>> history_blocks;
         size_t bytes=0;uint64_t used=0;
     };
     struct VisualSnapshot {

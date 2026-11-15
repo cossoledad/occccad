@@ -11,6 +11,7 @@ type PartRuntimeOptions struct {
 	Speculative          bool
 	Affinity             string
 	BaseStage            *workerv1.PartBaseStage
+	NamingSource         *workerv1.ArtifactReference
 }
 type partRuntimeKey struct{}
 

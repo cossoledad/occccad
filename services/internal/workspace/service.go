@@ -28,7 +28,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const evaluatorVersion = "part-solid-generators-v78-studio-balanced-surfaces"
+const evaluatorVersion = "part-solid-generators-v79-history-blocks"
 
 // Display algorithm changes qualify newly evaluated representations separately
 // from exact/Naming semantics and the accepted dependency manifest.
@@ -79,6 +79,7 @@ func (service *Service) BranchWorkspace(ctx context.Context, documentID string, 
 type Service struct {
 	prepared                 preparedCache
 	namingViews              namingViewCache
+	namingBlocks             immutableViewCache[*decodedNamingBlock]
 	database                 database.DB
 	worker                   *geometry.Client
 	artifacts                *artifactstore.Service
@@ -2074,6 +2075,17 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 		options.BaseStage, err = service.importBaseStage(ctx, baseKey, base, importSeed, fullModel)
 		if err != nil {
 			return "", err
+		}
+		if plan := executionPlan(ctx); plan != nil && !options.ForceCold {
+			if sourceKey := plan.acceptedBodies[model.ActiveBodyID]; sourceKey != "" {
+				object, e := service.representationObject(ctx, sourceKey, "NAMING")
+				if e != nil && !errors.Is(e, database.ErrNoRows) {
+					return "", e
+				}
+				if e == nil {
+					options.NamingSource = &workerv1.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType}
+				}
+			}
 		}
 		workerContext := geometry.WithPartRuntime(ctx, options)
 		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(workerContext, reqID, key, solidFeatures, base,

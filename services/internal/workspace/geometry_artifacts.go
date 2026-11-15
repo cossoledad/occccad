@@ -116,20 +116,11 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 		if m.SchemaVersion != modelcore.TopologyNamingSchemaVersion || m.TopologyPolicyId != modelcore.TopologyNamingPolicyID || m.TopologyEvaluatorVersion != modelcore.TopologyNamingEvaluator || m.TopologyPolicyDigest != modelcore.TopologyNamingPolicyDigest {
 			return fmt.Errorf("topology manifest contract mismatch")
 		}
-		naming, err := s.adoptEvaluationObject(ctx, m.TopologyManifestArtifact, artifactstore.KindTopologyManifest)
+		naming, manifest, err := s.adoptNamingHistory(ctx, m, e.GeometryId, brep.SHA256)
 		if err != nil {
 			return err
 		}
-		if err := validateTopologyManifestDigests(m.TopologyManifestDigest, m.GetTopologyManifestArtifact().GetSha256(), naming.SHA256); err != nil {
-			return err
-		}
-		manifest, _, err := s.readTopologyManifest(ctx, nil, &naming.ID, &naming.SHA256)
-		if err != nil {
-			return err
-		}
-		if manifest.GeometryID != e.GeometryId || manifest.BRepSHA256 != brep.SHA256 {
-			return fmt.Errorf("feature association snapshot mismatch")
-		}
+
 		if e.GetRepresentationKind() != "EXACT_STAGE" {
 			v.FeatureAssociations = deriveFeatureAssociations(manifest)
 			v.FeatureContributions = featureContributionStatuses(v.FeatureAssociations)
@@ -339,7 +330,10 @@ func (s *Service) HydrateDisplay(ctx context.Context, view *DocumentView) error 
 }
 
 func representationSchema(role string) int {
-	if role == "VISUAL" || role == "NAMING" {
+	if role == "NAMING" {
+		return 3
+	}
+	if role == "VISUAL" {
 		return 2
 	}
 	return 1

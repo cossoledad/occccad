@@ -3,6 +3,8 @@
 package geometry
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,9 +20,63 @@ import (
 func openCppWorkerForNamingContract(t *testing.T, options ...grpc.DialOption) *Client {
 	t.Helper()
 	client, closeWorker, err := OpenDevelopmentWorker(t.Context(), options...)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(closeWorker)
 	return client
+}
+
+// Inspect the actual Worker files. A root's empty inline transition array must
+// not let history-completeness assertions silently become vacuous.
+func readWorkerNamingArtifact(t *testing.T, directory string, response *workerv1.EvaluatePartResponse) (*workerv1.PartTopologyManifest, []*workerv1.NamingHistoryBlock) {
+	t.Helper()
+	read := func(ref *workerv1.ArtifactReference) []byte {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(directory, ref.GetObjectKey()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(data)
+		if uint64(len(data)) != ref.GetSizeBytes() || hex.EncodeToString(sum[:]) != ref.GetSha256() {
+			t.Fatal("Worker artifact integrity mismatch")
+		}
+		return data
+	}
+	root := &workerv1.PartTopologyManifest{}
+	if err := proto.Unmarshal(read(response.GetEvaluationManifest().GetTopologyManifestArtifact()), root); err != nil {
+		t.Fatal(err)
+	}
+	if root.SchemaVersion != 3 || len(root.Transitions) != 0 || len(root.History) == 0 {
+		t.Fatal("invalid Naming root")
+	}
+	objects := map[string]*workerv1.ArtifactReference{}
+	for _, ref := range response.GetEvaluationManifest().GetNamingHistoryArtifacts() {
+		objects[ref.Sha256] = ref
+	}
+	var blocks []*workerv1.NamingHistoryBlock
+	previous := ""
+	var rows uint64
+	for _, ref := range root.History {
+		object := objects[ref.Sha256]
+		if object == nil || object.SizeBytes != ref.SizeBytes {
+			t.Fatal("missing Naming history output")
+		}
+		block := &workerv1.NamingHistoryBlock{}
+		if err := proto.Unmarshal(read(object), block); err != nil {
+			t.Fatal(err)
+		}
+		if block.SchemaVersion != 1 || block.PreviousSha256 != previous || block.PreviousLineageCount != rows || block.FullLineageCount != ref.FullLineageCount || len(block.GetValues().GetTransitions()) != 1 {
+			t.Fatal("invalid Naming history chain")
+		}
+		stage := block.Values.Transitions[0]
+		if stage.FeatureId != ref.FeatureId || stage.ResultGeometryId != ref.ResultGeometryId || !stage.Complete || block.Values.PolicyDigest != root.PolicyDigest {
+			t.Fatal("invalid Naming history stage")
+		}
+		previous, rows = ref.Sha256, ref.FullLineageCount
+		blocks = append(blocks, block)
+	}
+	return root, blocks
 }
 
 func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
@@ -64,21 +120,12 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 		t.Fatal("persistent RPC leaked large data")
 	}
 	reference := external.GetEvaluationManifest().GetTopologyManifestArtifact()
-	if reference.GetObjectKey() == "" || reference.GetSha256() == "" || reference.GetContentType() != "application/vnd.occccad.topology-manifest.v2+protobuf" {
+	if reference.GetObjectKey() == "" || reference.GetSha256() == "" || reference.GetContentType() != "application/vnd.occccad.topology-manifest.v3+protobuf" {
 		t.Fatalf("topology artifact reference = %#v", reference)
 	}
-	data, err := os.ReadFile(filepath.Join(artifactRoot, reference.GetObjectKey()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var persisted workerv1.PartTopologyManifest
-	if err := proto.Unmarshal(data, &persisted); err != nil {
-		t.Fatal(err)
-	}
-	if len(persisted.GetTransitions()) != 1 || len(persisted.GetBodies()[0].GetTip()) != 26 ||
-		len(persisted.GetTransitions()[0].GetLineage()) != 26 ||
-		!persisted.GetTransitions()[0].GetComplete() {
-		t.Fatalf("Worker omitted Linear Extrude topology history: %#v", persisted.GetTransitions())
+	persisted, blocks := readWorkerNamingArtifact(t, artifactRoot, external)
+	if len(blocks) != 1 || len(persisted.GetBodies()[0].GetTip()) != 26 || len(blocks[0].Values.Transitions[0].Lineage) != 26 {
+		t.Fatal("Worker omitted Linear Extrude topology history")
 	}
 	for _, output := range persisted.GetBodies()[0].GetTip() {
 		if output.GetTopologyType() == workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED ||
@@ -87,7 +134,7 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 		}
 	}
 
-	if len(persisted.GetTransitions()) != 1 || persisted.GetTransitions()[0].GetEvidenceDigest() == "" {
+	if blocks[0].Values.Transitions[0].GetEvidenceDigest() == "" {
 		t.Fatalf("serialized topology manifest lost feature history: %#v", &persisted)
 	}
 	if persisted.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest {

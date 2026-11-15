@@ -75,8 +75,22 @@ func verifyGeometryRepresentations(t *testing.T, db database.DB, service *worksp
 	if err = proto.Unmarshal(namingBytes, naming); err != nil {
 		t.Fatal(err)
 	}
-	if naming.SchemaVersion != 2 || naming.GeometryId != activeBodyArtifact(t, view).GeometryID {
+	if naming.SchemaVersion != 3 || naming.GeometryId != activeBodyArtifact(t, view).GeometryID || len(naming.Transitions) != 0 || len(naming.History) == 0 {
 		t.Fatal("Naming geometry/version association")
+	}
+	dependencies, err := store.Dependencies(t.Context(), activeBodyArtifact(t, view).Representations["NAMING"].ObjectID)
+	if err != nil || len(dependencies) != len(naming.History) {
+		t.Fatal("Naming history closure missing", err)
+	}
+	byDigest := map[string]artifact.Object{}
+	for _, object := range dependencies {
+		byDigest[object.SHA256] = object
+	}
+	for _, reference := range naming.History {
+		object := byDigest[reference.Sha256]
+		if object.Kind != artifact.KindNamingHistory || uint64(object.Size) != reference.SizeBytes {
+			t.Fatal("Naming history reference is not durable")
+		}
 	}
 	locators := map[workerv1.PersistentTopologyType]map[uint64]bool{1: {}, 2: {}, 3: {}}
 	for _, body := range naming.Bodies {

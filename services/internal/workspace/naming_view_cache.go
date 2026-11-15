@@ -5,10 +5,11 @@ import (
 	"sync"
 )
 
-const namingViewBudget int64 = 128 * 1024 * 1024
+const namingViewBudget int64 = 64 * 1024 * 1024
+const namingBlockBudget int64 = 64 * 1024 * 1024
 
-type namingViewEntry struct {
-	value *topologyManifest
+type immutableViewEntry[T comparable] struct {
+	value T
 	done  chan struct{}
 	bytes int64
 	used  uint64
@@ -18,21 +19,24 @@ type namingViewEntry struct {
 // Callers qualify source revisions, owners, policy and authorization separately.
 // Leases returned to a reader survive cache eviction. Charges conservatively
 // estimate decoded data/indexes; this is not a whole-process RSS limit.
-type namingViewCache struct {
+type immutableViewCache[T comparable] struct {
 	mu      sync.Mutex
-	entries map[string]*namingViewEntry
+	entries map[string]*immutableViewEntry[T]
 	bytes   int64
 	clock   uint64
 }
 
-func (cache *namingViewCache) read(ctx context.Context, key string, budget int64, load func() (*topologyManifest, int64, error)) (*topologyManifest, error) {
+type namingViewCache = immutableViewCache[*topologyManifest]
+
+func (cache *immutableViewCache[T]) read(ctx context.Context, key string, budget int64, load func() (T, int64, error)) (T, error) {
+	var zero T
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return zero, err
 		}
 		cache.mu.Lock()
 		if cache.entries == nil {
-			cache.entries = map[string]*namingViewEntry{}
+			cache.entries = map[string]*immutableViewEntry[T]{}
 		}
 		if entry := cache.entries[key]; entry != nil {
 			if entry.done != nil {
@@ -40,12 +44,12 @@ func (cache *namingViewCache) read(ctx context.Context, key string, budget int64
 				cache.mu.Unlock()
 				select {
 				case <-ctx.Done():
-					return nil, ctx.Err()
+					return zero, ctx.Err()
 				case <-done:
 					if err := ctx.Err(); err != nil {
-						return nil, err
+						return zero, err
 					}
-					if entry.value != nil {
+					if entry.value != zero {
 						return entry.value, nil
 					}
 					continue
@@ -57,7 +61,7 @@ func (cache *namingViewCache) read(ctx context.Context, key string, budget int64
 			cache.mu.Unlock()
 			return value, nil
 		}
-		entry := &namingViewEntry{done: make(chan struct{})}
+		entry := &immutableViewEntry[T]{done: make(chan struct{})}
 		cache.entries[key] = entry
 		cache.mu.Unlock()
 		value, charge, err := load()
@@ -72,7 +76,7 @@ func (cache *namingViewCache) read(ctx context.Context, key string, budget int64
 		if err == nil {
 			entry.value = value
 		}
-		if err == nil && value != nil && charge > 0 && charge <= budget {
+		if err == nil && value != zero && charge > 0 && charge <= budget {
 			for cache.bytes+charge > budget {
 				oldest := ""
 				stamp := ^uint64(0)
@@ -98,7 +102,7 @@ func (cache *namingViewCache) read(ctx context.Context, key string, budget int64
 		entry.done = nil
 		cache.mu.Unlock()
 		if err != nil {
-			return nil, err
+			return zero, err
 		}
 		return value, nil
 	}

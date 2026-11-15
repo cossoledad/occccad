@@ -4271,7 +4271,7 @@ struct OcctKernel::Impl {
 
     // Checkpoints own immutable shapes and true history. OCCT operations remain
     // serialized by the Worker; eviction only drops cache ownership, never locals.
-    using FeatureHistory = detail::ImmutablePrefix<std::shared_ptr<const FeatureResult>>;
+    using FeatureHistory = detail::ImmutablePrefix<FrozenFeatureResult::handle_type>;
     struct Stage {
         TopoDS_Shape shape;
         GeometryId geometry_id;
@@ -4281,11 +4281,11 @@ struct OcctKernel::Impl {
         std::optional<double> volume;
         bool pattern_context_complete = true;
         ToolContext tools, bodies, bases;
-        size_t bytes = 0;
+        size_t bytes = 0, compact_bytes = 0;
         mutable uint64_t used = 0;
     };
     std::unordered_map<std::string, std::shared_ptr<const Stage>> stages;
-    detail::RetainedPrefixBudget<std::shared_ptr<const FeatureResult>> history_budget;
+    detail::RetainedPrefixBudget<FrozenFeatureResult::handle_type> history_budget;
     size_t stage_bytes = 0, stage_budget = 128 * 1024 * 1024, stage_evictions = 0;
     uint64_t clock = 0;
     static size_t private_stage_bytes(const Stage& stage) {
@@ -4315,9 +4315,6 @@ struct OcctKernel::Impl {
     bool retain_operation_graph=false;
     double accounting_ms = 0;
     size_t accounting_serializations = 0;
-    static size_t history_charge(const FeatureResult& value) {
-        return value.topology_history.lineage.size()*sizeof(TopologyLineage)+value.semantic_outputs.size()*sizeof(SemanticTopologyOutput);
-    }
     void trim_shapes(const GeometryId& active) {
         // Active handles are also owned by local execution / stage checkpoints.
         // The current working shape may exceed admission budget; retain only it.
@@ -4663,11 +4660,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     };
     std::shared_ptr<const Impl::Stage> restored;
     size_t resume = 0;
-    const bool needs_pattern_context=std::any_of(specs.begin(),specs.end(),[](const auto& spec){return spec.generator=="SOLID_PATTERN";});
+    std::vector<bool> needs_pattern_context(specs.size()+1,false);
+    for(size_t i=specs.size();i>0;--i)
+        needs_pattern_context[i-1]=needs_pattern_context[i]||specs[i-1].generator=="SOLID_PATTERN";
     if(!runtime.force_cold && runtime.stage_keys.size()==specs.size()) {
         for(size_t i=specs.size();i>0;--i) {
             const auto found=impl_->stages.find(runtime.stage_keys[i-1]);
-            if(found!=impl_->stages.end()&&(found->second->pattern_context_complete||!needs_pattern_context)){
+            if(found!=impl_->stages.end()&&(found->second->pattern_context_complete||!needs_pattern_context[i])){
                 restored=found->second;restored->used=++impl_->clock;resume=i;break;
             }
         }
@@ -4810,13 +4809,18 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     }
     if(restored) {
         result=restored->shape;result_id=restored->geometry_id;live_named=restored->named;
-        evaluation.feature_results=ImmutableSequence<FeatureResult>(restored->history->materialize());topology_history_complete=restored->history_complete;
+        evaluation.feature_results=FeatureResultSequence(restored->history->materialize());topology_history_complete=restored->history_complete;
         result_validated=true;
         pattern_tools=restored->tools;pattern_bodies=restored->bodies;pattern_range_bases=restored->bases;
+        std::unordered_map<std::string,const FeatureResult*> restored_headers;
+        for(size_t i=0;i<evaluation.feature_results.size();++i) {
+            const auto& header=evaluation.feature_results.frozen(i)->header();
+            restored_headers.emplace(header.feature_id,&header);
+        }
         for(size_t i=0;i<resume;++i) {
             stats.reused_feature_ids.push_back(specs[i].feature_id);
-            const auto found=std::find_if(evaluation.feature_results.begin(),evaluation.feature_results.end(),[&](const auto& f){return f.feature_id==specs[i].feature_id;});
-            if(found!=evaluation.feature_results.end())stats.stages.push_back({specs[i].feature_id,runtime.stage_keys[i],found->result_geometry_id,true});
+            const auto found=restored_headers.find(specs[i].feature_id);
+            if(found!=restored_headers.end())stats.stages.push_back({specs[i].feature_id,runtime.stage_keys[i],found->second->result_geometry_id,true});
         }
         stats.stages_reused=resume;
         // Re-adopt the saved BREP handle if the repository was explicitly unloaded.
@@ -4827,8 +4831,9 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         }
         if (!evaluation.feature_results.empty()) {
             std::unordered_map<std::string,const SelectionEvidence*> evidence;
-            for (const auto& output:evaluation.feature_results.back().semantic_outputs)
-                evidence.emplace(ref_key(output.semantic_ref),&output.evidence);
+            evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->visit_outputs([&](auto,auto,const auto& ref,const auto& value){
+                evidence.emplace(ref_key(ref),&value);
+            });
             for(const auto& named:live_named) {
                 const auto found=evidence.find(ref_key(named.ref));
                 if(found!=evidence.end()) {
@@ -4841,7 +4846,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     using FeatureHistory=Impl::FeatureHistory;
     std::shared_ptr<const FeatureHistory> history=restored?restored->history:nullptr;
     if(!history && !runtime.force_cold && runtime.stage_keys.size()==specs.size())
-        for(size_t i=0;i<evaluation.feature_results.size();++i)history=FeatureHistory::append(history,evaluation.feature_results.shared(i),Impl::history_charge(evaluation.feature_results[i]));
+        for(size_t i=0;i<evaluation.feature_results.size();++i)history=FeatureHistory::append(history,evaluation.feature_results.frozen(i),evaluation.feature_results.frozen(i)->charged_bytes());
     stats.base_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-base_started).count();
     for (size_t spec_index=resume;spec_index<specs.size();++spec_index) {
         const auto& spec=specs[spec_index];
@@ -5409,10 +5414,11 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             if(!runtime.force_cold && runtime.stage_keys.size()==specs.size()) {
                 auto stage=std::make_shared<Impl::Stage>();
                 stage->shape=result;stage->geometry_id=result_id;stage->named=live_named;
-                history=FeatureHistory::append(history,evaluation.feature_results.shared(evaluation.feature_results.size()-1),Impl::history_charge(evaluation.feature_results.back()));
+                history=FeatureHistory::append(history,evaluation.feature_results.frozen(evaluation.feature_results.size()-1),evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->charged_bytes());
                 stage->history=history;stage->history_complete=topology_history_complete;
                 stage->volume=impl_->shapes.at(result_id).volume;
                 stage->tools=pattern_tools;stage->bodies=pattern_bodies;stage->bases=pattern_range_bases;
+                stage->pattern_context_complete=!restored||restored->pattern_context_complete;
                 const auto accounting_begin=std::chrono::steady_clock::now();
                 // Reuse measured immutable roots, charging shared roots once
                 // per checkpoint. Per-root sums conservatively overcount shared
@@ -5440,16 +5446,32 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     for (const auto& recipe:entry.second->through_holes)
                         stage->bytes+=sizeof(ThroughHoleTool)+sizeof(ProfileCurveSpec)*4+
                                       recipe.copies.size()*(sizeof(HoleToolCopy)+128);
-                if(stage->bytes>impl_->stage_budget && !needs_pattern_context) {
+                stage->compact_bytes=sizeof(Impl::Stage)+impl_->shapes.at(result_id).brep->capacity()*16;
+                stage->compact_bytes+=stage->history?stage->history->bytes:0;
+                stage->compact_bytes+=stage->named.size()*sizeof(NamedShape);
+                const auto predecessor=spec_index?impl_->stages.find(runtime.stage_keys[spec_index-1]):impl_->stages.end();
+                const auto predecessor_bytes=predecessor==impl_->stages.end()?0:Impl::private_stage_bytes(*predecessor->second);
+                const bool preserve_predecessor=stage->bytes+predecessor_bytes>impl_->stage_budget;
+                if(!stage->pattern_context_complete || ((stage->bytes>impl_->stage_budget||preserve_predecessor) && !needs_pattern_context[spec_index+1])) {
                     // Ordinary feature continuation needs the accepted tip and
                     // history, not every historical pattern tool/Body handle.
                     // A later Pattern request explicitly rejects this compact
                     // checkpoint and rebuilds its complete required context.
                     stage->tools.clear();stage->bodies.clear();stage->bases.clear();
                     stage->pattern_context_complete=false;
-                    stage->bytes=sizeof(Impl::Stage)+impl_->shapes.at(result_id).brep->capacity()*16;
-                    stage->bytes+=stage->history?stage->history->bytes:0;
-                    stage->bytes+=stage->named.size()*sizeof(NamedShape);
+                    stage->bytes=stage->compact_bytes;
+                    if(predecessor!=impl_->stages.end() && stage->bytes+predecessor_bytes>impl_->stage_budget && predecessor->second->pattern_context_complete) {
+                        auto compact=std::make_shared<Impl::Stage>(*predecessor->second);
+                        compact->tools.clear();compact->bodies.clear();compact->bases.clear();
+                        compact->pattern_context_complete=false;compact->bytes=compact->compact_bytes;
+                        if(stage->bytes+Impl::private_stage_bytes(*compact)<=impl_->stage_budget) {
+                            const auto predecessor_key=predecessor->first;
+                            impl_->erase_stage(predecessor);
+                            impl_->stage_bytes+=impl_->additional_stage_bytes(*compact);
+                            impl_->history_budget.retain(compact->history);
+                            impl_->stages.emplace(predecessor_key,std::move(compact));
+                        }
+                    }
                 }
                 stage->used=++impl_->clock;
                 impl_->accounting_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-accounting_begin).count();

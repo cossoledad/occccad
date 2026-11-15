@@ -1,0 +1,193 @@
+package workspace
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	artifactstore "github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/modelcore"
+	"google.golang.org/protobuf/proto"
+)
+
+func (s *Service) readNamingBlock(ctx context.Context, object artifactstore.Object, reference *workerv1.NamingHistoryReference) (*decodedNamingBlock, error) {
+	if object.Kind != artifactstore.KindNamingHistory || object.SHA256 != reference.Sha256 || object.Size < 0 || uint64(object.Size) != reference.SizeBytes {
+		return nil, namingError("CORRUPT", "TOPOLOGY_HISTORY_METADATA_INVALID", "命名历史块元数据不匹配。")
+	}
+	load := func() (*decodedNamingBlock, int64, error) {
+		_, reader, err := s.artifacts.Open(ctx, object.ID)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, database.ErrNoRows) {
+				return nil, 0, namingError("CORRUPT", "TOPOLOGY_HISTORY_BLOCK_MISSING", "命名历史块缺失。")
+			}
+			return nil, 0, err
+		}
+		data, err := io.ReadAll(reader)
+		closeErr := reader.Close()
+		if err != nil {
+			return nil, 0, err
+		}
+		if closeErr != nil {
+			return nil, 0, closeErr
+		}
+		block, err := decodeNamingBlock(ctx, data, reference)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, 0, ctx.Err()
+			}
+			return nil, 0, namingError("CORRUPT", "TOPOLOGY_HISTORY_BLOCK_INVALID", err.Error())
+		}
+		block = namingBlockForQueries(block)
+		return block, int64(block.retainedBytes), nil
+	}
+	if geometry.PartRuntime(ctx).ForceCold {
+		block, _, err := load()
+		return block, err
+	}
+	key := object.ID + "\x00" + object.SHA256 + "\x00" + modelcore.TopologyNamingPolicyDigest
+	return s.namingBlocks.read(ctx, key, namingBlockBudget, load)
+}
+
+func (s *Service) namingHistoryLoader(ctx context.Context, parent *string) namingHistoryLoader {
+	var objects map[string]artifactstore.Object
+	var initialized bool
+	return func(ctx context.Context, ref *workerv1.NamingHistoryReference) (*decodedNamingBlock, error) {
+		if s.artifacts == nil {
+			return nil, fmt.Errorf("topology artifact store is not configured")
+		}
+		if !initialized && parent != nil {
+			children, err := s.artifacts.Dependencies(ctx, *parent)
+			if err != nil {
+				return nil, err
+			}
+			objects = map[string]artifactstore.Object{}
+			for _, object := range children {
+				if object.Kind != artifactstore.KindNamingHistory {
+					return nil, fmt.Errorf("invalid naming root dependency kind")
+				}
+				objects[object.SHA256] = object
+			}
+			initialized = true
+		}
+		if parent == nil {
+			var err error
+			objects, err = s.artifacts.ReadyByDigests(ctx, artifactstore.KindNamingHistory, []string{ref.Sha256})
+			if err != nil {
+				return nil, err
+			}
+		}
+		object, ok := objects[ref.Sha256]
+		if !ok {
+			return nil, namingError("CORRUPT", "TOPOLOGY_HISTORY_BLOCK_MISSING", "拓扑命名历史块缺失，需要恢复制品或重新求值。")
+		}
+		return s.readNamingBlock(ctx, object, ref)
+	}
+}
+
+func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvaluationManifest, geometryID, brep string) (artifactstore.Object, *topologyManifest, error) {
+	root, err := s.adoptEvaluationObject(ctx, m.TopologyManifestArtifact, artifactstore.KindTopologyManifest)
+	if err != nil {
+		return root, nil, err
+	}
+	if err = validateTopologyManifestDigests(m.TopologyManifestDigest, m.GetTopologyManifestArtifact().GetSha256(), root.SHA256); err != nil {
+		return root, nil, err
+	}
+	_, reader, err := s.artifacts.Open(ctx, root.ID)
+	if err != nil {
+		return root, nil, err
+	}
+	data, err := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if err != nil {
+		return root, nil, err
+	}
+	if closeErr != nil {
+		return root, nil, closeErr
+	}
+	stored := &workerv1.PartTopologyManifest{}
+	if err = proto.Unmarshal(data, stored); err != nil {
+		return root, nil, err
+	}
+	wanted := map[string]*workerv1.NamingHistoryReference{}
+	digests := []string{}
+	for _, ref := range stored.History {
+		if wanted[ref.Sha256] != nil {
+			return root, nil, fmt.Errorf("duplicate naming history reference")
+		}
+		wanted[ref.Sha256] = ref
+		digests = append(digests, ref.Sha256)
+	}
+	objects, err := s.artifacts.ReadyByDigests(ctx, artifactstore.KindNamingHistory, digests)
+	if err != nil {
+		return root, nil, err
+	}
+	provided := map[string]bool{}
+	for _, ref := range m.NamingHistoryArtifacts {
+		expected := wanted[ref.Sha256]
+		if expected == nil || provided[ref.Sha256] || ref.SizeBytes != expected.SizeBytes || ref.Backend != "LOCAL" {
+			return root, nil, fmt.Errorf("unexpected naming history output")
+		}
+		provided[ref.Sha256] = true
+		object, err := s.adoptEvaluationObject(ctx, ref, artifactstore.KindNamingHistory)
+		if err != nil {
+			return root, nil, err
+		}
+		objects[object.SHA256] = object
+	}
+	view, err := decodeTopologyManifestContext(ctx, data, root.SHA256, func(ctx context.Context, ref *workerv1.NamingHistoryReference) (*decodedNamingBlock, error) {
+		object, ok := objects[ref.Sha256]
+		if !ok {
+			return nil, namingError("CORRUPT", "TOPOLOGY_HISTORY_BLOCK_MISSING", "求值结果缺少命名历史块。")
+		}
+		return s.readNamingBlock(ctx, object, ref)
+	})
+	if err != nil {
+		return root, nil, err
+	}
+	if view.GeometryID != geometryID || view.BRepSHA256 != brep {
+		return root, nil, fmt.Errorf("feature association snapshot mismatch")
+	}
+	ordered := make([]artifactstore.Object, 0, len(stored.History))
+	for _, ref := range stored.History {
+		ordered = append(ordered, objects[ref.Sha256])
+	}
+	if err = s.artifacts.RecordNamingClosure(ctx, root, ordered); err != nil {
+		return root, nil, err
+	}
+	if !geometry.PartRuntime(ctx).ForceCold {
+		_, err = s.namingViews.read(ctx, namingViewKey(root.ID, root.SHA256), namingViewBudget, func() (*topologyManifest, int64, error) { return view, namingViewCharge(view, root.ID), nil })
+		if err != nil {
+			return root, nil, err
+		}
+	}
+	return root, view, nil
+}
+
+func namingViewKey(id, digest string) string {
+	return id + "\x00" + digest + "\x00" + modelcore.TopologyNamingPolicyDigest
+}
+func namingViewCharge(view *topologyManifest, key string) int64 {
+	if int64(view.retainedBytes) > namingViewBudget {
+		return namingViewBudget + 1
+	}
+	return int64(view.retainedBytes) + int64(len(key)) + 128
+}
+
+func (s *Service) historyArtifactReference(ctx context.Context, parent, digest string) (*workerv1.ArtifactReference, error) {
+	objects, err := s.artifacts.Dependencies(ctx, parent)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range objects {
+		if o.Kind == artifactstore.KindNamingHistory && o.SHA256 == digest {
+			return &workerv1.ArtifactReference{Backend: o.Backend, ObjectKey: o.Key, Sha256: o.SHA256, SizeBytes: uint64(o.Size), ContentType: o.ContentType}, nil
+		}
+	}
+	return nil, fmt.Errorf("naming history dependency unavailable: %s", strconv.Quote(digest))
+}
