@@ -743,6 +743,10 @@ struct ToolBuild {
     TopoDS_Shape retained_shape;
 };
 
+// A checkpoint freezes its construction context. Copying an index must not
+// copy every earlier tool's names, generated lineage and Hole recipes again.
+using ToolContext = std::map<std::string, std::shared_ptr<const ToolBuild>>;
+
 SemanticTopologyRef profile_source(const ProfilePadSpec& spec, const std::string& slot,
                                    const std::string& source_id) {
     return {spec.profile_feature_id, slot + "/" + source_id, {source_id}};
@@ -4317,8 +4321,7 @@ struct OcctKernel::Impl {
         bool history_complete = false;
         std::optional<double> volume;
         bool pattern_context_complete = true;
-        std::map<std::string, ToolBuild> tools, bodies;
-        std::map<std::string, ToolBuild> bases;
+        ToolContext tools, bodies, bases;
         size_t bytes = 0;
         mutable uint64_t used = 0;
     };
@@ -4676,6 +4679,15 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         if(!bytes){bytes=write_brep(shape).size()*16;++impl_->accounting_serializations;}
         accounted_shapes.Add(shape);accounted_charges.push_back(bytes);return bytes;
     };
+    const auto freeze_tool=[&](ToolBuild tool){
+        const auto began=std::chrono::steady_clock::now();
+        if(!runtime.force_cold&&!specs.empty()&&runtime.stage_keys.size()==specs.size()&&!tool.shape.IsNull()){
+            tool.retained_charge=shape_charge(tool.shape);tool.retained_shape=tool.shape;
+        }
+        auto frozen=std::make_shared<const ToolBuild>(std::move(tool));
+        impl_->accounting_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count();
+        return frozen;
+    };
     std::shared_ptr<const Impl::Stage> restored;
     size_t resume = 0;
     const bool needs_pattern_context=std::any_of(specs.begin(),specs.end(),[](const auto& spec){return spec.generator=="SOLID_PATTERN";});
@@ -4791,8 +4803,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         result_validated = true;
     }
 
-    std::map<std::string, ToolBuild> pattern_tools, pattern_bodies;
-    std::map<std::string, ToolBuild> pattern_range_bases;
+    ToolContext pattern_tools, pattern_bodies, pattern_range_bases;
     std::set<std::string> range_starts;
     std::set<std::string> required_pattern_tools, required_pattern_bodies;
     for (const auto& spec : specs) {
@@ -4822,7 +4833,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     if (import_seed && !result.IsNull() && !restored) {
         ToolBuild stage; stage.shape=result;stage.named=live_named;
         stage.topology_history_complete=topology_history_complete;
-        pattern_bodies.emplace(import_seed->feature_id,std::move(stage));
+        pattern_bodies.emplace(import_seed->feature_id,freeze_tool(std::move(stage)));
     }
     if(restored) {
         result=restored->shape;result_id=restored->geometry_id;live_named=restored->named;
@@ -4881,7 +4892,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 ToolBuild baseline;baseline.shape=result;baseline.named=live_named;
                 baseline.feature_id=spec.input_feature_id;
                 baseline.topology_history_complete=topology_history_complete;
-                pattern_range_bases.insert_or_assign(spec.feature_id,private_stage(baseline));
+                pattern_range_bases.insert_or_assign(spec.feature_id,freeze_tool(private_stage(baseline)));
             }
             ToolBuild tool;
             const bool modifier = spec.generator == "FILLET" || spec.generator == "CHAMFER" ||
@@ -4930,8 +4941,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         if (inside && member.feature_id == spec.pattern_source_feature_id) { ended = true; break; }
                     }
                     if (!ended) throw std::invalid_argument("PATTERN_RANGE_INVALID");
-                    resolved=material_range_tool(base->second,found->second,spec.body_operation,spec.pattern_start_feature_id);
-                } else resolved=found->second;
+                    resolved=material_range_tool(*base->second,*found->second,spec.body_operation,spec.pattern_start_feature_id);
+                } else resolved=*found->second;
                 if (resolved.through_holes.empty()) {
                     seed_builder.Add(fixed_shapes,resolved.shape);has_fixed=true;
                     aggregate.fixed_named.insert(aggregate.fixed_named.end(),resolved.named.begin(),resolved.named.end());
@@ -5057,7 +5068,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 validate_body_solid_set(tool.shape);
                 auto closure = complete_boolean_topology_naming(tool.shape, tool.named, spec.feature_id);
                 tool.generated.insert(tool.generated.end(), closure.begin(), closure.end());
-                pattern_tools.emplace(spec.feature_id, tool);
+                pattern_tools.emplace(spec.feature_id, freeze_tool(tool));
             }
             auto independent = [&]() {
                 BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);
@@ -5415,7 +5426,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 ToolBuild stage;
                 stage.shape=result; stage.named=live_named; stage.feature_id=spec.feature_id;
                 stage.topology_history_complete=topology_history_complete;
-                pattern_bodies.emplace(spec.feature_id,std::move(stage));
+                pattern_bodies.emplace(spec.feature_id,freeze_tool(std::move(stage)));
             }
             evaluation.feature_results.push_back(std::move(feature));
             stats.naming_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-naming_started).count();
@@ -5439,24 +5450,21 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     retained_shapes.Add(shape);retained_bytes+=shape_charge(shape);
                 }};
                 retain(stage->shape);
-                const auto retain_tool=[&](ToolBuild& cached_tool){
+                const auto retain_tool=[&](const ToolBuild& cached_tool){
                     if(cached_tool.shape.IsNull()||retained_shapes.Contains(cached_tool.shape))return;
-                    if(!cached_tool.retained_charge||!cached_tool.shape.IsSame(cached_tool.retained_shape)){
-                        cached_tool.retained_charge=shape_charge(cached_tool.shape);cached_tool.retained_shape=cached_tool.shape;
-                    }
                     retained_shapes.Add(cached_tool.shape);retained_bytes+=cached_tool.retained_charge;
                 };
-                for(auto& entry:stage->bodies)retain_tool(entry.second);
-                for(auto& entry:stage->tools)retain_tool(entry.second);
-                for(auto& entry:stage->bases)retain_tool(entry.second);
+                for(const auto& entry:stage->bodies)retain_tool(*entry.second);
+                for(const auto& entry:stage->tools)retain_tool(*entry.second);
+                for(const auto& entry:stage->bases)retain_tool(*entry.second);
                 stage->bytes=sizeof(Impl::Stage)+retained_bytes+(stage->history?stage->history->bytes:0);
                 for(const auto& entry:stage->bodies) {
-                    stage->bytes+=entry.second.named.size()*sizeof(NamedShape);
+                    stage->bytes+=entry.second->named.size()*sizeof(NamedShape);
                 }
                 for (const auto& entry:stage->bases)
-                    stage->bytes+=entry.second.named.size()*sizeof(NamedShape);
+                    stage->bytes+=entry.second->named.size()*sizeof(NamedShape);
                 for (const auto& entry:stage->tools)
-                    for (const auto& recipe:entry.second.through_holes)
+                    for (const auto& recipe:entry.second->through_holes)
                         stage->bytes+=sizeof(ThroughHoleTool)+sizeof(ProfileCurveSpec)*4+
                                       recipe.copies.size()*(sizeof(HoleToolCopy)+128);
                 if(stage->bytes>impl_->stage_budget && !needs_pattern_context) {
@@ -5691,8 +5699,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             BRepMesh_IncrementalMesh mesher;
             mesher.SetShape(shape); mesher.ChangeParameters()=parameters;
             const Handle(Message_ProgressIndicator) progress=new PartProgress(cancelled);
-            if(preserveBoundary)mesher.Perform(boundary_preserving_mesh_context(),progress->Start());
-            else mesher.Perform(progress->Start());
+            mesher.Perform(display_mesh_context(preserveBoundary),progress->Start());
             check_cancel();
             constexpr int invalid_mesh = IMeshData_OpenWire | IMeshData_SelfIntersectingWire | IMeshData_Failure
                 | IMeshData_UnorientedWire | IMeshData_TooFewPoints | IMeshData_UserBreak;

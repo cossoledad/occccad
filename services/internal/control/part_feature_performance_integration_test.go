@@ -300,9 +300,11 @@ func TestPartSketchEditingIsolationThroughRouter(t *testing.T) {
 	if normal, ok := cached.Properties["normal"].([3]float64); !ok || normal != properties.Properties["normal"] {
 		t.Fatal("cached exact frame lost typed vector", cached)
 	}
+	var originalSupport workspace.SketchSupport
 	for i := 0; i < 20; i++ {
 		if i == 0 {
 			apply(workspace.CommandRequest{Type: "CREATE_SKETCH", TargetKind: "FACE", GeometryKey: accepted.GeometryKey, TopologyID: 1, BodyID: view.Part.ActiveBodyID})
+			originalSupport = view.Part.Features[len(view.Part.Features)-1].Sketch.Support
 		} else {
 			apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
 		}
@@ -355,6 +357,23 @@ func TestPartSketchEditingIsolationThroughRouter(t *testing.T) {
 	apply(workspace.CommandRequest{Type: "UNDO"})
 	if got := activeBodyArtifact(t, view); math.Abs(got.Volume-accepted.Volume) > 1e-5 {
 		t.Fatal("undo lost the Body", got.Volume)
+	}
+	if got := view.Part.Features[2].Sketch.Support.DependencySnapshot; got == nil || *got != *originalSupport.DependencySnapshot {
+		t.Fatalf("restored exact source changed its frozen support: original=%+v restored=%+v", originalSupport.DependencySnapshot, got)
+	}
+	// Restoring an upstream shape can choose a different display artifact for
+	// the same exact BREP/Naming. It must not invalidate earlier drawing history.
+	for i := 0; i < 40; i++ {
+		apply(workspace.CommandRequest{Type: "UNDO"})
+	}
+	if len(view.Part.Features) != 2 {
+		t.Fatal("sketch creation/drawing compensation left extra features")
+	}
+	for i := 0; i < 40; i++ {
+		apply(workspace.CommandRequest{Type: "REDO"})
+	}
+	if len(view.Part.Features) != 22 || math.Abs(activeBodyArtifact(t, view).Volume-accepted.Volume) > 1e-5 {
+		t.Fatal("drawing replay lost the accepted Body or sketches")
 	}
 }
 

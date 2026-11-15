@@ -440,12 +440,17 @@ func geometryDomain(e *workerv1.EvaluatePartResponse) string {
 }
 func geometryVec(v [3]float64) *workerv1.Vec3 { return &workerv1.Vec3{X: v[0], Y: v[1], Z: v[2]} }
 func (s *Service) evaluateGeometrySpec(ctx context.Context, requestID string, spec *workerv1.GeometryFeatureSpec, dependencies ...any) (string, error) {
+	displayStrategy := ""
+	if !geometry.PartRuntime(ctx).ExactOnly {
+		displayStrategy = displayStrategyVersion
+	}
 	frozen, _ := json.Marshal(struct {
 		Spec              *workerv1.GeometryFeatureSpec
 		Policy, Evaluator string
 		Exact             bool
 		Dependencies      []any
-	}{spec, modelcore.TopologyNamingPolicyDigest, evaluatorVersion, geometry.PartRuntime(ctx).ExactOnly, dependencies})
+		DisplayStrategy   string `json:"displayStrategy,omitempty"`
+	}{spec, modelcore.TopologyNamingPolicyDigest, evaluatorVersion, geometry.PartRuntime(ctx).ExactOnly, dependencies, displayStrategy})
 	key := modelcore.ValueDigest(frozen)
 	var exists bool
 	if err := s.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).Scan(&exists); err != nil {

@@ -5,9 +5,10 @@
 
 namespace occccad::kernel {
 
-// Retry generic-surface meshing without merging different 3D boundary points
-// solely because their UV positions fall inside OCCT's lookup tolerance.
-Handle(IMeshTools_Context) boundary_preserving_mesh_context();
+// Planes use OCCT's Delabella base triangulation. Curved-surface refinement
+// keeps the normal deflection policy. The retry additionally prevents generic
+// surfaces from welding distinct 3D boundary samples by UV proximity alone.
+Handle(IMeshTools_Context) display_mesh_context(bool preserve_boundary = false);
 
 bool has_ordered_surface_boundaries(const TopoDS_Shape& shape);
 

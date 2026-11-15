@@ -57,6 +57,8 @@ local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持�
 
 内核 `OcctKernel::tessellate` 是精确几何可视化的唯一几何入口：对驻留精确 Shape 深拷贝（含几何，不复制旧剖分），在隔离副本中进行 OCCT 增量剖分，然后固定面节点、三角形、法线、Edge 折线、Vertex 点和 localId 映射。源 Shape 和 Naming 不因显示精度变化而修改。解析曲面也启用内部偏差控制；剖分失败状态、缺失面/边界和邻接边界不一致均显式失败，不能发布部分成功。
 
+平面使用 OCCT 7.9.1 内置 Delabella 基底剖分；非平面继续使用原默认工厂及曲面偏差控制，保留共享边采样和既有边界重试。这针对多孔裁剪平面的昂贵重剖分，不降低 0.05 mm / 0.18 rad 显示精度。新显示结果的输入键包含离散策略；exact-only 键与 Naming evaluator 不因此改变，已接纳 Revision 的制品继续冻结。算法对照与适用边界见[零件性能测量](../../validation/part-feature-performance.md#平面剖分与长链算法2026-11-14)。
+
 未变化面的复用只认同进程内相同 TShape、Location、朝向和显示精度，不按坐标/曲面近似匹配。不可变 face packet 保存剖分及全部有向边界，深拷贝后植入新的隔离 Shape；OCCT 仍检查并细化需要的面。复用后的全结果照常验证全部邻接边界，不一致先冷算，再按既有策略重试；不会放宽精度或发布部分网格。缓存最多两帧、128 MiB 保守计数预算（含去重后的源几何与剖分缓冲），策略变化/ForceCold 清除。首次没有可用面时仍完整划分，不把重复请求命中算作首次收益。
 
 附面 Edge 遍历全部有向 EdgeUse，从同次 `PolygonOnTriangulation` 取节点；包含周期面的双接缝、位置变换和退化极点。所有邻接 use 的节点序列须按原模型边/点容差正向或反向一致，验证后才选取确定顺序的显示折线；不独立采样、不全局焊接、不放大显示容差。退化边确认收缩为一点后不产生零长显示线。无邻接面的孤立曲线读取同次剖分生成的 `Polygon3D`，不再通过另一套采样器重建。默认显示线性偏差为 0.05 mm，角偏差为 0.18 rad；曲线、曲面、实体及交换导入共用该策略，缓存含精度与离散策略版本。相同路径的拉伸用例中使用同源边节点，不承诺任意修剪/曲面精化后的独立制品都具有相同节点。`GetTopology` 保持精确属性查询，保留的 `render_points` 字段为空，不触发剖分。
@@ -74,6 +76,8 @@ Worker 的 `fill_evaluation` 统一调度离散与编码，`make_glb` 消费快�
 ## Naming、RPC 与预览
 
 每个 Body 或几何 FeatureResult 的完整 `PartTopologyManifest` 只存在自己的 `naming.pb`，采用共享 SemanticRef/Evidence 表、transition 与显式 owner 的 locator 索引；Body 历史 Feature 不重复保存完整快照。文件严格拥有一个 Body 或一个 FeatureResult，不能混合所有者。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。
+
+显示用 `featureAssociations` 从完整 Naming 重建：每步读取上一步状态，集中写入本步变化，不复制全部累积状态；单源同引用的 UNCHANGED transition 共享不可变归属集合。引用值的规范键在本次调用内复用，只有成员/修改器别名才建立摘要反向索引。指针仅作请求内 memoization，匹配仍用完整引用值；合并候选、来源、修改者、支撑、成员与排序保持原合同。最终集合与完整历史扫描仍随模型增长，这不是持久选择或增量 Naming 存储。
 
 `EvaluatePartResponse` 的持久结果标记为 `PERSISTENT`，只返回几何摘要、计数及 ArtifactReference；移除了 BREP/GLB 内联字段，`preview_mesh` 只允许临时预览。声明中的 Tessellate 输出也只使用引用，不再定义三套内联字节载荷；这不代表独立 Tessellate RPC 已实现。
 

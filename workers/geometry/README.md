@@ -32,6 +32,7 @@ UnloadGeometry 幂等释放指定驻留 Shape 及拓扑属性；检查点和其�
 - 首次 GetTopology 可从不可变 BREP 冷恢复，Router 先保留 owner；后续精确拓扑查询过滤同一缓存。完整显示载荷唯一来源为 GLB，格式归 [Visual/Naming](../../docs/architecture/current/visual-naming-artifacts.md)，schema 与 Naming policy 版本独立。
 - GetTopology 的 `speculative` 支撑预备仅使用空闲容量；普通调用可取消锁等待，响应区分 queue/load/query 耗时。控制面的有界缓存保存冻结输入下的精确属性，坐标系及持久选择资格仍由正式来源验证。
 - EvaluatePart 的 `exact_only` 省略 GLB，`force_cold` 绕过热缓存并冷重建，`runtime_affinity` 只是路由提示；`runtime_stats` 记录实际执行/复用。`OCCCCAD_STAGE_CACHE_BYTES` 默认 134217728，0 关闭，最大 2147483648，超预算项不缓存。完整键与恢复语义归[增量运行时](../../docs/architecture/current/jobs-artifacts.md#part-增量运行时)。
+- 阶段构造上下文只读共享，Naming v2 逐条装配，平面采用内置 Delabella、曲面保留原剖分策略；具体语义与限制见[Part 求值](../../docs/architecture/current/part-feature-evaluation.md#零件增量求值)和[离散快照](../../docs/architecture/current/geometry-representations.md#拓扑感知的离散快照)。
 
 ## 日志
 

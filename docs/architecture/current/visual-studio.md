@@ -27,7 +27,7 @@
 
 UV、曲面或可用法线缺失时，保留有效曲面样本，其余用同一 Face 内的面积加权三角法线降级；不跨 CAD 面光顺。法线求值分批检查取消。正常路径不再计算一遍三角平均法线。`normals_ms` 独立计时，`surface_normals` 日志区分求值数和降级数；两者不与 `faces_ms` 重复相加。实例旋转与缩放仍由渲染器 normal matrix 处理，不在相机变化时重算法线。
 
-标准 GLB `NORMAL` 已能承载结果，没有新增领域 Proto 或持久身份。Worker 快照策略为 `visual-surface-normals-v4`，含实际精度；工作区 evaluator `part-solid-generators-v78-studio-balanced-surfaces` 隔离新求值制品。旧 Revision 不被读取操作重写，既有 GLB 的法线也不被标记为新算法结果；通过正式重新求值获得新制品。
+标准 GLB `NORMAL` 已能承载结果，没有新增领域 Proto 或持久身份。Worker 快照键包含实际精度及离散策略；工作区 evaluator `part-solid-generators-v78-studio-balanced-surfaces` 区分法线算法，新平面剖分另由显示策略限定输入键，见[离散快照](geometry-representations.md#拓扑感知的离散快照)。旧 Revision 不被读取操作重写，既有 GLB 的法线也不被标记为新算法结果；通过正式重新求值获得新制品。
 
 ## 默认观看配方
 

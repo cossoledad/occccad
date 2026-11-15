@@ -5,8 +5,50 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <occccad/kernel/geometry_id.hpp>
 
 namespace api = occccad::worker::v1;
+
+TEST(NamingArtifact, StoredLayoutRetainsTypedEvidenceAndFirstOccurrenceOrder) {
+    const std::vector<std::string> kinds{"PLANE", "CYLINDER", "POINT", "LINE", "CIRCLE", "BSPLINE", "BEZIER", "ELLIPSE", "TORUS"};
+    std::vector<api::FeatureResult> features(3);
+    for(size_t i=0;i<features.size();++i){
+        auto& feature=features[i];feature.set_feature_id("feature-"+std::to_string(i));feature.set_body_id("body");
+        feature.set_input_feature_id(i?features[i-1].feature_id():"");feature.set_profile_feature_id("profile");
+        feature.set_result_geometry_id("geometry-"+std::to_string(i));feature.set_topology_history_complete(true);
+        feature.add_diagnostics("frozen diagnostic");auto* history=feature.mutable_topology_history();
+        history->set_input_geometry_id(i?features[i-1].result_geometry_id():"");history->set_evidence_digest("history-"+std::to_string(i));
+        for(size_t j=0;j<kinds.size();++j){
+            auto* output=feature.add_semantic_outputs();output->set_local_id(j+1);output->set_topology_type(api::PERSISTENT_TOPOLOGY_TYPE_FACE);
+            auto* ref=output->mutable_semantic_ref();ref->set_feature_id(feature.feature_id());ref->set_output_slot(kinds[j]);
+            ref->add_source_ids("a/b");ref->add_source_ids("a\nb");
+            auto* evidence=output->mutable_evidence();evidence->set_geometry_type(kinds[j]);evidence->set_evidence_digest("evidence-"+std::to_string(j));
+            evidence->set_measure_si(.001);evidence->set_measure_dimension("AREA");evidence->set_parameter_start(-0.0);evidence->set_parameter_end(2.75);
+            evidence->set_endpoint_role("START");evidence->set_radius_mm(3);evidence->set_minor_radius_mm(2);evidence->set_half_angle_radians(.3);
+            evidence->set_cone_leaf(-1);evidence->set_material_side(-1);evidence->mutable_x_direction()->set_x(1);
+            evidence->mutable_origin()->set_x(12);evidence->mutable_direction()->set_z(1);evidence->mutable_centroid()->set_y(4);
+            *evidence->add_adjacent()=*ref;
+            auto* lineage=history->add_lineage();*lineage->mutable_result()=*ref;*lineage->mutable_evidence()=*evidence;
+            lineage->set_kind(i?api::TOPOLOGY_LINEAGE_MODIFIED:api::TOPOLOGY_LINEAGE_GENERATED);
+            if(i)*lineage->add_sources()=features[i-1].semantic_outputs(j).semantic_ref();
+        }
+        auto* deleted=history->add_deleted();*deleted->mutable_source()=feature.semantic_outputs(0).semantic_ref();
+        deleted->set_reason("removed");*deleted->mutable_evidence()=feature.semantic_outputs(0).evidence();
+        auto* ambiguous=history->add_ambiguous();*ambiguous->add_sources()=feature.semantic_outputs(1).semantic_ref();
+        *ambiguous->add_candidates()=feature.semantic_outputs(2).semantic_ref();ambiguous->set_diagnostic_code("candidate");
+    }
+    api::PartTopologyManifest manifest;manifest.set_policy_digest("policy");manifest.set_geometry_id("geometry");manifest.set_brep_sha256("brep");
+    occccad::worker::pack_naming(features,manifest);
+    ASSERT_EQ(manifest.transitions_size(),3);ASSERT_EQ(manifest.bodies(0).tip_size(),kinds.size());
+    // Frozen with the original vector/tree-map encoder before the streaming
+    // implementation: this checks the stored layout, not just two new paths.
+    EXPECT_EQ(occccad::kernel::make_geometry_id(manifest.SerializeAsString()),
+              "sha256:0bb66a9d6524445feea778e8e15c03e42ba5e1b8d9fd6c336069c0d8186f0791");
+    api::PartTopologyManifest streamed;streamed.set_policy_digest("policy");streamed.set_geometry_id("geometry");streamed.set_brep_sha256("brep");
+    api::FeatureResult scratch;
+    occccad::worker::pack_naming(features.size(),[&](size_t i)->const api::FeatureResult&{scratch=features[i];return scratch;},streamed);
+    EXPECT_EQ(streamed.SerializeAsString(),manifest.SerializeAsString());
+}
 TEST(WorkerCancellation, PollingIsBoundedAndAdmissionIsFresh) {
     int calls=0;int64_t now=0;bool cancelled=false;
     occccad::worker::CancellationPolling token([&](){++calls;return cancelled;},[&](){return now;});

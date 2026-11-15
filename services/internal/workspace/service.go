@@ -30,6 +30,10 @@ import (
 
 const evaluatorVersion = "part-solid-generators-v78-studio-balanced-surfaces"
 
+// Display algorithm changes qualify newly evaluated representations separately
+// from exact/Naming semantics and the accepted dependency manifest.
+const displayStrategyVersion = "planar-cdt-v1"
+
 var (
 	ErrNotFound   = errors.New("document not found")
 	ErrValidation = errors.New("invalid workspace command")
@@ -1765,13 +1769,18 @@ func partGeometryKey(baseKey string, solidFeatures []geometry.ProfilePad, visual
 }
 
 func partGeometryKeyForPolicy(policyDigest, baseKey string, solidFeatures []geometry.ProfilePad, visualization VisualizationManifest) (string, error) {
+	displayStrategy := ""
+	if visualization.SchemaVersion != 0 {
+		displayStrategy = displayStrategyVersion
+	}
 	canonical, err := json.Marshal(struct {
 		EvaluatorVersion     string                `json:"evaluatorVersion"`
 		TopologyPolicyDigest string                `json:"topologyPolicyDigest"`
 		BaseGeometryKey      string                `json:"baseGeometryKey,omitempty"`
 		SolidFeatures        []geometry.ProfilePad `json:"solidFeatures"`
 		Visualization        VisualizationManifest `json:"visualization"`
-	}{evaluatorVersion, policyDigest, baseKey, solidFeatures, visualization})
+		DisplayStrategy      string                `json:"displayStrategy,omitempty"`
+	}{evaluatorVersion, policyDigest, baseKey, solidFeatures, visualization, displayStrategy})
 	if err != nil {
 		return "", fmt.Errorf("canonicalize Part evaluation: %w", err)
 	}

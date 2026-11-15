@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,28 +38,30 @@ func associationRefKey(ref *workerv1.SemanticTopologyRef) string {
 	return string(b)
 }
 func uniqueAssociationIDs(ids []string) []string {
-	set := map[string]bool{}
-	for _, id := range ids {
-		if id != "" {
-			set[id] = true
-		}
+	// Callers pass their own newly assembled slice, never a frozen ancestor.
+	if len(ids) == 0 {
+		return []string{}
 	}
-	out := []string{}
-	for id := range set {
-		out = append(out, id)
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	if ids[0] == "" {
+		ids = ids[1:]
 	}
-	sort.Strings(out)
-	return out
+	return ids
 }
 
 // MEMBER slots carry the digest of the exact seed SemanticTopologyRef. Match
 // that digest against Naming refs, never against geometry or display positions.
 func associationSeedDigest(ref *workerv1.SemanticTopologyRef) string {
-	text := ref.FeatureId + "\n" + ref.OutputSlot
+	var text strings.Builder
+	text.WriteString(ref.FeatureId)
+	text.WriteByte('\n')
+	text.WriteString(ref.OutputSlot)
 	for _, id := range ref.SourceIds {
-		text += "\n" + id
+		text.WriteByte('\n')
+		text.WriteString(id)
 	}
-	sum := sha256.Sum256([]byte(text))
+	sum := sha256.Sum256([]byte(text.String()))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 func associationMember(ref *workerv1.SemanticTopologyRef) (FeatureAssociationMember, string, bool) {
@@ -68,25 +71,56 @@ func associationMember(ref *workerv1.SemanticTopologyRef) (FeatureAssociationMem
 func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 	index := &FeatureAssociationIndex{Features: []string{}, Elements: []FeatureTopologyAssociation{}}
 	states := map[string]FeatureTopologyAssociation{}
-	refs := map[string]*workerv1.SemanticTopologyRef{}
-	for _, f := range m.FeatureResults {
-		for _, l := range f.GetTopologyHistory().GetLineage() {
-			for _, r := range append(append([]*workerv1.SemanticTopologyRef{}, l.Sources...), l.Result) {
-				if r != nil {
-					refs[associationSeedDigest(r)] = r
+	// Naming v2 interns these immutable refs. Pointers only memoize their full
+	// canonical value within this call; equal refs still share a value key.
+	keys := map[*workerv1.SemanticTopologyRef]string{}
+	refKey := func(r *workerv1.SemanticTopologyRef) string {
+		if key, ok := keys[r]; ok {
+			return key
+		}
+		key := associationRefKey(r)
+		keys[r] = key
+		return key
+	}
+	var refs map[string]*workerv1.SemanticTopologyRef
+	digestRef := func(digest string) *workerv1.SemanticTopologyRef {
+		if refs == nil {
+			// Only MEMBER and MODIFIER_GENERATED aliases need this reverse
+			// index. Ordinary transitions do not hash every historical ref.
+			refs = map[string]*workerv1.SemanticTopologyRef{}
+			digests := map[string]string{}
+			visit := func(r *workerv1.SemanticTopologyRef) {
+				if r == nil {
+					return
+				}
+				key := refKey(r)
+				value, ok := digests[key]
+				if !ok {
+					value = associationSeedDigest(r)
+					digests[key] = value
+				}
+				refs[value] = r
+			}
+			for _, f := range m.FeatureResults {
+				for _, l := range f.GetTopologyHistory().GetLineage() {
+					for _, r := range l.Sources {
+						visit(r)
+					}
+					visit(l.Result)
 				}
 			}
 		}
+		return refs[digest]
 	}
 	sourceState := func(r *workerv1.SemanticTopologyRef) FeatureTopologyAssociation {
-		if v, ok := states[associationRefKey(r)]; ok {
+		if v, ok := states[refKey(r)]; ok {
 			return v
 		}
 		v := FeatureTopologyAssociation{Origins: []string{r.FeatureId}, Primary: []string{r.FeatureId}, Status: "MAPPED"}
 		if member, digest, ok := associationMember(r); ok {
 			v.Members = []FeatureAssociationMember{member}
-			if seed := refs[digest]; seed != nil {
-				if origin, ok := states[associationRefKey(seed)]; ok {
+			if seed := digestRef(digest); seed != nil {
+				if origin, ok := states[refKey(seed)]; ok {
 					v.Origins = append(v.Origins, origin.Origins...)
 				} else {
 					v.Origins = append(v.Origins, seed.FeatureId)
@@ -100,8 +134,8 @@ func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 		// resolve it to preserve support and member context without geometry guesses.
 		parts := strings.Split(r.OutputSlot, "/")
 		if len(parts) == 3 && parts[0] == "MODIFIER_GENERATED" {
-			if source := refs["sha256:"+parts[1]]; source != nil {
-				if origin, ok := states[associationRefKey(source)]; ok {
+			if source := digestRef("sha256:" + parts[1]); source != nil {
+				if origin, ok := states[refKey(source)]; ok {
 					v.Supports = append(v.Supports, origin.Origins...)
 					v.Supports = append(v.Supports, origin.Supports...)
 					v.Members = append(v.Members, origin.Members...)
@@ -115,17 +149,24 @@ func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 		}
 		return v
 	}
+	next := map[string]FeatureTopologyAssociation{}
 	for _, f := range m.FeatureResults {
 		index.Features = append(index.Features, f.FeatureId)
 		// Every transition reads the previous state, including self-ref unchanged
 		// results. Do not let ordering of outputs create spurious ancestry.
-		next := map[string]FeatureTopologyAssociation{}
-		for k, v := range states {
-			next[k] = v
-		}
+		clear(next)
 		for _, l := range f.GetTopologyHistory().GetLineage() {
 			if l.Result == nil {
 				continue
+			}
+			resultKey := refKey(l.Result)
+			if l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_UNCHANGED && len(l.Sources) == 1 && refKey(l.Sources[0]) == resultKey {
+				if previous, ok := states[resultKey]; ok && len(previous.Origins) > 0 && len(previous.Primary) > 0 {
+					// An identity transition adds no ownership, support or modifier.
+					// Share its immutable sorted sets instead of rebuilding them.
+					next[resultKey] = previous
+					continue
+				}
 			}
 			a := FeatureTopologyAssociation{Status: "MAPPED"}
 			var sources []string
@@ -136,7 +177,7 @@ func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 				// Its flattened PROFILE sources are section inputs, not existing
 				// solid contributors. Preserve them as supports of the generating
 				// Feature, while keeping real solid-source merges multi-owner.
-				_, known := states[associationRefKey(s)]
+				_, known := states[refKey(s)]
 				role, id, profile := strings.Cut(s.OutputSlot, "/")
 				if !known && profile && id != "" && (role == "PROFILE_EDGE" || role == "PROFILE_REGION" || role == "PROFILE_POINT") &&
 					l.Result.FeatureId == f.FeatureId && (l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MERGED || l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_SPLIT) {
@@ -204,9 +245,12 @@ func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 				}
 				return a.Members[i].Slot < a.Members[j].Slot
 			})
-			next[associationRefKey(l.Result)] = a
+			next[resultKey] = a
 		}
-		states = next
+		// Commit after all reads, without copying the accumulated history.
+		for key, value := range next {
+			states[key] = value
+		}
 	}
 	index.Features = uniqueAssociationIDs(index.Features)
 	tips := make([]*workerv1.FeatureResult, 0, len(m.Tips)+len(m.Results))
@@ -218,7 +262,7 @@ func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 	}
 	for _, tip := range tips {
 		for _, o := range tip.SemanticOutputs {
-			a, ok := states[associationRefKey(o.SemanticRef)]
+			a, ok := states[refKey(o.SemanticRef)]
 			if !ok {
 				a.Status = "MAPPING_MISSING"
 			}

@@ -213,6 +213,26 @@ func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geom
 	return manifest, actualDigest, nil
 }
 
+// An exact-only prefix and its displayed Body can name the same frozen BREP
+// with different artifact keys. Keep an already accepted dependency in that
+// case: changing only the display variant must not rewrite drawing history.
+// The full verified Naming digest includes the BREP, owner and lineage; equal
+// coordinates or an equal supporting face alone are not sufficient.
+func (service *Service) frozenSketchDependency(ctx context.Context, previous, resolved *SketchSupportDependencySnapshot) (*SketchSupportDependencySnapshot, error) {
+	if previous == nil || previous.GeometryKey == resolved.GeometryKey || previous.ManifestDigest != resolved.ManifestDigest ||
+		previous.PolicyDigest != resolved.PolicyDigest || previous.EvidenceDigest != resolved.EvidenceDigest {
+		return resolved, nil
+	}
+	_, digest, err := service.topologyManifestForGeometryKey(ctx, previous.GeometryKey)
+	if err != nil {
+		return nil, err
+	}
+	if digest == resolved.ManifestDigest {
+		return previous, nil
+	}
+	return resolved, nil
+}
+
 func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, documentID, sourceVersionID, geometryKey string,
 	selection modelcore.PersistentSelection) (modelcore.SelectionResolution, string, error) {
 	source, _, _, err := service.selectionManifestForVersion(ctx, documentID, sourceVersionID, selection)
@@ -423,8 +443,12 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 		support.Origin, support.XDirection, support.Normal = origin, xDirection, normal
 		support.OrientationRule, support.Status = sketchSupportOrientationRule, "CONNECTED"
 		support.DiagnosticCode, support.Diagnostic = "", ""
-		support.DependencySnapshot = &SketchSupportDependencySnapshot{GeometryKey: geometryKey, ManifestDigest: digest,
-			PolicyDigest: modelcore.TopologyNamingPolicyDigest, EvidenceDigest: resolution.EvidenceDigest}
+		support.DependencySnapshot, err = service.frozenSketchDependency(ctx, support.DependencySnapshot,
+			&SketchSupportDependencySnapshot{GeometryKey: geometryKey, ManifestDigest: digest,
+				PolicyDigest: modelcore.TopologyNamingPolicyDigest, EvidenceDigest: resolution.EvidenceDigest})
+		if err != nil {
+			return err
+		}
 		if err := service.resolveExternalGeometry(ctx, documentID, requestID, model, index, geometryKey); err != nil {
 			return err
 		}

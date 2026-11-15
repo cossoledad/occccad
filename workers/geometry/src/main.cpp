@@ -2117,12 +2117,17 @@ public:
                 topology_manifest.set_evaluator_version(
                     request->topology_policy().evaluator_version());
                 topology_manifest.set_policy_digest(request->topology_policy().policy_digest());
-                std::vector<worker_api::FeatureResult> working_results;
-                for (const auto& feature : profile_evaluation.feature_results) {
-                    working_results.emplace_back();
-                    fill_feature_result(feature, &working_results.back());
-                }
-                occccad::worker::pack_naming(working_results, topology_manifest);
+                worker_api::FeatureResult working_result;
+                size_t working_index=std::numeric_limits<size_t>::max();
+                occccad::worker::pack_naming(profile_evaluation.feature_results.size(),
+                    [&](size_t index)->const worker_api::FeatureResult&{
+                        if(index!=working_index){
+                            working_result.Clear();
+                            fill_feature_result(profile_evaluation.feature_results[index],&working_result);
+                            working_index=index;
+                        }
+                        return working_result;
+                    },topology_manifest);
                 topology_manifest.set_geometry_id(geometry_id);
                 topology_manifest.set_brep_sha256(response->brep_artifact().sha256());
                 if (!topology_manifest.SerializeToString(&topology_bytes)) {
@@ -2649,7 +2654,7 @@ private:
         // kept outside this cache and bound to these IDs by the response manifest.
         std::ostringstream policy;
         policy.precision(std::numeric_limits<double>::max_digits10);
-        policy << geometry_id << ":visual-surface-normals-v4:" << linear_deflection << ':' << angular_deflection;
+        policy << geometry_id << ":visual-surface-normals-v5-planar-cdt:" << linear_deflection << ':' << angular_deflection;
         const auto key = policy.str();
         auto found = visual_cache_.find(key);
         const bool visual_hit = !force_cold && found != visual_cache_.end();

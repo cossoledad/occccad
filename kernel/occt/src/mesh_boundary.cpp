@@ -2,6 +2,7 @@
 #include <BRepMesh_Context.hxx>
 #include <BRepMesh_DelaunayBaseMeshAlgo.hxx>
 #include <BRepMesh_DelaunayDeflectionControlMeshAlgo.hxx>
+#include <BRepMesh_DelabellaMeshAlgoFactory.hxx>
 #include <BRepMesh_FaceDiscret.hxx>
 #include <BRepMesh_MeshAlgoFactory.hxx>
 #include <BRepMesh_ModelBuilder.hxx>
@@ -34,21 +35,30 @@ protected:
     }
 };
 
-class BoundaryMeshFactory final : public BRepMesh_MeshAlgoFactory {
+class DisplayMeshFactory final : public BRepMesh_MeshAlgoFactory {
 public:
+    explicit DisplayMeshFactory(bool preserve_boundary) : preserve_boundary_(preserve_boundary) {}
     Handle(IMeshTools_MeshAlgo)
         GetAlgo(GeomAbs_SurfaceType type, const IMeshTools_Parameters& parameters) const override {
-        if (type == GeomAbs_OffsetSurface || type == GeomAbs_OtherSurface)
+        // A planar triangle lies exactly on its support. Keep the same edge
+        // samples/internal vertices, while avoiding costly incremental point
+        // insertion on heavily trimmed planes. Do not switch curved surfaces:
+        // Delabella's generic factory has different refinement policies there.
+        if (type == GeomAbs_Plane)
+            return BRepMesh_DelabellaMeshAlgoFactory().GetAlgo(type, parameters);
+        if (preserve_boundary_ && (type == GeomAbs_OffsetSurface || type == GeomAbs_OtherSurface))
             return new BoundaryPreservingMesh();
         return BRepMesh_MeshAlgoFactory::GetAlgo(type, parameters);
     }
+private:
+    bool preserve_boundary_;
 };
 
 }  // namespace
 
-Handle(IMeshTools_Context) boundary_preserving_mesh_context() {
+Handle(IMeshTools_Context) display_mesh_context(bool preserve_boundary) {
     Handle(BRepMesh_Context) context = new BRepMesh_Context();
-    context->SetFaceDiscret(new BRepMesh_FaceDiscret(new BoundaryMeshFactory()));
+    context->SetFaceDiscret(new BRepMesh_FaceDiscret(new DisplayMeshFactory(preserve_boundary)));
     return context;
 }
 

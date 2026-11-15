@@ -2,7 +2,7 @@
 #include <occccad/worker/v1/geometry_worker.pb.h>
 #include <occccad/kernel/topology_naming.hpp>
 
-#include <map>
+#include <unordered_map>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -44,21 +44,23 @@ inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& 
     return out;
 }
 
-// FeatureResult is evaluator working memory. Only this interned v2 representation is persisted.
-inline void pack_naming(const std::vector<v1::FeatureResult>& features,
-                        v1::PartTopologyManifest& out) {
-    if (features.empty()) throw std::invalid_argument("NAMING_OWNER_REQUIRED");
-    const auto& first=features.front();
+// The reader may reuse one protobuf scratch message. Only the compact v2
+// representation is retained; IDs still follow first occurrence, never hash
+// table iteration. Full wire keys retain exact equality, including unknowns.
+template<class ReadFeature>
+inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest& out) {
+    if (!count) throw std::invalid_argument("NAMING_OWNER_REQUIRED");
+    const auto& first=read(0);
     const bool geometric=first.has_result();
     if(geometric ? (!first.body_id().empty() || first.result().feature_id().empty() || first.result().result_id().empty()) : first.body_id().empty())
         throw std::invalid_argument("NAMING_OWNER_INVALID");
-    for (const auto& feature : features)
-        if (feature.body_id()!=first.body_id() || feature.has_result()!=geometric || feature.result().SerializeAsString()!=first.result().SerializeAsString())
-            throw std::invalid_argument("NAMING_CROSS_OWNER_TRANSITION");
+    const auto body_id=first.body_id();
+    const auto result_owner=first.result();
+    const auto result_identity=result_owner.SerializeAsString();
     out.set_schema_version(2);
     out.set_coordinate_space("PART_LOCAL");
     out.set_length_unit("mm");
-    std::map<std::string, uint32_t> refs, evidence;
+    std::unordered_map<std::string, uint32_t> refs, evidence;
     auto ref = [&](const v1::SemanticTopologyRef& value) {
         const auto key = value.SerializeAsString();
         auto [it, added] = refs.emplace(key, refs.size() + 1);
@@ -124,8 +126,10 @@ inline void pack_naming(const std::vector<v1::FeatureResult>& features,
         return it->second;
     };
     const auto write_snapshot = [&](auto* body) {
-    for (size_t i = 0; i < features.size(); ++i) {
-        const auto& f = features[i];
+    for (size_t i = 0; i < count; ++i) {
+        const auto& f = read(i);
+        if (f.body_id()!=body_id || f.has_result()!=geometric || f.result().SerializeAsString()!=result_identity)
+            throw std::invalid_argument("NAMING_CROSS_OWNER_TRANSITION");
         const auto& h = f.topology_history();
         auto* t = out.add_transitions();
         body->add_transitions(out.transitions_size());
@@ -162,7 +166,7 @@ inline void pack_naming(const std::vector<v1::FeatureResult>& features,
                 p->add_candidates(ref(c));
             p->set_diagnostic_code(a.diagnostic_code());
         }
-        if (i+1 == features.size()) {
+        if (i+1 == count) {
             body->set_tip_transition(out.transitions_size());
             for (const auto& o : f.semantic_outputs()) {
                 auto* p = body->add_tip();
@@ -174,7 +178,11 @@ inline void pack_naming(const std::vector<v1::FeatureResult>& features,
         }
     }
     };
-    if(geometric){auto* result=out.add_results();*result->mutable_reference()=first.result();write_snapshot(result);}
-    else {auto* body=out.add_bodies();body->set_body_id(first.body_id());write_snapshot(body);}
+    if(geometric){auto* result=out.add_results();*result->mutable_reference()=result_owner;write_snapshot(result);}
+    else {auto* body=out.add_bodies();body->set_body_id(body_id);write_snapshot(body);}
+}
+
+inline void pack_naming(const std::vector<v1::FeatureResult>& features, v1::PartTopologyManifest& out) {
+    pack_naming(features.size(),[&](size_t i)->const v1::FeatureResult&{return features[i];},out);
 }
 }  // namespace occccad::worker

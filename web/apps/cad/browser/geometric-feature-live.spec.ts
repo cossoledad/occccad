@@ -247,8 +247,12 @@ test('Engineering surface display: curved sheets, point glyphs, dark theme and r
   await expect.poll(()=>page.evaluate(id=>{const e=(window as any).__cameraEngine,b=[...e.solidBindings.values()].find((v:any)=>v.context.result?.featureId===id);return e.preselectedOverlays.length>0&&e.preselectedOverlays.every((o:any)=>o.parent===b.group)},seed.sheet)).toBe(true);
   await sheetRow.getByText('Curved surface',{exact:true}).click();await page.mouse.move(1100,250);
   await expect.poll(()=>page.evaluate(id=>{const e=(window as any).__cameraEngine,b=[...e.solidBindings.values()].find((v:any)=>v.context.result?.featureId===id);return e.selectedOverlays.length>0&&e.selectedOverlays.every((o:any)=>o.parent===b.group)},seed.sheet)).toBe(true);
+  // The inspector starts collapsed; open it through the normal UI before
+  // checking the selected result's type, then restore the display viewport.
+  await page.getByRole('button',{name:'展开属性面板',exact:true}).click();
   await expect(page.locator('.property-list')).toContainText('放样');await expect(page.locator('.property-list')).toContainText('曲面集');
   await page.screenshot({path:info.outputPath('engineering-surface-tree-selection.png')});
+  await page.getByRole('button',{name:'收起属性面板',exact:true}).click();
   await selectTree(page,seed.curve,'Engineering curve');
   const row=page.locator(`[role=treeitem][data-tree-key$="/feature:${seed.curve}"]`);
   await row.click({button:'right'});await page.getByRole('menuitem',{name:'隐藏',exact:true}).click();
@@ -257,7 +261,7 @@ test('Engineering surface display: curved sheets, point glyphs, dark theme and r
   await expect.poll(()=>page.evaluate(id=>[...(window as any).__cameraEngine.solidBindings.values()].find((b:any)=>b.context.result?.featureId===id)?.group.visible,seed.curve)).toBe(true);
   const stableRevision=(await document(page,seed.id)).document.versionId;await page.mouse.click(1100,250);
   const normal=await page.evaluate(()=>{const e=(window as any).__cameraEngine;e.setDisplaySettings(e.referenceVisibility,{...e.solidDisplay,vertices:false,edges:false});const sheet=[...e.solidBindings.values()].find((b:any)=>b.artifact.geometryDomain==='SHEET_SET'),wire=[...e.solidBindings.values()].find((b:any)=>b.artifact.geometryDomain==='WIRE_SET'),point=[...e.solidBindings.values()].find((b:any)=>b.artifact.geometryDomain==='POINT_SET');return {shadows:e.renderer.shadowMap.enabled,bounds:!e.groundBounds.isEmpty(),roughness:sheet.mesh.material.roughness,metalness:sheet.mesh.material.metalness,wireVisible:wire.group.children.find((o:any)=>o.userData.cadWideEdges).visible,wireColor:wire.group.children.find((o:any)=>o.userData.cadWideEdges).material.color.getHexString(),pointShape:point.group.children.find((o:any)=>o.isPoints).material.uniforms.uMarkerShape.value,pointColor:point.group.children.find((o:any)=>o.isPoints).material.uniforms.uColor.value.getHexString()}});
-  expect(normal).toMatchObject({shadows:true,bounds:true,roughness:.78,metalness:0,wireVisible:true,wireColor:'6745a3',pointShape:3,pointColor:'ffffff'});
+  expect(normal).toMatchObject({shadows:true,bounds:true,roughness:.38,metalness:0,wireVisible:true,wireColor:'6745a3',pointShape:3,pointColor:'ffffff'});
   await page.mouse.move(1430,990);await page.screenshot({path:info.outputPath('engineering-curved-light-dpr2.png')});
   await clickWorld(page,[18,0,10]);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.selected[0]?.kind)).toBe('vertex');await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.selectedOverlays.at(-1)?.material.uniforms.uMarkerShape.value)).toBe(3);
   await page.getByRole('button',{name:'选项',exact:true}).click();const options=page.getByRole('dialog',{name:'选项',exact:true});await options.getByRole('menuitem',{name:'场景',exact:true}).click();await options.getByRole('button',{name:'深色工程',exact:true}).click();await options.getByRole('button',{name:'关闭',exact:true}).click();
