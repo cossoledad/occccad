@@ -38,11 +38,12 @@ test("document tab drag, keyboard order and responsive tree labels", async ({pag
   test.setTimeout(120_000);
   await page.goto("/documents/mock-part-bracket");
   const label = page.getByRole("treeitem").first().locator(".specification-tree-label");
-  const before = (await label.boundingBox())!.width;
+  const tree = page.getByRole("complementary",{name:"模型结构",exact:true});
+  const before = (await tree.boundingBox())!.width;
   const treeHandle = page.getByRole("button",{name:"收起模型结构"});
   await treeHandle.focus();
   for(let i=0;i<10;i++) await page.keyboard.press("ArrowRight");
-  await expect.poll(async () => (await label.boundingBox())!.width).toBeGreaterThan(before + 90);
+  await expect.poll(async () => (await tree.boundingBox())!.width).toBeGreaterThan(before + 90);
   expect(await label.evaluate(node => getComputedStyle(node).maxWidth)).toBe("none");
   await page.getByRole("button",{name:"文档中心",exact:true}).click();
   await page.locator(".document-card").filter({hasText:"Frame Assembly"}).locator(".thumbnail-button").dblclick();
@@ -62,7 +63,7 @@ test("document tab drag, keyboard order and responsive tree labels", async ({pag
   await page.screenshot({path:testInfo.outputPath("reordered-tabs.png")});
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("occccad.document-tab-order")!)))
     .toEqual([...oldOrder].reverse().map(name => name === "Frame Assembly" ? "mock-product-frame" : "mock-part-bracket"));
-  await tabs.first().focus(); await page.keyboard.press("Alt+ArrowRight");
+  await tabs.first().focus(); await page.keyboard.press("Alt+Shift+ArrowRight");
   await expect.poll(()=>tabs.allTextContents()).toEqual(oldOrder);
   await page.getByRole("button",{name:"关闭 Mounting Bracket",exact:true}).click();
   await expect(tabs).toHaveCount(1);

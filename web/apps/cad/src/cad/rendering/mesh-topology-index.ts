@@ -10,6 +10,7 @@ export class MeshTopologyIndex {
   readonly buffers:MeshBuffers;
   private readonly faces=new Map<number,number[]>();
   private facesReady=false;
+  private profileSegments?: Map<number, number[]>;
   private incidence(){
     if(!this.mesh.contourIncidence)Object.defineProperty(this.mesh,'contourIncidence',{value:buildContourIncidence(this.buffers)});
     return this.mesh.contourIncidence!;
@@ -54,6 +55,33 @@ export class MeshTopologyIndex {
       result.set(edge.points[i-1],offset);result.set(edge.points[i],offset+3);offset+=6;
     }
     return result;
+  }
+  /** Preserve the exact highlight chords. Borrow support normals only after
+   * matching topology ID, segment order AND their float32 endpoints. Missing
+   * or differently sampled evidence stays zero (the previous depth fallback). */
+  edgeHighlightData(ids?:ReadonlySet<number>) {
+    const positions=this.edgeSegments(ids),a=new Float32Array(positions.length),b=new Float32Array(positions.length);
+    const profile=this.mesh.edgeProfile;
+    if(profile){
+      if(!this.profileSegments){
+        this.profileSegments=new Map();
+        for(let i=0;i<profile.metadata.length/4;i++){
+          const id=profile.metadata[i*4],items=this.profileSegments.get(id);
+          if(items)items.push(i);else this.profileSegments.set(id,[i]);
+        }
+      }
+      let offset=0;
+      for(const edge of this.mesh.edges??[])if(!ids||ids.has(edge.localId))for(let i=1;i<edge.points.length;i++,offset+=6){
+        const source=this.profileSegments.get(edge.localId)?.[i-1];
+        if(source===undefined||(profile.metadata[source*4+3]>>>8)&1)continue;
+        const start=source*6;
+        if(!positions.subarray(offset,offset+6).every((value,j)=>value===profile.positions[start+j]))continue;
+        const an=profile.normalA.subarray(start,start+6),bn=profile.normalB.subarray(start,start+6);
+        if(an.every(Number.isFinite))a.set(an,offset);
+        if(bn.every(Number.isFinite))b.set(bn,offset);
+      }
+    }
+    return {positions,a,b};
   }
 }
 

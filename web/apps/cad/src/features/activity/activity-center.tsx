@@ -1,9 +1,10 @@
+import {useAppNavigation} from "../../app/navigation";
 import {engineeringProblem,useOperationFeedback} from "../../cad/command/operation-feedback";
 import { BellOutlined, DownloadOutlined, FolderOpenOutlined, ReloadOutlined, StopOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Badge, Button, Drawer, Empty, Progress, Space, Spin, Tag, Typography } from "antd";
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { buildActivityFeed, type ActivityStatus } from "./activity-model";
@@ -18,7 +19,9 @@ const statusPresentation: Record<ActivityStatus, { color: string; label: string 
 
 export function ActivityCenter() {
   const [open, setOpen] = useState(false);
-  const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => setOpen(false), [location.key]);
+  const navigate = useAppNavigation();
   const client = useQueryClient();
   const feedback=useOperationFeedback();
   const jobs = useQuery(jobsQueryOptions());

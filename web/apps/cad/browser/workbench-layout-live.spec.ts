@@ -160,7 +160,7 @@ test("rectangle variants keep a session default through resizing and document ta
     const partTab = page.locator(".document-tab-switch").filter({ hasText: "工作台零件" });
     await partTab.click(); await expect(page.getByRole("button", { name: "退出草图", exact: true })).toBeVisible();
     await expect(rectangle.getByRole("button", { name: "中心矩形", exact: true })).toBeVisible();
-    await partTab.focus(); await page.keyboard.press("Alt+ArrowLeft");
+    await partTab.focus(); await page.keyboard.press("Alt+Shift+ArrowLeft");
     await expect(partTab).toHaveAttribute("aria-current", "page");
     expect((await (await page.request.get(`/api/documents/${seed.id}`)).json()).document.versionId).toBe(seed.head);
     expect(await page.evaluate(() => sessionStorage.getItem("occccad.toolbar.variant.rectangle"))).toBe("sketch.rectangle.center");

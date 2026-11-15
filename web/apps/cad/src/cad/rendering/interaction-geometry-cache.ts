@@ -24,7 +24,16 @@ export class InteractionGeometryCache {
         const data=index.contours(ids,eye);geometry.setPositions(data.positions);
         geometry.setAttribute('instanceEdgeNormalA',new THREE.InstancedBufferAttribute(data.first,3));
         geometry.setAttribute('instanceEdgeNormalB',new THREE.InstancedBufferAttribute(data.second,3));
-      }else geometry.setPositions(index.edgeSegments(ids));
+        for(const [side,normal] of [['A','instanceEdgeNormalA'],['B','instanceEdgeNormalB']] as const)
+          for(const end of ['Start','End'])geometry.setAttribute(`instanceSupport${side}${end}`,geometry.getAttribute(normal));
+      }else {
+        const data=index.edgeHighlightData(ids);geometry.setPositions(data.positions);
+        for(const [side,values] of [['A',data.a],['B',data.b]] as const){
+          const buffer=new THREE.InstancedInterleavedBuffer(values,6,1);
+          geometry.setAttribute(`instanceSupport${side}Start`,new THREE.InterleavedBufferAttribute(buffer,3,0));
+          geometry.setAttribute(`instanceSupport${side}End`,new THREE.InterleavedBufferAttribute(buffer,3,3));
+        }
+      }
       const arrays=new Set<ArrayBufferLike>();
       for(const attribute of Object.values(geometry.attributes)){const a=attribute as THREE.InterleavedBufferAttribute;arrays.add(a.isInterleavedBufferAttribute?a.data.array.buffer:attribute.array.buffer);}
       entry={owner:new WeakRef(mesh),key,geometry,bytes:[...arrays].reduce((sum,b)=>sum+b.byteLength,0),references:0,used:0};

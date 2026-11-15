@@ -4,6 +4,7 @@ import zhCN from "antd/locale/zh_CN";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, type PropsWithChildren } from "react";
 import { installNumericInputSelection } from "./numeric-input-selection";
+import { installBrowserInteractions } from "./browser-interactions";
 import { clearSelectMeasurements, selectPopupStyles } from "./select-popup";
 import "./select-popup.css";
 
@@ -14,6 +15,7 @@ const queryClient = new QueryClient({ defaultOptions: {
 
 export function AppProviders({ children }: PropsWithChildren) {
   useEffect(() => installNumericInputSelection(document), []);
+  useEffect(() => installBrowserInteractions(document), []);
   useEffect(() => {
     document.fonts?.addEventListener("loadingdone", clearSelectMeasurements);
     return () => document.fonts?.removeEventListener("loadingdone", clearSelectMeasurements);

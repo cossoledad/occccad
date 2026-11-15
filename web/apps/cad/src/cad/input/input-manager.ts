@@ -84,6 +84,7 @@ export class InputManager {
   }
 
   private onPointerDown = (event: PointerEvent): void => {
+    if (event.button === 3 || event.button === 4) return;
     const normalized = this.pointerEvent(event, "down");
     const result = this.sink.pointerDown?.(normalized) ?? InputResult.Ignored;
     this.applyCaptureResult(event.pointerId, result);
@@ -93,6 +94,7 @@ export class InputManager {
 
   private onPointerMove = (event: PointerEvent): void => {
     const previous = this.state.snapshot();
+    if (event.buttons & 24 && !(event.buttons & 7) && !previous.buttons.left && !previous.buttons.middle && !previous.buttons.right) return;
     const normalized = this.pointerEvent(event, "move");
     let handled = false;
 
@@ -124,6 +126,7 @@ export class InputManager {
   };
 
   private onPointerUp = (event: PointerEvent): void => {
+    if (event.button === 3 || event.button === 4) return;
     const result = this.sink.pointerUp?.(this.pointerEvent(event, "up")) ?? InputResult.Ignored;
     if (result === InputResult.ReleaseCapture || event.buttons === 0) this.releasePointer(event.pointerId);
     if (isHandled(result)) event.preventDefault();
@@ -151,6 +154,7 @@ export class InputManager {
   };
 
   private onAuxiliaryClick = (event: MouseEvent): void => {
+    if (event.button === 3 || event.button === 4) return;
     if (isHandled(this.sink.auxiliaryClick?.(event) ?? InputResult.Ignored) || event.button === 1) event.preventDefault();
   };
 

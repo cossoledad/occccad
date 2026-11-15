@@ -1,7 +1,8 @@
+import {useAppNavigation,useNavigationIntent} from "../../app/navigation";
 import {useOperationFeedback} from "../../cad/command/operation-feedback";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { DocumentTabs } from "./document-tabs";
@@ -12,7 +13,8 @@ import { useDocumentSessions } from "../../cad/document/document-session-context
 export function DocumentTabsController() {
   const sessions = useDocumentSessions();
   const location = useLocation();
-  const navigate = useNavigate();
+  const navigate = useAppNavigation();
+  const navigationIntent = useNavigationIntent();
   const client = useQueryClient();
   const feedback=useOperationFeedback();
   const [creating, setCreating] = useState(false);
@@ -23,20 +25,22 @@ export function DocumentTabsController() {
 
   const createDocument = async (values: DocumentForm) => {
     if (creating) return;
+    const intent=navigationIntent();
     setCreating(true);
     try {
       const created = await api.createDocument(values.type, values.name, values.description ?? "");
-      setCreateOpen(false);
+      if(intent.isCurrent())setCreateOpen(false);
       client.setQueryData(queryKeys.document(created.document.id), created);
       void Promise.all([
         client.invalidateQueries({ queryKey: ["documents"] }),
         client.invalidateQueries({ queryKey: queryKeys.openDocuments }),
       ]);
-      navigate(`/documents/${created.document.id}`);
+      intent.navigate(`/documents/${created.document.id}`);
     } catch (error) { feedback(error,"文档操作"); }
     finally { setCreating(false); }
   };
   const closeDocument = async (id: string) => {
+    const intent=navigationIntent();
     try {
       await api.closeOpenDocument(id);
       sessions.close(id);
@@ -45,7 +49,7 @@ export function DocumentTabsController() {
       if (id === activeID) {
         const index = visibleOrder.current.indexOf(id);
         const next = visibleOrder.current[index + 1] ?? visibleOrder.current[index - 1];
-        navigate(next ? `/documents/${next}` : "/");
+        intent.navigate(next ? `/documents/${next}` : "/", { replace: true });
       }
     } catch (error) { feedback(error,"文档操作"); }
   };
@@ -55,7 +59,7 @@ export function DocumentTabsController() {
   return <>
     <DocumentTabs documents={(opened.data ?? []).map(({ id, name, type }) => ({ id, name, type }))}
       activeID={activeID} productHostID={productHostID} onVisibleOrderChange={updateVisibleOrder} onCreate={() => setCreateOpen(true)}
-      onSwitch={(id) => navigate(`/documents/${id}`)} onClose={(id) => void closeDocument(id)} />
+      onSwitch={(id) => { if(id !== activeID) void navigate(`/documents/${id}`); }} onClose={(id) => void closeDocument(id)} />
     {createOpen && <DocumentEditorDialog title="新建文档" createAndOpen busy={creating}
       onClose={() => setCreateOpen(false)} onSave={values => void createDocument(values)} />}
   </>;

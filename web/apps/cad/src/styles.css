@@ -17,6 +17,19 @@ body,
   overflow: hidden;
 }
 
+/* CAD chrome behaves as controls, rather than a selectable web article.
+ * Keep browser editing/copying in fields, dialog bodies and explicit results. */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+:is(input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"],
+  .ant-modal-body, .ant-drawer-body, [data-text-selectable], .inspector-object-data,
+  .measurement-results dd, .measurement-coordinate output, .automation-debug-observations) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 #root {
   display: flex;
   flex-direction: column;

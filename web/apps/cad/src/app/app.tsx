@@ -1,3 +1,4 @@
+import {useAppNavigation} from "./navigation";
 import {exchangeNotices} from "../features/activity/exchange-notices";
 import {engineeringProblem} from "../cad/command/operation-failure";
 import type {Job} from "../types";
@@ -6,7 +7,7 @@ import { LogoutOutlined, QuestionCircleOutlined, ToolOutlined, UserOutlined } fr
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App as AntApp, Avatar, Button, Dropdown, Layout, Spin } from "antd";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { api, isMockMode } from "../api/client";
 import { realtime } from "../api/realtime-client";
 import { Brand } from "../components/brand";
@@ -32,10 +33,11 @@ function RouteLoading() {
 function ApplicationShell() {
 	const uiHelp = useUIHelp();
   const location = useLocation();
-  const navigate = useNavigate();
+  const navigate = useAppNavigation();
   const client = useQueryClient();
   const { message, notification } = AntApp.useApp();
   const [adminOpen, setAdminOpen] = useState(false);
+  useEffect(() => setAdminOpen(false), [location.key]);
   const activeWorkbenchDocumentID = useApplicationContext((state) => state.activeDocumentID);
   const session = useQuery({ queryKey: queryKeys.session, queryFn: api.session, retry: false });
   const health = useQuery({ queryKey: queryKeys.health, queryFn: api.health, retry: false, refetchInterval: 30_000,
@@ -75,7 +77,7 @@ function ApplicationShell() {
   const user = session.data.user;
   const inWorkbench = location.pathname.startsWith("/documents/");
   const activeDocumentID = location.pathname.match(/^\/documents\/([^/]+)/)?.[1];
-  const logout = async () => { realtime.stop(); await api.logout(); client.clear(); navigate("/"); };
+  const logout = async () => { realtime.stop(); await api.logout(); client.clear(); navigate("/", { replace: true }); };
 
   return <DocumentSessionProvider key={user.id}><GlobalOptionsProvider activeDocumentID={inWorkbench?activeWorkbenchDocumentID ?? activeDocumentID:undefined}><Layout className={`application-shell${inWorkbench ? " workbench-shell" : " library-shell"}`}>
     <Layout.Header className="global-header">

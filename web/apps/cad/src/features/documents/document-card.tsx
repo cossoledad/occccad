@@ -13,21 +13,22 @@ export const DocumentCard = memo(function DocumentCard({ document, selected, tra
   onAction: (action: string, document: DocumentSummary) => void;
 }) {
   const editable = document.permission === "OWNER" || document.permission === "EDITOR";
-  const items = trash ? [{ key: "restore", icon: <UndoOutlined />, label: "恢复", disabled: !editable }] : [
+  const items = trash ? [{ key: "restore", icon: <UndoOutlined aria-hidden />, label: "恢复", disabled: !editable }] : [
     { key: "open", label: "打开" },
-    ...(editable ? [{ key: "edit", icon: <EditOutlined />, label: "编辑" }, { key: "move", icon: <SwapOutlined />, label: "移动" }] : []),
-    { key: "copy", icon: <CopyOutlined />, label: "复制" },
-    ...(document.permission === "OWNER" ? [{ key: "share", icon: <ShareAltOutlined />, label: "共享" }] : []),
-    { key: "export", icon: <DownloadOutlined />, label: "导出" },
-    ...(editable ? [{ key: "delete", danger: true, icon: <DeleteOutlined />, label: "移入回收站" }] : []),
+    ...(editable ? [{ key: "edit", icon: <EditOutlined aria-hidden />, label: "编辑" }, { key: "move", icon: <SwapOutlined aria-hidden />, label: "移动" }] : []),
+    { key: "copy", icon: <CopyOutlined aria-hidden />, label: "复制" },
+    ...(document.permission === "OWNER" ? [{ key: "share", icon: <ShareAltOutlined aria-hidden />, label: "共享" }] : []),
+    { key: "export", icon: <DownloadOutlined aria-hidden />, label: "导出" },
+    ...(editable ? [{ key: "delete", danger: true, icon: <DeleteOutlined aria-hidden />, label: "移入回收站" }] : []),
   ];
-  const menu = <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => onAction(key, document) }}>
+  const actions = { items, onClick: ({ key }: { key: string }) => onAction(key, document) };
+  const menu = <Dropdown trigger={["click"]} menu={actions}>
     <Button className="card-menu" type="text" aria-label={`文档操作 ${document.name}`} icon={<MoreOutlined />} />
   </Dropdown>;
-  return <Card hoverable className={`document-card${selected ? " selected" : ""}${compact ? " compact" : ""}`}
+  return <Dropdown trigger={["contextMenu"]} menu={actions}><Card hoverable className={`document-card${selected ? " selected" : ""}${compact ? " compact" : ""}`}
     cover={<button className="thumbnail-button" disabled={trash} aria-label={`打开 ${document.name}`} onClick={() => onOpen(document)}><DocumentThumbnail document={document} /></button>}>
     <Card.Meta title={<span className="document-title">{!trash && <Checkbox aria-label={`选择 ${document.name}`} checked={selected}
       disabled={!editable} onChange={() => onToggle(document)} />}<button className="document-name" disabled={trash} title={document.name} onClick={() => onOpen(document)}>{document.name}</button>{menu}</span>}
       description={<>{document.description && <span className="document-description">{document.description}</span>}<small><span className={`document-kind ${document.type.toLowerCase()}`}>{document.type === "PART" ? "零件" : "装配"}</span><span>{relativeDate(document.lastUpdated)}</span></small></>} />
-  </Card>;
+  </Card></Dropdown>;
 });

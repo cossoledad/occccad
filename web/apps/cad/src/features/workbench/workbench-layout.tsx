@@ -85,6 +85,7 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status,
             setTreeOpen(false);
           }}
           onKeyDown={(event) => {
+            if (event.altKey && ["ArrowLeft", "ArrowRight"].includes(event.key)) return;
             const next = event.key === "Home" ? MIN_STRUCTURE_TREE_WIDTH : event.key === "End" ? limit
               : event.key === "ArrowLeft" ? panelWidth - 16 : event.key === "ArrowRight" ? panelWidth + 16 : undefined;
             if (next === undefined || resize.current) return;
@@ -109,7 +110,7 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status,
           onLostPointerCapture={(event) => { if (resize.current?.pointerId === event.pointerId) finishResize(true); }} />
         <div className="workbench-tree-content">{tree}</div>
       </aside>
-      <main className="workbench-stage"><section className="viewport-frame" aria-label="三维视口" onContextMenu={(event) => event.preventDefault()}>{children}
+      <main className="workbench-stage"><section className="viewport-frame" aria-label="三维视口">{children}
         {!treeOpen && <Button className="workbench-tree-restore" icon={<MenuUnfoldOutlined />}
           aria-label="展开模型结构" aria-expanded={false} aria-controls={treeId} onClick={() => setTreeOpen(true)} />}
         {!inspectorOpen && <Button className="workbench-inspector-toggle" icon={<MenuFoldOutlined />}

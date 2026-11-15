@@ -109,3 +109,30 @@ pnpm exec playwright test --config playwright.live.config.ts ui-refinement-live.
 ```
 
 原图标比较可额外设置 `OCCCCAD_ICON_REFERENCE` 指向已保存的旧 Catalog JSON；普通回归不依赖 Git 中某个历史提交或该可选输出。
+
+## 浏览器交互与弧线高亮复核
+
+2026-11-15 UTC，`browser-interactions.spec.ts` 经真实 BrowserRouter 与显式 Mock API 检查：文件夹两层往返、筛选返回和刷新恢复、CDP 可信鼠标侧键前进／后退、当前标签去重／关闭替换、跨文档临时表单清理、机构失效地址清理、快速 POP 取消未提交搜索、退出／重新登录的目标页。延迟关闭用 Mock API 注入等待，再通过浏览器后退；请求完成后仍停留于原筛选页，不被迟到的关闭回调跳走。鼠标侧键能驱动同一份历史；Alt 加方向键仅核对页面未 preventDefault，Headless 浏览器可能不执行浏览器外壳的键盘加速键，不能据此声称所有操作系统硬件映射已通过。文档中心的真实右键菜单、右键拖动与 Ctrl+A 禁选、文本框编辑／原生菜单、弹窗标签拖选和登录页例外也由该场景覆盖；本轮未运行真实 API 的完整工作流矩阵。
+
+`highlight-joins.spec.ts` 用生产 LineMaterial / SurfaceDepthPass 比较 192 段平面弧线，白／深／蓝底，1.75／2.25 CSS px 和渲染 DPR 1／2。平面无深度干扰的核心像素原本已较强，该测试主要限制端帽／覆盖率回归；不能把小幅变化当作真实曲面问题的修复证据。
+
+`highlight-native-render.spec.ts` 通过注册的原生 EdgeProfile producer 生成圆柱和圆角块，再经生产 GLB 解码、VisualRepository 与 Viewport 高亮。Chromium／ANGLE SwiftShader，1280×900 CSS px，默认蓝灰材质与同一工作室光照；透视 DPR 1、正交 DPR 1、正交渲染 DPR 2，分别检查 selected／hover，共 12 组。页面设备 DPR 固定 1；DPR 2 对照的实际 drawing buffer 为 2560×1800，PNG 经浏览器合成为 CSS 尺寸，像素分析按实际 PNG 尺寸映射。
+
+对照恢复旧的 MSAA／端帽与半像素线深度容差；当前方案保留有限法线斜率容差。第三张关闭 depthTest 的图只作描边足迹参考，会暴露背面线，不能作为产品显示模式。用显示曲线中点的射线前表面距离筛出可见样本，在每点附近 5×5 PNG 像素内累计橙／青色通道差，再除以同位置参考图；该量只衡量这一夹具的描边保留，不等于物理透明度或通用可见性指标。
+
+| 场景，透视 DPR 1 | 描边保留比 P10：原／当前 | 中位数：原／当前 | 整帧 draw：原／当前 |
+|---|---:|---:|---:|
+| 圆柱选中 | 0.644 / 1.000 | 0.860 / 1.000 | 5 / 5 |
+| 圆角块选中 | 0.598 / 0.813 | 0.789 / 0.977 | 5 / 5 |
+
+固定画面重复帧 PNG 完全相等；加入独立的前景不透明实体后，开启／关闭被挡住的高亮所得 PNG 完全相等。支持法线不增加 draw；边缓冲增加 48 B／段，面轮廓复用已有属性，没有每帧 CPU 法线采样。Node 场景另验证缺失／质量标记／不同端点采样的降级、原折线不变与共享缓冲释放。尚未覆盖硬件 GPU、所有浏览器／鼠标驱动、长时间使用和极近遮挡；缺失支持法线的旧制品只使用原容差，网格与 B-Rep 不一致不属于本次修复。
+
+图像、GLB 摘要、逐场景数值在 `build/agent-work/browser-polish/native/`，平面弧线数值在上一级 `highlight-joins.json`。本轮没有 FPS、GPU 时间或大型装配容量提升声明。
+
+```bash
+mise run check --scope web --match interaction-geometry
+mise run check --scope web
+cd web/apps/cad
+pnpm exec playwright test browser-interactions.spec.ts highlight-joins.spec.ts number-input.spec.ts navigation.spec.ts
+pnpm exec playwright test --config playwright.edges.config.ts highlight-native-render.spec.ts
+```

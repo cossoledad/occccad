@@ -1,3 +1,4 @@
+import {useAppNavigation,useNavigationIntent} from "../../app/navigation";
 import {exchangeNotices} from "../activity/exchange-notices";
 import {engineeringProblem,useOperationFeedback} from "../../cad/command/operation-feedback";
 import {
@@ -11,16 +12,17 @@ import {
   Segmented, Select, Skeleton, Space, Typography, Upload,
 } from "antd";
 import { useCallback, useEffect,useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { DocumentCard } from "./document-card";
+import { FolderCard } from "./folder-card";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
 import {FolderPicker} from "./folder-picker";
 import { relativeDate, type LibraryScope } from "./document-utils";
 import { DocumentEditorDialog, type DocumentForm } from "./document-editor-dialog";
 import type { DocumentSummary, FolderSummary } from "../../types";
 import { submitImportBatch, type ImportFile } from "./import-batch";
+import { useLibraryLocation } from "./use-library-location";
 import "./document-center.css";
 
 type FolderForm = { name: string; description?: string };
@@ -28,20 +30,13 @@ type DocumentOperation = { type: "copy" | "move"; document: DocumentSummary };
 const canEdit = (permission?: string) => permission === "OWNER" || permission === "EDITOR";
 
 export function DocumentCenter() {
-  const navigate = useNavigate();
+  const navigate = useAppNavigation();
+  const navigationIntent = useNavigationIntent();
   const client = useQueryClient();
   const { message, modal } = App.useApp();
   const feedback=useOperationFeedback();
-  const [scope, setScope] = useState<LibraryScope>("active");
-  const [query, setQuery] = useState("");
-  const [search, setSearch] = useState("");
-  const [type, setType] = useState("");
-  const [sort, setSort] = useState<"updated" | "name" | "created">("updated");
-  const [offset, setOffset] = useState(0);
-  const [pageSize,setPageSize]=useState(24);
-  const [viewMode,setViewMode]=useState("grid");
+  const { scope, query, setQuery, search, type, sort, offset, pageSize, viewMode, currentFolderID, update: updateLocation, visitKey, navigationType } = useLibraryLocation();
   const [foldersExpanded,setFoldersExpanded]=useState(false);
-  const [currentFolderID, setCurrentFolderID] = useState("");
   useEffect(()=>setFoldersExpanded(false),[currentFolderID]);
   const [selectedDocuments, setSelectedDocuments] = useState<DocumentSummary[]>([]);
   const [selectionBusy, setSelectionBusy] = useState(false);
@@ -59,17 +54,18 @@ export function DocumentCenter() {
   const [stepSchema, setStepSchema] = useState<"AP242" | "AP214IS">("AP242");
   const [folderForm] = Form.useForm<FolderForm>();
   const [operationForm] = Form.useForm<{ name?: string; folderID?: string }>();
+  useEffect(() => {
+    if (navigationType !== "POP") return;
+    setCreateOpen(false); setEditing(undefined); setFolderEditor(undefined); setOperation(undefined);
+    setShareResource(undefined); setImportOpen(false); setExportDocument(undefined);
+  }, [visitKey, navigationType]);
+  useEffect(() => setSelectedDocuments([]), [scope, currentFolderID]);
 
   const presentation=useQuery({queryKey:["ui","toolbars"],queryFn:api.toolbarCatalog,staleTime:5*60_000});
   const documentTypes=presentation.data?.documents??[];
   const exchangeCapabilities = useQuery({ queryKey: ["exchange-capabilities"], queryFn: () => api.exchangeCapabilities(), enabled: importOpen });
   const uploadLimit = exchangeCapabilities.data?.maxUploadBytes;
   const specialScope = scope === "recent" || scope === "shared" || scope === "trash";
-  useEffect(() => {
-    if (query.trim() === search) return;
-    const timer = window.setTimeout(() => { setSearch(query.trim()); setOffset(0); }, 250);
-    return () => window.clearTimeout(timer);
-  }, [query, search]);
   const filters = { scope, search, type, sort, offset, pageSize,currentFolderID };
   const documents = useQuery({
     queryKey: queryKeys.documents(filters), queryFn: ({ signal }) => api.listDocuments({
@@ -79,7 +75,7 @@ export function DocumentCenter() {
       allFolders: specialScope || Boolean(search), sort: scope === "recent" ? "recent" : sort, limit: pageSize, offset,
     }, signal)
   });
-  useEffect(()=>{const total=documents.data?.total;if(total!==undefined&&offset>=Math.max(1,total))setOffset(Math.max(0,Math.ceil(total/pageSize)-1)*pageSize);},[documents.data?.total,offset,pageSize]);
+  useEffect(()=>{const total=documents.data?.total;if(total!==undefined&&offset>=Math.max(1,total))updateLocation({offset:Math.max(0,Math.ceil(total/pageSize)-1)*pageSize});},[documents.data?.total,offset,pageSize]);
   const folders = useQuery({
     queryKey: queryKeys.folders(`${scope}:${currentFolderID}`),
     queryFn: () => api.listFolders(currentFolderID, scope === "shared"), enabled: scope === "active" || scope === "parts" || scope === "products" || scope === "shared"
@@ -99,14 +95,17 @@ export function DocumentCenter() {
     await Promise.all([client.invalidateQueries({ queryKey: ["folders"] }), client.invalidateQueries({ queryKey: ["folder-breadcrumbs"] })]);
   };
   const saveDocument = useMutation({
-    mutationFn: async (values: DocumentForm) => editing
-      ? api.updateDocument(editing.id, values.name, values.description ?? "", editing.versionId)
-      : api.createDocument(values.type, values.name, values.description ?? "", currentFolderID || undefined),
-    onSuccess: async (view) => {
-      const created = !editing; setCreateOpen(false); setEditing(undefined);
+    mutationFn: async (values: DocumentForm) => {
+      const intent=navigationIntent(),created=!editing;
+      const view=await (editing ? api.updateDocument(editing.id, values.name, values.description ?? "", editing.versionId)
+        : api.createDocument(values.type, values.name, values.description ?? "", currentFolderID || undefined));
+      return {view,created,intent};
+    },
+    onSuccess: async ({view,created,intent}) => {
+      if(intent.isCurrent()){setCreateOpen(false);setEditing(undefined);}
       client.setQueryData(queryKeys.document(view.document.id), view);
       void invalidateDocuments();
-      if (created) navigate(`/documents/${view.document.id}`);
+      if (created) intent.navigate(`/documents/${view.document.id}`);
     }, onError: (error) => feedback(error,"文件操作")
   });
   const saveFolder = useMutation({
@@ -159,7 +158,7 @@ export function DocumentCenter() {
   });
 
   const openDocument = useCallback((document: DocumentSummary) => { if (!document.deletedAt) navigate(`/documents/${document.id}`); }, [navigate]);
-  const enterFolder = (folderID: string) => { if (scope === "shared") setScope("active"); setCurrentFolderID(folderID); setOffset(0); };
+  const enterFolder = (folderID: string) => updateLocation({ scope: scope === "shared" ? "active" : scope, currentFolderID: folderID, search: "", offset: 0 }, false);
   const openDocumentEditor = useCallback((document?: DocumentSummary) => { setEditing(document); setCreateOpen(true); }, []);
   const openFolderEditor = (folder?: FolderSummary) => { setFolderEditor(folder ?? "new"); folderForm.setFieldsValue(folder ?? { name: "", description: "" }); };
   const removeDocument = useCallback((document: DocumentSummary) => modal.confirm({
@@ -272,7 +271,7 @@ export function DocumentCenter() {
   return <Layout className="document-center-layout">
     <Layout.Sider width={224} className="library-sider">
       <Menu mode="inline" selectedKeys={[scope]} items={navItems} onSelect={({ key }) => {
-        setScope(key as LibraryScope); setCurrentFolderID(""); setType(""); if (key === "trash") setSelectedDocuments([]); setOffset(0);
+        updateLocation({ scope: key as LibraryScope, currentFolderID: "", type: "", search: "", offset: 0 }, false);
       }} />
     </Layout.Sider>
     <Layout.Content className="library-main">
@@ -290,9 +289,9 @@ export function DocumentCenter() {
       <Card className="document-browser" variant="borderless">
         <div className="browser-controls">
           <Input allowClear prefix={<SearchOutlined />} aria-label="搜索文档" placeholder="搜索文档" value={query} onChange={(event) => setQuery(event.target.value)} />
-          <div className="browser-filters">{scope !== "parts" && scope !== "products" && <Segmented aria-label="文档类型" value={type} onChange={(value) => { setType(String(value)); setOffset(0); }} options={[{label:"全部",value:""},...documentTypes.map(type=>({label:type.name,value:type.id}))]} />}
-          {scope !== "recent" && <Select aria-label="排序" value={sort} onChange={value => { setSort(value); setOffset(0); }} options={[{ value: "updated", label: "最近修改" }, { value: "name", label: "名称" }, { value: "created", label: "创建时间" }]} />}
-          <Segmented aria-label="显示方式" value={viewMode} onChange={setViewMode} options={[{value:"grid",icon:<AppstoreOutlined/>,title:"缩略图"},{value:"list",icon:<BarsOutlined/>,title:"列表"}]}/><Button type="text" aria-label="刷新文档" icon={<ReloadOutlined spin={documents.isFetching} />} onClick={() => void documents.refetch()} /></div>
+          <div className="browser-filters">{scope !== "parts" && scope !== "products" && <Segmented aria-label="文档类型" value={type} onChange={(value) => updateLocation({ type: String(value), search: query.trim(), offset: 0 })} options={[{label:"全部",value:""},...documentTypes.map(type=>({label:type.name,value:type.id}))]} />}
+          {scope !== "recent" && <Select aria-label="排序" value={sort} onChange={sort => updateLocation({ sort, search: query.trim(), offset: 0 })} options={[{ value: "updated", label: "最近修改" }, { value: "name", label: "名称" }, { value: "created", label: "创建时间" }]} />}
+          <Segmented aria-label="显示方式" value={viewMode} onChange={value => updateLocation({ viewMode: String(value) === "list" ? "list" : "grid", search: query.trim() })} options={[{value:"grid",icon:<AppstoreOutlined/>,title:"缩略图"},{value:"list",icon:<BarsOutlined/>,title:"列表"}]}/><Button type="text" aria-label="刷新文档" icon={<ReloadOutlined spin={documents.isFetching} />} onClick={() => void documents.refetch()} /></div>
         </div>
         {scope !== "trash" && <div className="browser-selection-controls">
           <Checkbox disabled={!selectablePage.length} checked={selectablePage.length > 0 && selectablePage.every((item) => selectedDocuments.some((selected) => selected.id === item.id))}
@@ -310,26 +309,17 @@ export function DocumentCenter() {
             <FolderFilled /><span><strong>{folder.name}</strong><small>{relativeDate(folder.deletedAt ?? folder.updatedAt)}</small></span>
             <Button size="small" disabled={!canEdit(folder.permission)} onClick={() => void restoreFolder(folder)}>恢复</Button>
           </div></div>)}</div> : null}
-        {visibleFolders.length ? <section className="folder-section" aria-label="文件夹"><div className="folder-section-heading"><h3>文件夹 <span>{visibleFolders.length}</span></h3>{visibleFolders.length>8&&<Button size="small" type="text" onClick={()=>setFoldersExpanded(value=>!value)}>{foldersExpanded?"收起":`展开全部 (${visibleFolders.length})`}</Button>}</div><div className="folder-grid">{displayedFolders.map((folder) => <div key={folder.id} className="folder-card">
-          <button type="button" className="folder-open" aria-label={`打开文件夹 ${folder.name}`} onClick={() => enterFolder(folder.id)}><FolderFilled /><span><strong>{folder.name}</strong><small>{folder.documentCount} 文档{folder.childCount > 0 ? ` · ${folder.childCount} 文件夹` : ""}</small></span></button>
-            {canEdit(folder.permission) && <Dropdown trigger={["click"]} menu={{
-              items: [
-                ...(folder.permission === "OWNER" ? [{ key: "share", icon: <ShareAltOutlined />, label: "共享" }] : []),
-                ...(canEdit(folder.permission) ? [{ key: "edit", icon: <EditOutlined />, label: "编辑" },
-                { key: "delete", icon: <DeleteOutlined />, label: "移入回收站", danger: true }] : []),
-              ], onClick: ({ key, domEvent }) => {
-                domEvent.stopPropagation(); if (key === "share") setShareResource({ type: "folders", id: folder.id, name: folder.name });
-                else if (key === "edit") openFolderEditor(folder); else removeFolder(folder);
-              }
-            }}><Button type="text" aria-label={`文件夹操作 ${folder.name}`} icon={<MoreOutlined />} /></Dropdown>}
-          </div>)}</div></section> : null}
+        {visibleFolders.length ? <section className="folder-section" aria-label="文件夹"><div className="folder-section-heading"><h3>文件夹 <span>{visibleFolders.length}</span></h3>{visibleFolders.length>8&&<Button size="small" type="text" onClick={()=>setFoldersExpanded(value=>!value)}>{foldersExpanded?"收起":`展开全部 (${visibleFolders.length})`}</Button>}</div><div className="folder-grid">{displayedFolders.map(folder => <FolderCard key={folder.id} folder={folder} onOpen={enterFolder} onAction={(key, folder) => {
+          if (key === "share") setShareResource({ type: "folders", id: folder.id, name: folder.name });
+          else if (key === "edit") openFolderEditor(folder); else if (key === "delete") removeFolder(folder);
+        }} />)}</div></section> : null}
         {documents.error && <Alert type="error" title="无法加载文档" description={engineeringProblem(documents.error)}
           action={<Button size="small" onClick={() => void documents.refetch()}>重试</Button>} />}
         {documents.isLoading ? <div className="document-grid" aria-label="加载文档" aria-busy="true">{Array.from({length:8},(_,i)=><div className="document-skeleton" key={i}><Skeleton.Node active/><Skeleton active title={{width:"65%"}} paragraph={{rows:1}}/></div>)}</div> : documents.data?.documents.length
           ? <div className={`document-grid ${viewMode}`}>{documents.data.documents.map(document => <DocumentCard key={document.id} document={document}
             selected={selectedDocuments.some(item => item.id === document.id)} trash={scope === "trash"} compact={viewMode==="list"}
             onOpen={openDocument} onToggle={toggleSelected} onAction={documentAction} />)}</div> : documents.error || visibleFolders.length || (scope === "trash" && trashedFolders.data?.length) ? null : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={search ? "没有找到文档" : "暂无文档"}>{!specialScope&&!search&&writableLocation&&<Button type="primary" icon={<PlusOutlined/>} onClick={()=>openDocumentEditor()}>新建文档</Button>}</Empty>}
-        {documents.data&&documents.data.total>24&&<Pagination current={Math.floor(offset / pageSize) + 1} pageSize={pageSize} showSizeChanger pageSizeOptions={[24,50,100]} total={documents.data?.total ?? 0} onChange={(page,size) => {setPageSize(size);setOffset(size!==pageSize?0:(page-1)*size)}} />}
+        {documents.data&&documents.data.total>24&&<Pagination current={Math.floor(offset / pageSize) + 1} pageSize={pageSize} showSizeChanger pageSizeOptions={[24,50,100]} total={documents.data?.total ?? 0} onChange={(page,size) => updateLocation({ pageSize: size, offset: size!==pageSize?0:(page-1)*size })} />}
       </Card>
     </Layout.Content>
 

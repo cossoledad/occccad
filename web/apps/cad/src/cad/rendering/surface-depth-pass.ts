@@ -3,6 +3,7 @@ import type {LineMaterial} from "three/addons/lines/LineMaterial.js";
 import {NATURAL_EDGE_VERTEX,NATURAL_EDGE_FRAGMENT,NATURAL_EDGE_DEFAULTS} from './natural-edges';
 import {forEachVisibleMesh} from './scene-render-index';
 import {SurfaceDepthInputs} from './surface-depth-inputs';
+import {analyticLineCoverage,HIGHLIGHT_DEPTH_VERTEX} from './line-coverage';
 
 type OpaqueDraw={groupOrder:number;renderOrder:number;object:THREE.Object3D;material:{id:number};z:number;id:number};
 /** Preserve explicit layers; CAD opaque ties use stable occurrence/Body keys.
@@ -98,7 +99,9 @@ export class SurfaceDepthPass {
     this.visibleMaterial.clippingPlanes=enabled?[plane]:null;if(wasEnabled!==enabled)this.visibleMaterial.needsUpdate=true;
   }
   configureLine(material:LineMaterial):void {
-    if(material.userData.cadContour||material.userData.cadEdgeAppearance){material.alphaToCoverage=true;material.toneMapped=false;}
+    if(material.userData.cadContour||material.userData.cadEdgeAppearance){material.alphaToCoverage=false;material.toneMapped=false;}
+    if(material.userData.cadContour)for(const side of ['A','B'])for(const end of ['Start','End'])
+      (material.defaultAttributeValues as Record<string,number[]>)[`instanceSupport${side}${end}`]=[0,0,0];
     if(material.userData.cadEdgeAppearance){
       // Keep analytic cap coverage, but avoid quantizing weak opacity into MSAA
       // sample masks. Strength is applied once through ordinary alpha blending.
@@ -114,11 +117,14 @@ export class SurfaceDepthPass {
       if(material.userData.cadContour||material.userData.cadEdgeAppearance){
         shader.uniforms.uCadLineDepthBias=this.opaqueUniforms.uCadDepthEpsilon;
         shader.vertexShader='varying vec2 vCadLineClipZW;\n'+shader.vertexShader.replace('#include <clipping_planes_vertex>','vCadLineClipZW=gl_Position.zw;\n#include <clipping_planes_vertex>');
-        // A half-pixel slope allowance keeps the stroked edge on its own face
-        // without turning hidden edges into an x-ray overlay.
-        shader.fragmentShader='varying vec2 vCadLineClipZW; uniform float uCadLineDepthBias;\n'+shader.fragmentShader.replace('#include <clipping_planes_fragment>',`#include <clipping_planes_fragment>
+        // Ordinary edges keep their established bias. Highlight strokes also
+        // account for transverse support slope, absent from fwidth(lineDepth)
+        // precisely where a curved line turns along a depth contour.
+        const highlight=Boolean(material.userData.cadContour);
+        if(highlight)shader.vertexShader=shader.vertexShader.replace('void main() {',HIGHLIGHT_DEPTH_VERTEX+'\nvoid main() { cadHighlightDepth();');
+        shader.fragmentShader=(highlight?'varying float vCadHighlightDepthBias;\n':'')+'varying vec2 vCadLineClipZW; uniform float uCadLineDepthBias;\n'+shader.fragmentShader.replace('#include <clipping_planes_fragment>',`#include <clipping_planes_fragment>
           float lineDepth=0.5*vCadLineClipZW.x/vCadLineClipZW.y+0.5;
-          gl_FragDepth=max(0.0,lineDepth-max(uCadLineDepthBias,0.5*fwidth(lineDepth)));`);
+          gl_FragDepth=max(0.0,lineDepth-${highlight?'max(max(uCadLineDepthBias,0.5*fwidth(lineDepth)),vCadHighlightDepthBias)':'max(uCadLineDepthBias,0.5*fwidth(lineDepth))'});`);
       }
       if(material.userData.cadSilhouette)shader.vertexShader='attribute vec3 instanceEdgeNormalA,instanceEdgeNormalB; varying float vCadContour;\n'+shader.vertexShader.replace('void main() {',`void main() {
         vec3 a=normalMatrix*instanceEdgeNormalA,b=normalMatrix*instanceEdgeNormalB;
@@ -133,8 +139,9 @@ export class SurfaceDepthPass {
           .replace('gl_FragColor = vec4( diffuseColor.rgb, alpha );','gl_FragColor = cadNaturalEdgeColor(diffuseColor.rgb, alpha * opacity * cadEdgeVisibility());');
       }else shader.fragmentShader=(material.userData.cadSilhouette?'varying float vCadContour;\n':'')+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replace("gl_FragColor = vec4( diffuseColor.rgb, alpha );",`gl_FragColor = vec4( diffuseColor.rgb, alpha * ${material.userData.cadContour?'1.0':'cadEdgeVisibility()'} ${material.userData.cadSilhouette?'* vCadContour':''} );`);
       if(material.userData.cadSilhouette)shader.fragmentShader=shader.fragmentShader.replace('void main() {','void main() { if(vCadContour<0.5)discard;');
+      if(material.userData.cadHighlightCoverage)shader.fragmentShader=analyticLineCoverage(shader.fragmentShader);
     };
-    material.customProgramCacheKey=()=>"cad-edge-natural-v1-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour);
+    material.customProgramCacheKey=()=>"cad-edge-natural-v3-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour)+'-'+Boolean(material.userData.cadHighlightCoverage);
   }
   configureSurface(material:THREE.MeshStandardMaterial):void{
     material.onBeforeCompile=shader=>{

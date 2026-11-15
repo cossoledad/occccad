@@ -30,9 +30,28 @@ flowchart TD
 
 客户端 UUID 统一通过 [random-uuid](../../../web/apps/cad/src/utils/random-uuid.ts) 生成。非安全上下文缺少原生 `crypto.randomUUID` 时，复用 `getRandomValues` 生成 UUID v4；没有安全随机源则明确失败，不以时间或 `Math.random` 替代。
 
-工作台由结构树、视口和属性/历史浮层组成。树筛选保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 默认收起并沿用已有保存偏好，关闭时卸载；两侧面板不占用画布布局列，开合不改变画布尺寸与相机。普通工程属性优先，DEBUG开发信息面板独立打开，挂载及切换页签后按需查询完整对象与调试信息，读取失败保留明确反馈。Document tabs 位于紧凑浅色全局标题栏，支持切换、关闭、新建、排序及窗口会话恢复。普通文档读取和依赖刷新不打开或重排标签；显式打开生命周期与窗口内稳定顺序见 [编辑上下文](product-edit-context.md)。
+工作台由结构树、视口和属性/历史浮层组成。树展开与定位保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 默认收起并沿用已有保存偏好，关闭时卸载；两侧面板不占用画布布局列，开合不改变画布尺寸与相机。普通工程属性优先，DEBUG开发信息面板独立打开，挂载及切换页签后按需查询完整对象与调试信息，读取失败保留明确反馈。Document tabs 位于紧凑浅色全局标题栏，支持切换、关闭、新建、排序及窗口会话恢复。普通文档读取和依赖刷新不打开或重排标签；显式打开生命周期与窗口内稳定顺序见 [编辑上下文](product-edit-context.md)。
 
 草图提交屏障只等待权威命令回执、必要的宿主文档刷新及已校验显示制品；历史、属性和目录仍失效并按需刷新，其请求不延长草图输入锁。相同命令响应对象的刷新复用同一次发布，未知回执和显示失败继续保留原恢复/阻塞合同。标签栏的新建文档名称目录仅在新建入口读取，不在每次建模后查询整个目录。定向测量入口为 `solid-feature-live.spec.ts` 的 `sketch performance line`：分开记录命令回调（含服务调用）、显示加载、场景重建及工具栏可用耗时；这些阶段可能重叠，不能相加为内核 CPU 时间。草图图元规范见[工作台](../../guides/workbench.md)。
+
+## 浏览器导航与桌面交互
+
+`app/navigation.ts` 统一应用跳转和机构查询参数替换，`BrowserRouter` 是唯一页面历史。浏览器按钮、鼠标侧键和历史 POP 都读取同一 URL；不重复翻译侧键、不填充哨兵历史，也不阻止离开本站。页面历史与模型 Undo/Redo 独立。
+
+| 入口 | 当前行为 |
+|---|---|
+| 文档中心分类、文件夹、面包屑 | push；scope／Folder ID／搜索／类型／排序／分页／显示方式由 `library-location` 编解码，后退和刷新可恢复 |
+| 搜索、类型、排序、分页、显示方式 | replace 当前记录；搜索保留 250 ms 防抖，POP 立即取消旧计时和草稿，不能把它写进返回的历史页 |
+| 打开文档、切换标签、返回主页 | push；重复选择当前标签不生成记录，文档中心恢复其 URL 中的位置与筛选 |
+| 关闭当前标签、无法打开文档后返回、未知路由、退出登录 | replace 当前记录；关闭后的旧历史仍可通过显式历史访问重新打开文档 |
+| 机构恢复参数 | 经路由 replace，保留 Router 的 idx／key／usr，不直接覆写 `history.state` |
+| 弹窗、管理／消息抽屉、临时建模表单 | 不单独生成历史；页面导航关闭临时面板，宿主切换取消当前工具／预览；安全文档状态仍归 DocumentSessions，权威提交与回执合同不变 |
+
+`Alt + Left/Right` 交给浏览器；标签排序改用 `Alt + Shift + Left/Right`。InputManager 不消费鼠标按钮 3／4，仍正确结束与侧键交叠的普通 CAD 手势。键盘加速键及硬件侧键映射最终由浏览器／系统决定；不能把 JS 合成事件当作系统按钮验收。[History 事件](https://developer.mozilla.org/en-US/docs/Web/API/Window/popstate_event)与[鼠标按钮约定](https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent/button)是浏览器参考。
+
+异步新建／关闭文档用 `useNavigationIntent` 捕获来源历史 key；完成结果仍更新对应缓存，仅当原组件存活、原 key 仍为当前 Router／浏览器记录时自动跳转。创建还是编辑取请求开始时的操作，不借用完成时另一张表单的状态。
+
+`AppProviders` 安装唯一的 `browser-interactions` 策略，包含 React portal：普通文字由 CSS 和 selectstart 禁选，普通界面 contextmenu 只 preventDefault、不阻断应用菜单冒泡。文档／文件夹的右键与更多按钮复用同一权限菜单，树继续使用原上下文菜单。input／textarea／select／contenteditable、弹窗与抽屉正文、检查器 JSON 和测量结果保留文本选择及原生菜单；其他明确需要复制的结果可标记 `data-text-selectable`。不拦截这些区域的复制、粘贴或选择全部。页面级容器不再无条件阻断浮层内文本的右键。
 
 ## 根场景与编辑上下文
 

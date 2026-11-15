@@ -5,11 +5,16 @@ import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
+import { analyticLineCoverage } from "./line-coverage";
 
 export function makeHighlightLineMaterial(color:number,linewidth:number):LineMaterial {
   const material=new LineMaterial({color,linewidth,worldUnits:false,transparent:true,opacity:.96,
     depthTest:false,depthWrite:false,toneMapped:false});
-  material.userData.baseColor=color;material.resolution.set(1,1);return material;
+  material.userData.baseColor=color;material.userData.cadHighlightCoverage=true;
+  material.alphaToCoverage=false;
+  material.onBeforeCompile=shader=>{shader.fragmentShader=analyticLineCoverage(shader.fragmentShader)};
+  material.customProgramCacheKey=()=>"cad-highlight-coverage-v1";
+  material.resolution.set(1,1);return material;
 }
 
 export function makeOcclusionVisibleHighlightLine(

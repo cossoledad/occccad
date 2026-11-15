@@ -186,6 +186,7 @@ export function SpecificationTree(props: {
     });
   };
   const keyboardSelect = (event: KeyboardEvent, entry: VisibleTreeNode) => {
+    if (event.altKey && ["ArrowLeft", "ArrowRight"].includes(event.key)) return;
     if (["Enter", " ", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) event.stopPropagation();
     const index = visible.findIndex((item) => item.node.key === entry.node.key);
     if (event.key === "Enter") {event.preventDefault();if(!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.repeat&&!event.nativeEvent.isComposing)invokeDefault(entry.node);}

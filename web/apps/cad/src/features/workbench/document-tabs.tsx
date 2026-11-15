@@ -56,11 +56,11 @@ function DocumentTab({ document, active, locked, onSwitch, onClose, onMove, onDr
     onDragStart={() => { dragged.current = true; }} onDrag={(_, info) => onDragNearEdge(info.point.x)}>
     <button className="document-tab-switch" aria-current={active ? "page" : undefined}
       title={`${document.name} · ${document.type === "PART" ? "零件" : "装配"}`}
-      aria-description={locked ? undefined : "Alt 加左右方向键调整文档顺序"}
+      aria-description={locked ? undefined : "Alt 加 Shift 加左右方向键调整文档顺序"}
       onPointerDown={event => { if (event.button === 0) { dragged.current = false; if (!locked) controls.start(event); } }}
       onKeyDown={event => {
         if (event.key === "Enter" || event.key === " ") dragged.current = false;
-        if (!locked && event.altKey && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+        if (!locked && event.altKey && event.shiftKey && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
           event.preventDefault(); onMove(event.key === "ArrowLeft" ? -1 : 1);
         }
       }} onClick={() => { if (!dragged.current) onSwitch(document.id); }}>

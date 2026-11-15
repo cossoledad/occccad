@@ -57,7 +57,17 @@ try {
  assert.deepEqual([...index.triangleIndices(new Set([2]))],[0,2,3]);
  assert.equal(index.contours().positions.length,24);assert.equal(index.contours(new Set([1])).positions.length,18);
  assert.deepEqual([...index.edgeSegments(new Set([9]))],[0,0,0,1,0,0,1,0,0,1,1,0]);
+ const profile={source:'OCCT_EDGE_USE_V1',positions:index.edgeSegments(),normalA:new Float32Array([0,0,1,0,0,1,0,0,1,0,0,1]),normalB:new Float32Array([0,1,0,0,1,0,1,0,0,1,0,0]),metadata:new Uint32Array([9,1,2,3,9,1,2,3])};
+ const profiled=new MeshTopologyIndex({...mesh,edgeProfile:profile}),supported=profiled.edgeHighlightData(new Set([9]));
+ assert.deepEqual(supported.positions,index.edgeSegments(new Set([9])),'normal support never changes highlight chords or display IDs');
+ assert.deepEqual(supported.a,profile.normalA);assert.deepEqual(supported.b,profile.normalB);
+ const mismatched=new MeshTopologyIndex({...mesh,edgeProfile:{...profile,positions:profile.positions.map(v=>v+.25)}}).edgeHighlightData();
+ assert(mismatched.a.every(v=>v===0),'different sampling cannot borrow unrelated normals');
+ const incomplete=new MeshTopologyIndex({...mesh,edgeProfile:{...profile,metadata:new Uint32Array([9,1,2,259,9,1,2,259])}}).edgeHighlightData();
+ assert(incomplete.a.every(v=>v===0),'missing-normal quality flags retain the bounded fallback');
+ assert(index.edgeHighlightData().a.every(v=>v===0),'legacy meshes require no guessed adjacency');
  const cache=new InteractionGeometryCache(0),first=cache.acquire(mesh,'face'),second=cache.acquire(mesh,'face',new Set([1,2]));
+ assert.equal(first.geometry.getAttribute('instanceSupportAStart'),first.geometry.getAttribute('instanceEdgeNormalA'),'face support reuses its existing GPU attribute');
  assert.equal(first.geometry,second.geometry,'two occurrences borrow the same immutable derived buffers');
  let disposed=0;first.geometry.addEventListener('dispose',()=>disposed++);
  first.release();assert.equal(disposed,0,'hover release preserves another occurrence selection');

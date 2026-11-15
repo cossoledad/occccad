@@ -1,5 +1,5 @@
 import {treeNavigator} from "./tree-helpers";
-import {viewportProbe,expectViewport} from "./camera-helpers";
+import {viewportProbe,expectViewport,observeViewport} from "./camera-helpers";
 import {setProjection} from "./camera-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -7,15 +7,11 @@ import { expect, test, type Page } from "@playwright/test";
 // displayed projection, rather than treating that invisible shift as a view change.
 async function projectedView(page:Page){
  await expectViewport(viewportProbe(page,"navigation-camera")).toHaveAttribute("data-transition-active","false");
- const value=(await viewportProbe(page,"navigation-camera").getAttribute("data-camera-state"))!;
- return page.evaluate(async value=>{
-  // @ts-ignore Vite dependency
-  const T=await import("/node_modules/.vite/deps/three.js");
-  const state=JSON.parse(value),box=document.querySelector("canvas")!.getBoundingClientRect(),aspect=box.width/box.height;
-  const span=state.span??300;const camera=state.projection==="perspective"?new T.PerspectiveCamera(state.fov,aspect,.000001,1e12):new T.OrthographicCamera(-span*aspect/2,span*aspect/2,span/2,-span/2,0,1e12);
-  camera.position.fromArray(state.position);camera.quaternion.fromArray(state.quaternion);camera.zoom=state.zoom;camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
-  return {rotation:state.quaternion as number[],zoom:camera.zoom,points:[[0,0,0],[1,0,0],[0,1,0],[0,0,1]].flatMap(p=>{const v=new T.Vector3(...p).project(camera);return [v.x*box.width/2,v.y*box.height/2]})};
- },value);
+ await observeViewport(page);
+ return page.evaluate(()=>{
+  const e=(window as any).__cameraEngine,camera=e.camera,box=document.querySelector("canvas")!.getBoundingClientRect();
+  return {rotation:camera.quaternion.toArray() as number[],zoom:camera.zoom,points:[[0,0,0],[1,0,0],[0,1,0],[0,0,1]].flatMap(p=>{const v=e.navigation.target.clone().set(...p).project(camera);return [v.x*box.width/2,v.y*box.height/2]})};
+ });
 }
 async function expectView(page:Page,view:Awaited<ReturnType<typeof projectedView>>){
  await expect.poll(async()=>{const current=await projectedView(page),dot=Math.abs(current.rotation.reduce((sum,v,i)=>sum+v*view.rotation[i],0));if(1-dot>1e-12||Math.abs(current.zoom-view.zoom)>view.zoom*1e-12)return Infinity;return Math.max(...current.points.map((v,i)=>Math.abs(v-view.points[i])))}).toBeLessThan(.02);
@@ -208,7 +204,7 @@ test("sketch normal view, persistent world context and exit selection synchroniz
   await expect(normal).toBeVisible();
   const camera = viewportProbe(page,"navigation-camera"), projection = viewportProbe(page,"navigation-projection");
   // The toolbar appears before the transition finishes; sample the final XY view.
-  await expect.poll(async()=>(await camera.innerText()).split(" / ")[1]).toBe("0.0000,0.0000,0.0000,1.0000");
+  await expect.poll(async()=>(await camera.textContent()).split(" / ")[1]).toBe("0.0000,0.0000,0.0000,1.0000");
   const initial = await camera.textContent(), scale = await projection.textContent();
   const box = (await page.locator("canvas").boundingBox())!;
   const x = box.x + box.width/2, y = box.y + box.height/2;
@@ -231,10 +227,12 @@ test("sketch normal view, persistent world context and exit selection synchroniz
   await page.mouse.click(box.x+box.width-12,box.y+12);
   await expectViewport(selection).toHaveAttribute("data-count","0");
   await expect(sketch).toHaveAttribute("aria-selected","false");
-  // The current feature command may start without a preselection. It must ask
-  // for a profile instead of silently reusing the cleared sketch selection.
+  // An empty profile uses its selection control and disabled commit, rather
+  // than relying on a particular explanatory paragraph in the dialog.
   await page.getByRole("button",{name:"拉伸",exact:true}).click();
-  const extrude=page.getByRole("dialog",{name:/拉伸/});await expect(extrude).toContainText("请在视图区选择草图");
+  const extrude=page.getByRole("dialog",{name:/拉伸/});
+  await expect(extrude.getByRole("button",{name:"选择轮廓",exact:true})).toBeVisible();
+  await expect(extrude.getByRole("button",{name:/^创\s*建$/,exact:true})).toBeDisabled();
   await extrude.getByRole("button",{name:/取\s*消/}).click();
   expect(errors).toEqual([]);
 });
