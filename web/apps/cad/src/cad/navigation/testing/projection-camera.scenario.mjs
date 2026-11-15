@@ -8,6 +8,8 @@ try {
  const {saveView,restoreView}=await server.ssrLoadModule("/src/cad/navigation/orthographic-view.ts");
  const {captureDocumentCamera,restoreDocumentCamera}=await server.ssrLoadModule("/src/cad/navigation/document-camera-state.ts");
  const {NavigationHUD}=await server.ssrLoadModule("/src/cad/navigation/hud/navigation-hud.ts");
+ const {CATIA_PIVOT_SPAN}=await server.ssrLoadModule("/src/cad/navigation/navigation-visuals.ts");
+ const {palette}=await server.ssrLoadModule("/src/design/visual-tokens.ts");
  const {worldUnitsPerCssPixel}=await server.ssrLoadModule("/src/cad/rendering/viewport-metrics.ts");
  const target=new T.Vector3(120,-35,20),ortho=new T.OrthographicCamera(-200,200,150,-150,.001,1e6);
  ortho.position.copy(target).add(new T.Vector3(300,-300,300));ortho.up.set(0,0,1);ortho.lookAt(target);ortho.zoom=3;ortho.updateProjectionMatrix();ortho.updateMatrixWorld(true);
@@ -29,10 +31,11 @@ try {
  }
  const hud=new NavigationHUD();hud.update({catia:{showPivot:true,pivot:new T.Vector3(999,999,999),pointer:{x:100,y:200}}},perspective,800,600);assert.deepEqual(hud.screenPosition,{x:400,y:300},"HUD anchor independent of picked depth/position");
  const marker=hud.pivotMarker,p=marker.geometry.attributes.position,c=marker.geometry.attributes.color;
- assert.equal(p.count,10);assert.ok(p.getX(1)<0&&p.getX(2)>0,"X axis has a central gap");assert.ok(p.getY(5)<0&&p.getY(6)>0,"Y axis has a central gap");assert.ok(p.getZ(9)-p.getZ(8)<p.getX(3)-p.getX(0),"Z is shorter");assert.ok(c.getX(8)>.9&&c.getY(8)>.6&&c.getZ(8)<.2,"Z is yellow");for(const [width,height] of [[800,600],[1440,1000],[2048,1536]]){
+ const z=new T.Color(palette.axisZ);
+ assert.equal(p.count,10);assert.ok(p.getX(1)<0&&p.getX(2)>0,"X axis has a central gap");assert.ok(p.getY(5)<0&&p.getY(6)>0,"Y axis has a central gap");assert.ok(p.getZ(9)-p.getZ(8)<p.getX(3)-p.getX(0),"Z is shorter");assert.ok(Math.abs(c.getX(8)-z.r)<1e-6&&Math.abs(c.getY(8)-z.g)<1e-6&&Math.abs(c.getZ(8)-z.b)<1e-6,"Z uses the shared axis palette");for(const [width,height] of [[800,600],[1440,1000],[2048,1536]]){
   hud.update({catia:{showPivot:true,pivot:target,pointer:{x:0,y:0}}},perspective,width,height);
-  assert.ok(Math.abs(44*marker.scale.x/(2*.48*Math.min(width,height))-1/3.5)<1e-12,"pivot span is one 3.5th of the trackball diameter");
-  assert.ok(hud.camera.position.z>22*marker.scale.x,"enlarged axes stay in front of the HUD eye");
+  assert.ok(Math.abs(44*marker.scale.x-CATIA_PIVOT_SPAN)<1e-12,"pivot span stays compact at every viewport size");
+  assert.ok(hud.camera.position.z>22*marker.scale.x,"axes stay in front of the HUD eye");
  }
  hud.dispose();
 }finally{await server.close()}

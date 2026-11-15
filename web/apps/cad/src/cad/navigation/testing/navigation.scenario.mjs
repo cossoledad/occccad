@@ -87,7 +87,7 @@ try {
   // Off-centre pivot must not corrupt subsequent screen centering, including perspective depth.
   const rig=new ThreeCameraRig(camera);rig.setPivot(new THREE.Vector3(100,20,-30));rig.centerViewpointAt(new THREE.Vector3(2,3,4));
   const centered=new THREE.Vector3(2,3,4).project(camera);assert.ok(Math.hypot(centered.x,centered.y)<1e-8);
-  // Trackball path is independent of pointer-event frequency (no per-event angle clamp).
+  // A large radial drag is not limited by an arbitrary per-event angle clamp.
   const c=new THREE.PerspectiveCamera();c.position.set(0,0,100);c.lookAt(0,0,0);
   const ball=new VirtualTrackball();ball.begin(400,300,800,600);const turn=ball.drag(600,300,800,600,c);assert.ok(2*Math.acos(turn.w)>.5);
   const outside=new VirtualTrackball();outside.begin(790,300,800,600);const roll=outside.drag(400,0,800,600,c);assert.ok(Math.abs(roll.x)<1e-8&&Math.abs(roll.y)<1e-8);

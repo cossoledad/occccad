@@ -13,7 +13,7 @@ CATIA 基线为 **3DEXPERIENCE CATIA 原生应用**的标准三键导航。用�
 
 不要混用 [Dashboard Mouse Controls](https://help-3dexperience.aesvietnam.com/English/SharedUserMap/shared-services-r-NavigationModes.htm) 中名为“3DEXPERIENCE”的网页配置与原生 CATIA 配置。两者文档适用范围不同。原生基本操作表没有列出三维滚轮缩放；当前仍使用组合键缩放，但不再据 V5 文档声称所有 3DEXPERIENCE 应用禁止滚轮。
 
-此前经本机 B33 `English/control/BasEnglishC2.viewdoc` 查阅的 [V5 Activating Viewing Tools](https://catia-v5-help.anarkia333data.center/online/basug_C2/basugbt1201.htm) 与 [V5 Navigation](https://catia-v5-help.anarkia333data.center/online/bascugen_C2/bascudisplay0200.htm) 仅作为兼容补充：右侧键替代左键、Alt+右键两键操作及可选球面导引的外观来自该基线，未核实为所有 3DEXPERIENCE 年度版本的默认配置。可选球面导引保留本项目的虚线圆/切线绘制，不宣称与原生界面像素一致。
+本机 B33 从 `English/control/BasEnglishC2.viewdoc` 路由到 `online/basug_C2/basugbt1201.htm`、`basugbt1208.htm` 与 `online/bascugen_C2/bascudisplay0200.htm`；对应的公开页为 [V5 Activating Viewing Tools](https://catia-v5-help.anarkia333data.center/online/basug_C2/basugbt1201.htm) 与 [V5 Navigation](https://catia-v5-help.anarkia333data.center/online/bascugen_C2/bascudisplay0200.htm)。V5 默认显示旋转球，3DE 上述帮助默认隐藏，不能混用。右侧键替代左键、Alt+右键两键操作是 V5 兼容补充，未核实为所有 3DE 年度版本默认配置。本机 `online/bascugen_C2/images/rotation_sphere01.gif` 仅参考了虚线球与指针附近导引的关系，没有复制图片或宣称像素一致。“Mouse Speed”说明的是预高亮的时间阈值，并非旋转或缩放增益；官方帮助入口需要登录，本次使用上述达索撰写的公开镜像及本机手册。
 
 SOLIDWORKS 基线为桌面 Design 的 Part/Assembly 三键鼠标默认导航，关闭 Rotate about Scene Floor，滚轮以指针为中心。参考官方文档（可访问内容的版本为 2023/2024；不是 Composer 或 Visualize 的默认模式）：
 
@@ -26,6 +26,10 @@ SOLIDWORKS 基线为桌面 Design 的 Part/Assembly 三键鼠标默认导航，�
 
 ## 实现映射
 
+默认 occccad 模式：右键开始时进行新鲜拾取，不依赖上一次 hover。点使用显示坐标；面、边使用该拓扑元素的世界坐标包围盒中心，其他几何使用对应显示对象的包围盒中心。从空白起拖时保留整模/局部视图后备中心，在首次遇到几何时锁定，切换中心的这一事件不再应用旧位移；此后直到释放或取消均不重新拾取，滚轮也保留该中心。空白且整模不可见时才使用屏幕中心的表面/关注深度，不覆盖有效几何命中。
+
+`selectionOrbitTarget` 复用已有 `MeshTopologyIndex` 的面索引，局部顶点逐个应用当前 occurrence 的完整世界矩阵，支持旋转、镜像和非均匀缩放。它读取当前显示上下文，不创建 Selection 或持久引用。曲面和曲线的包围盒基于显示采样，可能与精确 B-Rep 极值有偏差；缺少拓扑数据时降级到拾中显示对象的包围盒，空白再用视图后备中心。锁定后不在 CPU 上重新遍历拓扑或场景。
+
 | 操作 | 3DEXPERIENCE CATIA | SOLIDWORKS |
 |---|---|---|
 | 平移 | 中键拖动；Alt+右键拖动 | Ctrl+中键拖动 |
@@ -34,7 +38,7 @@ SOLIDWORKS 基线为桌面 Design 的 Part/Assembly 三键鼠标默认导航，�
 | 缩放方向 | 上移放大，下移缩小 | 上移放大，下移缩小 |
 | 居中/选旋转参考 | 中键松开时拾取并居中；平移持续更新中心深度 | 中键单击几何只选临时参考，不跳动视图；随后中键拖动 |
 | 滚轮 | 当前禁用，采用原生文档列出的组合键缩放 | 指针锚定，向后放大；支持浏览器 deltaMode 单位 |
-| 滚转 | 从轨迹球范围外拖动（提示可隐藏） | Alt+中键水平拖动 |
+| 滚转 | 在轨迹球外开始拖动（提示可隐藏） | Alt+中键水平拖动 |
 | 适合窗口 | 现有视图命令 | 中键双击，或现有视图命令 |
 
 CATIA 的侧键释放会锁存缩放；再次按住侧键回到旋转，释放主键结束。两键替代操作中，先 Alt+右键、再 Ctrl/左键进入旋转，释放 Ctrl/左键进入缩放；一开始就按 Ctrl+Alt+右键则直接缩放。
@@ -49,13 +53,30 @@ SOLIDWORKS 旋转参考与正式 Selection 分离。平面/直边按显示几何
 - `ThreeCameraRig` 处理相机数学，`NavigationPicker` 提供显示几何引用。
 - `NavigationHUD` 与光标仅展示状态；轨迹球与虚线圆共享半径定义，不成为模型节点。
 
-3DEXPERIENCE CATIA 旋转球默认隐藏，只在用户开启且正在旋转时显示。主键按住期间显示独立的世界方向十字：X/Y 各两段，X 总跨度为旋转球直径的 1/3.5，Y 为 X 的 17/22；中心留白为 X 半长的 5/22。X 为橙色、Y 为青色，正半轴明亮、负半轴压暗，不画箭头；Z 为 X 半长的 8/22 的短黄色线。十字跟随视口尺寸，屏幕中心固定，朝向来自相机逆旋转，不随相机缩放漂移。
+3DEXPERIENCE CATIA 旋转球默认隐藏，只在用户开启且正在旋转时显示。主键按住期间的世界方向十字保持 56 CSS px 总跨度，中心留白，负半轴压暗，不画箭头；X/Y/Z 复用产品坐标轴配色。它固定在屏幕中心，朝向来自相机逆旋转，不随窗口或模型缩放膨胀；CSS 尺寸独立于设备像素比。
 
-可选球面以屏幕中心为圆心，导引十字按轨迹球的半球/外圆映射限制中心，指针越界时沿球边移动。周向导引为球面大圆的屏幕投影，通过积分弧长求显示区间；到球边时与外圆具有相同圆心和半径。径向导引接近球边后向内平移，两段都保持 52 CSS 像素可见长度，全部顶点位于圆内；只有小于 52 像素直径的极小视口才缩短。`hud/navigation-hud-geometry.ts` 仅构造显示几何，不改变轨迹球输入数学。导航光标为透明底、单层圆角描边的 32×32 SVG，热点位于 (16,16)，根据场景明暗选用深色或暖色，无白色外描边。
+可选球面以屏幕中心为圆心，指针越界时导引沿球边移动，但真实鼠标位移继续驱动旋转。周向导引为球面大圆的屏幕投影，通过积分弧长求显示区间；到球边时与外圆重合。径向导引接近球边后向内平移，两段各保持 64 CSS px，全部顶点位于圆内；直径小于 64 px 的极小视口才缩短。虚线圆减弱，导引使用场景明暗对应的产品蓝色。球缓冲与虚线距离只在半径变化时重建；未显示的 HUD 不更新球，空参考场景不提交绘制。`hud/navigation-hud-geometry.ts` 只构造导引，不限制实际输入。
+
+导航光标从唯一的 `icons.json` 读取 `navigation-orbit/pan/zoom/roll`，通过与 `CadIcon` 共用的元素白名单输出透明 32×32 SVG，热点 (16,16)。旋转使用块体外的一条回转箭头，与视轴滚转的平面圆箭头区分；主轮廓随背景明暗选色，蓝色动作笔画。SOLIDWORKS 临时参考使用独立小绿徽标。球外起拖时使用滚转图形，球内起拖跨出边界仍保持旋转图形；进入/退出临时参考只切换光标，不重置相机。
+
+### 灵敏度和边界
+
+这些参数是本软件的设计值，手册没有提供原版内部公式：
+
+| 参数 | 默认与含义 |
+|---|---|
+| 平移 | 关注深度处 1 CSS px 拖动对应 1 CSS px 显示位移，移除额外 1.15 倍增益 |
+| 缩放 | `logScale = Δy × ln(64) / viewportHeight`，正交向上拖动视口高度的 1/6 放大 2 倍；透视仍受既有表面避穿保护约束 |
+| 轨迹球 | `R = .48 × min(width,height)`；半径不受 DPR 或模型尺寸影响 |
+| 开始拖动 | 中键位移至少 3 CSS px 才平移，短按松开才拾取居中 |
+
+旋转种类在开始按住侧键时确定，本段旋转保持不变：球内开始为自由旋转，球外开始为视轴滚转。自由旋转直接使用未截断的 CSS 像素增量，导引到达球边不会使径向输入归零。局部支撑点的归一化半径上限为 .8，令 `v=(x,y,sqrt(1-x²-y²))`，因此 `z≥.6`；以 `dx=Δx/R`、`dy=-Δy/R` 计算 `dv=(dx,dy,-(x dx+y dy)/z)`，用 `dv×v` 的旋转向量积分逆旋转。支撑点只控制有限的轴向/增益，不截断鼠标位移。每条输入段以最多 4 CSS px 的中点步长积分（上限 256 步，超长事件只降低积分分辨率），在当前相机坐标系输送四元数。普通与越界拖动的增益连续且非零；一般曲线按实际采样路径积分，只保证收敛，不声称任意稀疏采样完全等价。
+
+进入/离开组合键状态时冻结新的鼠标基线，释放侧键的坐标不转成缩放位移；视口 resize 重设轨迹球基线且消耗该事件，保留本段旋转种类。再次按下侧键才重新确定种类；球显示开关不影响数学。这是本项目采用的持续拖动语义，公开手册未给出原版球边算法。
 
 公开文档没有给出鼠标增益、自动旋转中心排名、虚拟球投影算法和精确像素规格。本实现的球半径、速度曲线与自动选心是明确的应用实现；未通过原版软件同轨迹录制对照，不能称为逐像素/逐数值完全一致。任意曲面/曲线的通用参数轴、CATIA Robot、Shift 视点控制及文档中的键盘旋转/平移、SOLIDWORKS 自定义右键手势菜单、命名 Camera 的 Ctrl+Alt 转头、Scene Floor、工程图和三维鼠标驱动不属于本次基础原生三键/Part/Assembly 导航实现。
 
-`testing/navigation.scenario.mjs` 验证状态转换、旋转/平移/缩放、居中、临时引用、取消、轨迹球与实际显示拾取。`navigation-capture.scenario.mjs` 另外验证浏览器释放侧键时丢失原生捕获的恢复：只有仍持有主键的 CATIA 导航可以续接，工具丢失捕获、pointercancel、blur、Esc 仍取消。`browser/navigation.spec.ts` 通过 Chromium 的真实组合按键验证输入边沿、修饰键切换、失焦和 UI 偏好；输出两套模式的截图。浏览器测试启用已有 `VITE_INPUT_DEBUG`，生产构建不显示调试面板。
+`testing/navigation.scenario.mjs` 验证基本状态、临时引用与显示拾取；`catia-navigation-boundaries.scenario.mjs` 覆盖平移比例、不同高度缩放、模式切换、resize、四向/斜向持续越界旋转、反向返回及曲线路径收敛；`navigation-orbit-target.scenario.mjs` 覆盖元素范围、实例变换、缺失数据与默认中心锁定。`navigation-capture.scenario.mjs` 验证侧键释放后的捕获恢复，pointercancel、blur、Esc 仍取消。浏览器 `navigation.spec.ts` 运行真实鼠标组合、球外起拖滚转及 2K 下持续越界/缩放，`navigation-orbit.spec.ts` 在 Mock API 提供、经实际 GLB 解码的显示上验证点/边/面、装配 occurrence、空白首遇与选集/Revision 不变；`navigation-affordances.spec.ts` 检查 WebGL HUD、明暗光标透明边界，并在 2560×1440、DPR 1/2 下读取实际像素，保存尺寸、弧长数据和截图。Mock 不证明 Worker 或原版 CATIA 同轨迹结果，SwiftShader 不代表硬件 GPU 帧率。
 
 ## 投影、显示比例与草图会话
 

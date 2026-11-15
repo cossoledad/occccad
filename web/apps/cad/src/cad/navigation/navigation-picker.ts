@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { circularRotationAxis, cylindricalRotationAxis } from "./display-rotation-axis";
 import type { CadCamera, ZoomBarrier } from "./camera-rig";
 import { worldUnitsPerCssPixel } from "../rendering/viewport-metrics";
+import type { NavigationOrbitTarget } from "./navigation-orbit-target";
 
 export const CAD_GEOMETRY_LAYER = 1;
 
@@ -11,6 +12,7 @@ export type NavigationPick = {
   object?: THREE.Object3D;
   objectLabel?: string;
   source: "raycast" | "view-plane";
+  orbitTarget?: NavigationOrbitTarget;
   axis?: THREE.Vector3;
   axisOrigin?: THREE.Vector3;
   highlight?: { kind: "face" | "edge" | "vertex"; positions: number[] };
@@ -32,6 +34,7 @@ export class NavigationPicker {
     private readonly surface: HTMLElement,
     private readonly roots: () => readonly THREE.Object3D[],
     private readonly hoveredPoint?: () => THREE.Vector3 | undefined,
+    private readonly orbitTargetAt?: (x:number,y:number) => NavigationOrbitTarget | undefined,
   ) {
     this.raycaster.layers.set(CAD_GEOMETRY_LAYER);
   }
@@ -40,6 +43,22 @@ export class NavigationPicker {
 
   pickNearest(x: number, y: number, withReference = false): NavigationPick | undefined {
     return this.pick(x, y, withReference, false);
+  }
+
+  /** Default orbit uses the same fresh semantic hit as hover, even while the
+   * navigation gesture owns input and ordinary preselection is paused. */
+  pickOrbit(x:number,y:number): NavigationPick | undefined {
+    const target=this.orbitTargetAt?.(x,y);
+    if(target)return {point:target.point.clone(),distance:target.point.distanceTo(this.camera.position),source:'raycast',orbitTarget:target};
+    const hit=this.pickNearest(x,y);
+    if(!hit)return;
+    if(hit.orbitTarget?.kind==='point'||hit.object instanceof THREE.Points)
+      return {...hit,orbitTarget:{kind:'point',point:hit.point.clone()}};
+    if(hit.object){
+      const box=new THREE.Box3().setFromObject(hit.object);
+      if(!box.isEmpty())return {...hit,orbitTarget:{kind:'bounds',point:box.getCenter(new THREE.Vector3())}};
+    }
+    return hit;
   }
 
   /** Zoom follows the cursor ray, never a nearby/occluded vertex promoted for rotation. */
@@ -93,7 +112,7 @@ export class NavigationPicker {
     if(hovered){
       const projected=hovered.clone().project(this.camera),depth=hovered.clone().sub(this.raycaster.ray.origin).dot(this.raycaster.ray.direction);
       if(Math.hypot((projected.x+1)*width/2-x,(1-projected.y)*height/2-y)<=8&&depth>=0&&depth<=closestSurface+worldPerPixel*2)
-        return {point:hovered.clone(),distance:depth,source:"raycast",objectLabel:"preselected-point"};
+        return {point:hovered.clone(),distance:depth,source:"raycast",objectLabel:"preselected-point",orbitTarget:{kind:'point',point:hovered.clone()}};
     }
     const rank = (object: THREE.Object3D) => object instanceof THREE.Points ? 0 : object instanceof THREE.Line ? 1 : 2;
     const hit = hits.filter((hit) => hit.distance <= closestSurface + worldPerPixel * 2)

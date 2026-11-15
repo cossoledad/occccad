@@ -97,6 +97,7 @@ import { resolveSketchSnap, type SketchSnapResult } from "../cad/interaction/ske
 import { allowsSelection, allowsSelectionInContext, DEFAULT_CAPTURE_SETTINGS, type CaptureSettings } from "../cad/interaction/capture-settings";
 import { NavigationController, type NavigationSnapshot } from "../cad/navigation/navigation-controller";
 import { navigationCursor } from "../cad/navigation/navigation-cursor";
+import { selectionOrbitTarget } from "../cad/navigation/navigation-orbit-target";
 import { NavigationHUD } from "../cad/navigation/hud/navigation-hud";
 import { CAD_GEOMETRY_LAYER, markNavigationPickable, NavigationPicker } from "../cad/navigation/navigation-picker";
 import type { NavigationAction, NavigationProfileID } from "../cad/navigation/navigation-profile";
@@ -811,6 +812,17 @@ export class CadViewportEngine {
           return binding&&point?binding.mesh.localToWorld(new THREE.Vector3().fromArray(point)):undefined;
         }
         return undefined;
+      },
+      (x,y)=>{
+        const selection=this.hitTest(x,y);
+        if(!selection||['measurement','spatial-analysis','kinematic-object','parameter','sketch-constraint','assembly-constraint','tree'].includes(selection.kind))return;
+        const binding=[...this.solidBindings.values()].find(b=>sameDisplayContext(selection,b.context));
+        const ref=selection.sketchReference;
+        const anchor=this.sketchPlane&&ref&&['POINT','START','END','CENTER','CONTROL'].includes(ref.subElement)?this.sketchReferenceAnchor(ref):undefined;
+        binding?.mesh.updateWorldMatrix(true,false);
+        return selectionOrbitTarget(selection,this.selectionIndex.objectsFor(selection).filter(object=>this.objectVisible(object)),
+          binding?{data:binding.artifact.mesh,matrixWorld:binding.mesh.matrixWorld}:undefined,
+          anchor&&this.sketchPlane?localToWorld(this.sketchPlane,anchor):undefined);
       },
     );
     this.navigation = new NavigationController(this.camera, () => ({
@@ -4465,6 +4477,7 @@ export class CadViewportEngine {
       this.camera,
       this.renderer.domElement.clientWidth,
       this.renderer.domElement.clientHeight,
+      sceneBackgroundIsLight(this.sceneSettings),
     );
   }
 

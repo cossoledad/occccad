@@ -102,6 +102,12 @@ test("application chrome rejects selection and native menus while editing and di
   expect(await contextPrevented(search)).toBe(false);
   const card = page.locator(".document-card").filter({ hasText: "Mounting Bracket" });
   await card.click({ button: "right" });
+  const menu=page.locator('.ant-dropdown:not(.ant-dropdown-hidden)').last();
+  const labelX=async(name:string)=>menu.getByRole('menuitem',{name,exact:true}).locator('.ant-dropdown-menu-title-content').evaluate(element=>element.getBoundingClientRect().x);
+  expect(await labelX('打开')).toBe(await labelX('编辑'));
+  const gutter=await menu.getByRole('menuitem',{name:'打开',exact:true}).evaluate(element=>getComputedStyle(element,'::before').width);
+  expect(gutter).toBe('20px');
+  await page.screenshot({path:info.outputPath('document-context-icon-gutter.png')});
   await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "编辑文档", exact: true }); await expect(dialog).toBeVisible();
   const body = dialog.locator(".ant-modal-body"); expect(await contextPrevented(body)).toBe(false);
@@ -114,6 +120,7 @@ test("application chrome rejects selection and native menus while editing and di
   await dialog.getByRole("button", { name: "取 消", exact: true }).click();
   await search.fill(""); await expect(page).not.toHaveURL(/q=/);
   const folder = page.locator(".folder-card").filter({ hasText: "Concepts" }); await folder.click({ button: "right" });
+  expect(await labelX('打开')).toBe(await labelX('编辑'));
   await page.getByRole("menuitem", { name: "打开", exact: true }).click(); await expect(page).toHaveURL(/folder=mock-folder/);
 });
 

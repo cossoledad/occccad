@@ -53,6 +53,8 @@ flowchart TD
 
 `AppProviders` 安装唯一的 `browser-interactions` 策略，包含 React portal：普通文字由 CSS 和 selectstart 禁选，普通界面 contextmenu 只 preventDefault、不阻断应用菜单冒泡。文档／文件夹的右键与更多按钮复用同一权限菜单，树继续使用原上下文菜单。input／textarea／select／contenteditable、弹窗与抽屉正文、检查器 JSON 和测量结果保留文本选择及原生菜单；其他明确需要复制的结果可标记 `data-text-selectable`。不拦截这些区域的复制、粘贴或选择全部。页面级容器不再无条件阻断浮层内文本的右键。
 
+应用下拉/上下文菜单统一预留图标列，无图标的行使用同宽空位；分隔线、组标题不占位，子菜单箭头仍在尾列。规则属于设计系统，不由各业务菜单插入空图标。
+
 ## 根场景与编辑上下文
 
 Product 始终显示根装配场景，宿主 Product 决定路由与活动标签，唯一 Edit Target 的 Reference Workspace 决定工作台、命令、历史和属性目标。Product 内只有携带完整 occurrence 路径的上下文编辑，不存在脱离 occurrence 的定义编辑切换；独立 Part 标签是另一个宿主工作空间。`ViewportEditContext`/`editingView` 将活动 Part 草图的拾取、约束、尺寸拖拽和编辑从根 Product 投影中分离；切换激活状态不产生空 Revision。创建 Part、Context Catalog、Pin/Follow 和组件替换的领域行为见[Product 架构](product-assembly.md)。

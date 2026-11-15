@@ -5,7 +5,7 @@ import type { NavigationPick } from "../navigation-picker";
 import { pivotMarkerGeometry, sphereCursorVertices, SPHERE_CURSOR_SEGMENTS } from "./navigation-hud-geometry";
 
 export type HudScreenPosition = { x: number; y: number };
-import { CATIA_PIVOT_TO_TRACKBALL_RATIO, CATIA_TRACKBALL_RADIUS_RATIO, CATIA_NAVIGATION_COLOR as CATIA_COLOR, SOLIDWORKS_REFERENCE_COLOR } from "../navigation-visuals";
+import { CATIA_PIVOT_SPAN, CATIA_TRACKBALL_RADIUS_RATIO, CATIA_NAVIGATION_COLOR as CATIA_COLOR, CATIA_NAVIGATION_COLOR_DARK, SOLIDWORKS_REFERENCE_COLOR } from "../navigation-visuals";
 
 /** View-only overlays: optional CATIA rotation sphere vs SOLIDWORKS transient rotation reference. */
 export class NavigationHUD {
@@ -20,46 +20,56 @@ export class NavigationHUD {
   private reference?: NavigationPick;
   private worldCamera?: CadCamera;
   private screen?: HudScreenPosition;
+  private circleRadius=0;
+  private width=0;
+  private height=0;
   constructor() {
     this.camera.position.z = 100;
     const vertices = Array.from({ length: 193 }, (_, i) => new THREE.Vector3(Math.cos(i / 192 * Math.PI * 2), Math.sin(i / 192 * Math.PI * 2), 0));
-    this.circle = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(vertices), new THREE.LineDashedMaterial({ color: CATIA_COLOR, dashSize: 4, gapSize: 3, depthTest: false }));
-    this.marker = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: CATIA_COLOR, depthTest: false }));
+    this.circle = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(vertices), new THREE.LineDashedMaterial({ color: CATIA_COLOR, dashSize: 4, gapSize: 4, transparent:true,opacity:.55,depthTest: false,depthWrite:false,toneMapped:false }));
+    this.marker = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: CATIA_COLOR, depthTest: false,depthWrite:false,toneMapped:false }));
     this.marker.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(SPHERE_CURSOR_SEGMENTS * 12), 3).setUsage(THREE.DynamicDrawUsage));
     this.screenScene.add(this.circle, this.marker); this.screenScene.visible = false;
     this.pivotMarker.visible=false;this.screenScene.add(this.pivotMarker);this.worldScene.add(this.referenceGroup);
   }
   get screenPosition(): HudScreenPosition | undefined { return this.screen; }
-  update(snapshot: NavigationSnapshot, camera: CadCamera, width: number, height: number): void {
+  update(snapshot: NavigationSnapshot, camera: CadCamera, width: number, height: number,lightBackground=false): void {
     this.worldCamera = camera;
-    this.camera.left = -width / 2; this.camera.right = width / 2;
-    this.camera.top = height / 2; this.camera.bottom = -height / 2; this.camera.updateProjectionMatrix();
+    this.setReference(snapshot.solidworks?.reference);
     const catia = snapshot.catia;
+    this.screenScene.visible = Boolean(catia?.showPivot && width > 0 && height > 0);
+    this.screen=this.screenScene.visible?{x:width/2,y:height/2}:undefined;
+    if(!this.screenScene.visible)return;
+    if(width!==this.width||height!==this.height){
+      this.width=width;this.height=height;
+      this.camera.left = -width / 2; this.camera.right = width / 2;
+      this.camera.top = height / 2; this.camera.bottom = -height / 2; this.camera.updateProjectionMatrix();
+    }
     this.pivotMarker.visible=Boolean(catia?.showPivot);
     // Screen-space size and anchor, with world-axis orientation. No perspective or zoom drift.
     this.pivotMarker.quaternion.copy(camera.quaternion).invert();
     const cx=width/2,cy=height/2;
     this.circle.position.set(cx-width/2,height/2-cy,0);this.marker.position.copy(this.circle.position);
-    this.screenScene.visible = Boolean(catia?.showPivot && width > 0 && height > 0);
     this.marker.visible=Boolean(catia?.hudVisible);
     this.circle.visible = Boolean(catia?.showRotationCircle);
     const radius = Math.min(width, height) * CATIA_TRACKBALL_RADIUS_RATIO;
-    this.pivotMarker.scale.setScalar(radius*CATIA_PIVOT_TO_TRACKBALL_RATIO/22);
-    // The enlarged world-oriented marker also extends in screen-camera Z.
-    this.camera.position.z=radius*2+100;this.camera.far=this.camera.position.z*2;this.camera.updateProjectionMatrix();
+    this.pivotMarker.scale.setScalar(CATIA_PIVOT_SPAN/44);
+    this.circle.material.color.setHex(lightBackground?CATIA_COLOR:CATIA_NAVIGATION_COLOR_DARK);
+    this.marker.material.color.copy(this.circle.material.color);
+    if(!this.circle.visible)return;
     // Bake radius into geometry so dash lengths remain CSS pixels.
-    const attr = this.circle.geometry.getAttribute("position");
-    for (let i = 0; i < attr.count; i++) attr.setXYZ(i, radius * Math.cos(i / (attr.count - 1) * Math.PI * 2), radius * Math.sin(i / (attr.count - 1) * Math.PI * 2), 0);
-    attr.needsUpdate = true; this.circle.computeLineDistances();
+    if(radius!==this.circleRadius){
+      this.circleRadius=radius;
+      const attr = this.circle.geometry.getAttribute("position");
+      for (let i = 0; i < attr.count; i++) attr.setXYZ(i, radius * Math.cos(i / (attr.count - 1) * Math.PI * 2), radius * Math.sin(i / (attr.count - 1) * Math.PI * 2), 0);
+      attr.needsUpdate = true; this.circle.computeLineDistances();
+    }
     const x = (catia?.pointer.x ?? cx) - cx, y = cy - (catia?.pointer.y ?? cy);
-    const positions = catia?.showRotationCircle ? sphereCursorVertices(x, y, radius)
-      : [x - 6, y, 0, x + 6, y, 0, x, y - 6, 0, x, y + 6, 0];
+    const positions = sphereCursorVertices(x, y, radius);
     const markerAttribute = this.marker.geometry.getAttribute("position") as THREE.BufferAttribute;
     markerAttribute.array.set(positions); markerAttribute.needsUpdate = true;
     this.marker.geometry.setDrawRange(0, positions.length / 3);
     this.marker.frustumCulled = false;
-    this.screen = catia?.showPivot ? { x:cx,y:cy } : undefined;
-    this.setReference(snapshot.solidworks?.reference);
   }
   private setReference(reference?: NavigationPick): void {
     if (this.reference === reference) return;
@@ -80,7 +90,7 @@ export class NavigationHUD {
     this.referenceGroup.add(marker);
   }
   render(renderer: THREE.WebGLRenderer): void {
-    if (this.worldCamera && this.worldScene.children.length) { renderer.clearDepth(); renderer.render(this.worldScene, this.worldCamera); }
+    if (this.worldCamera && this.referenceGroup.children.length) { renderer.clearDepth(); renderer.render(this.worldScene, this.worldCamera); }
     if (this.screenScene.visible) { renderer.clearDepth(); renderer.render(this.screenScene, this.camera); }
   }
   dispose(): void {

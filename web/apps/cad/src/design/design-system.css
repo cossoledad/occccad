@@ -10,6 +10,11 @@
 :root { font-family:var(--ui-font-family); font-size:var(--ui-font-size); color:var(--color-text); background:var(--color-canvas); --cad-text-on-dark:var(--color-viewport-text); }
 body { color:var(--color-text); background:var(--color-canvas); }
 :where(button,input,select,textarea,[tabindex]):focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
+/* Every dropdown reserves one leading icon column, including text-only rows.
+ * Dividers/group headings are outside this grid; submenu arrows keep their lane. */
+.ant-dropdown-menu :is(.ant-dropdown-menu-item,.ant-dropdown-menu-submenu-title) { display:flex; align-items:center; }
+.ant-dropdown-menu .ant-dropdown-menu-item-icon { inline-size:20px; min-inline-size:20px; flex:none; margin-inline-end:8px; }
+.ant-dropdown-menu :is(.ant-dropdown-menu-item,.ant-dropdown-menu-submenu-title):not(:has(> .ant-dropdown-menu-item-icon))::before { content:""; inline-size:20px; min-inline-size:20px; flex:none; margin-inline-end:8px; }
 .cad-command-icon { width:var(--ui-icon-toolbar); height:var(--ui-icon-toolbar); flex:none; }
 .cad-tool-button.ant-btn { height:var(--ui-ribbon-height); padding-inline:6px; border:1px solid transparent; border-radius:var(--ui-radius); background:transparent; color:var(--color-text); box-shadow:none; font-size:var(--ui-font-small); font-weight:400; gap:6px; transition:color var(--ui-motion),background-color var(--ui-motion),border-color var(--ui-motion); }
 .cad-tool-button.with-label { width:var(--ui-tool-width); justify-content:flex-start; }

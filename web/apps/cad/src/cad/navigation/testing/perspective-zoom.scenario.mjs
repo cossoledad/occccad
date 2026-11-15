@@ -58,7 +58,9 @@ try{
    if(i<40)assert.ok(travel<=lastTravel+1e-10*scale,"equal input smoothly decreases eye travel");
    assert.ok(travel>=-1e-10*scale,"zoom in never pushes the eye backwards");lastTravel=travel;
   }
-  const near=camera.position.z;nav.pointerMove(event("move",120));assert.ok(camera.position.z>near,"zoom out responds immediately at the limit");
+  // Check the same modest exit scale after CATIA's drag gain doubled. A large
+  // zoom request may travel several clearances; an interior-pivot jump may not.
+  const near=camera.position.z;nav.pointerMove(event("move",profile==='catia'?60:120));assert.ok(camera.position.z>near,"zoom out responds immediately at the limit");
   assert.ok(camera.position.z-near<margin,"zoom out from the limit must not jump back by the interior pivot distance");nav.cancel();
   // An already closer view is not pushed back to the new safety distance.
   camera.position.z=10*scale+margin/2;camera.updateMatrixWorld(true);nav.target.set(0,0,0);

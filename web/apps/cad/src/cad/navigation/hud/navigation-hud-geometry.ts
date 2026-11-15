@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { CATIA_NAVIGATION_COLOR } from "../navigation-visuals";
+import { palette } from "../../../design/visual-tokens";
 
-export const SPHERE_CURSOR_SPAN = 52;
+export const SPHERE_CURSOR_SPAN = 64;
 export const SPHERE_CURSOR_SEGMENTS = 24;
 
 /** Invert the screen arc length of a projected great circle (an ellipse). */
@@ -19,7 +19,7 @@ function greatCircleHalfAngle(radius: number, radial: number, halfSpan: number):
   return (low + high) / 2;
 }
 
-/** The anchor follows the same hemisphere/rim mapping as the trackball.
+/** The anchor follows the trackball's screen position and rim clamp.
  * The circumferential arm is a projected great circle: at the rim it is the
  * outer circle itself. The radial arm shifts inwards to stay inside the disk.
  */
@@ -48,11 +48,11 @@ export function pivotMarkerGeometry(): THREE.BufferGeometry {
     0,-17,0, 0,-5,0, 0,5,0, 0,17,0,
     0,0,-8, 0,0,8,
   ];
-  const xColor = new THREE.Color(CATIA_NAVIGATION_COLOR), yColor = new THREE.Color(0x70d6e3);
-  const yellow = new THREE.Color(0xffdf55);
+  const xColor = new THREE.Color(palette.axisX), yColor = new THREE.Color(palette.axisY);
+  const zColor = new THREE.Color(palette.axisZ);
   const colors = Array.from({length: positions.length / 3}, (_, i) =>
-    (i >= 8 ? yellow : (i < 4 ? xColor : yColor).clone()
-      .multiplyScalar(i < 2 || i === 4 || i === 5 ? .55 : 1)).toArray()).flat();
+    (i >= 8 ? zColor : (i < 4 ? xColor : yColor).clone()
+      .multiplyScalar(i < 2 || i === 4 || i === 5 ? .6 : 1)).toArray()).flat();
   return new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(positions,3))
     .setAttribute("color", new THREE.Float32BufferAttribute(colors,3));
 }

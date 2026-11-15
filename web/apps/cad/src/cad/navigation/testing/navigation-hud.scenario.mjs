@@ -19,7 +19,7 @@ try {
    assert.ok(Math.abs(Math.hypot(vertices[i],vertices[i+1])-radius)<1e-9,"one arm coincides with the outer circle at every rim angle");
  }
  const top=sphereCursorVertices(0,250,288),right=sphereCursorVertices(250,0,288);
- assert.ok(top[1]<250-1,"latitude bends towards sphere centre");
+ assert.ok(top[1]<250-.1,"latitude bends towards sphere centre");
  assert.ok(right[segments*6]<250-1,"longitude bends towards sphere centre");
  const before=sphereCursorVertices(288-.00001,0,288),after=sphereCursorVertices(288+.00001,0,288);
  assert.ok(Math.max(...before.map((v,i)=>Math.abs(v-after[i])))<.0001,"curvature is continuous across sphere rim");
@@ -30,10 +30,28 @@ try {
  assert.notDeepEqual([c.getX(2),c.getY(2),c.getZ(2)],[c.getX(6),c.getY(6),c.getZ(6)],"positive X and Y have distinct colours");
  geometry.dispose();
  const {navigationCursor}=await server.ssrLoadModule("/src/cad/navigation/navigation-cursor.ts");
+ const {palette}=await server.ssrLoadModule("/src/design/visual-tokens.ts");
+ const {builtinIcons}=await server.ssrLoadModule("/src/cad/overlay/builtin-icons.ts");
+ const {iconSvgElements}=await server.ssrLoadModule("/src/cad/overlay/icon-elements.ts");
  assert.equal(navigationCursor({action:"none"}),"");
  for(const action of ["orbit","zoom","pan","roll"])for(const light of [false,true]){
   const cursor=navigationCursor({action},light),svg=decodeURIComponent(cursor.match(/data:image\/svg\+xml,([^\"]+)/)[1]);
   assert.equal((svg.match(/<g /g)||[]).length,1,"no duplicate halo stroke");
-  assert.ok(!svg.includes('stroke="white"'));assert.ok(svg.includes(light?"#253b50":"#f3bd71"));assert.ok(cursor.endsWith("16 16, move"));
+  assert.ok(!svg.includes('stroke="white"'));assert.ok(svg.includes(light?palette.text:palette.chromeText));
+  assert.ok(svg.includes(iconSvgElements(builtinIcons[`navigation-${action}`],light?palette.primary:palette.axisZ)),"cursor artwork comes from the shared glyph catalog");
+  assert.ok(cursor.endsWith(`16 16, ${action==='pan'?'move':action==='zoom'?'ns-resize':'grabbing'}`));
  }
+ const reference={};assert.ok(navigationCursor({action:'none',solidworks:{reference}}).endsWith(', grab'));
+ assert.ok(navigationCursor({action:'orbit',solidworks:{reference}}).endsWith(', grabbing'),'ready and active cursor caches stay distinct');
+ const {NavigationHUD}=await server.ssrLoadModule('/src/cad/navigation/hud/navigation-hud.ts');
+ const T=await server.ssrLoadModule('three'),hud=new NavigationHUD(),camera=new T.PerspectiveCamera();camera.position.z=100;camera.updateMatrixWorld(true);
+ let draws=0;const renderer={clearDepth(){},render(){draws++}};
+ const circle=hud.circle.geometry.attributes.position;
+ const initial=circle.version;hud.update({action:'none'},camera,800,600);hud.render(renderer);
+ assert.equal(draws,0,'idle HUD adds no empty scene draw');assert.equal(circle.version,initial,'idle frames do not regenerate the sphere');
+ const active={action:'orbit',catia:{showPivot:true,showRotationCircle:true,hudVisible:true,pointer:{x:700,y:300}}};
+ hud.update(active,camera,800,600,true);hud.render(renderer);assert.equal(draws,1);
+ const baked=circle.version;hud.update(active,camera,800,600,true);assert.equal(circle.version,baked,'sphere buffers and dash distances are cached by radius');
+ const scale=hud.pivotMarker.scale.x;hud.update(active,camera,1600,1200,true);assert.equal(hud.pivotMarker.scale.x,scale,'centre marker keeps a fixed CSS pixel size');
+ hud.dispose();
 }finally{await server.close()}

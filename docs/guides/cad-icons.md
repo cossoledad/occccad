@@ -32,6 +32,8 @@
 
 允许的族为 `solid / surface / curve / sketch / constraint / assembly / reference / view / status`。族色是界面辅助编码，不覆盖模型材质。所有元素使用同一坐标系；可复用部件的摆放必须在设计时确定。
 
+视口光标同样读取此图形源：`navigation-orbit/pan/zoom/roll` 属于 `view` 族，分别表示旋转、平移、缩放和视轴滚转。旋转用块体外的一条回转箭头，滚转用平面圆箭头，避免多个重叠环在小尺寸下混成一团。`builtin-icons.ts` 只编译图形，不加载命令运行时；`icon-elements.ts` 共享渲染白名单，并将 CSS 角色转换为独立 SVG 的显式笔画。光标采用 32 CSS px、居中热点与透明边缘，深浅背景各取产品配色；需要修改图形时仍只编辑 JSON，再检查实际光标大小。
+
 ## 增加一个图标
 
 1. 先查已有图标和母形，优先复用相同语义。使用可搜索的稳定英文 key，不根据中文名称、树行位置或数组下标生成 key。

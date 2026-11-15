@@ -35,7 +35,7 @@ test("CATIA native browser chords, sphere, zoom latch, cancellation and persiste
   test.setTimeout(90_000);
   const errors: string[] = []; page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (/THREE.WebGLProgram|VALIDATE_STATUS|Shader Error/.test(message.text())) errors.push(message.text()); });
-  const { x, y } = await openNavigation(page, "3DEXPERIENCE CATIA");
+  const { x, y, box } = await openNavigation(page, "3DEXPERIENCE CATIA");
   const debug = viewportProbe(page,"debug"), camera = viewportProbe(page,"navigation-camera");
   await page.mouse.move(x, y); const initial = await camera.textContent();
   await page.mouse.wheel(0, 120); await expectViewport(camera).toHaveText(initial!);
@@ -65,11 +65,48 @@ test("CATIA native browser chords, sphere, zoom latch, cancellation and persiste
   await expectViewport(debug).not.toContainText("HUD: hidden");
   await page.screenshot({ path: testInfo.outputPath("catia-optional-sphere.png") });
   await page.mouse.up({ button: "left" }); await page.mouse.up({ button: "middle" });
+  // The outer disk is a view-axis roll, including the actual native chord and
+  // side-button release; HUD visibility is independent of this mathematics.
+  await page.mouse.move(box.x+box.width-48,y);await page.mouse.down({button:'middle'});await page.mouse.down({button:'left'});
+  const direction=await page.evaluate(()=>{const e=(window as any).__cameraEngine;return e.camera.getWorldDirection(e.navigation.target.clone()).toArray()});
+  await page.mouse.move(box.x+box.width-48,y+35,{steps:5});await expectViewport(debug).toContainText('catia/roll');
+  const rolledDirection=await page.evaluate(()=>{const e=(window as any).__cameraEngine;return e.camera.getWorldDirection(e.navigation.target.clone()).toArray()});
+  expect(Math.max(...direction.map((v:number,i:number)=>Math.abs(v-rolledDirection[i])))).toBeLessThan(1e-8);
+  await page.screenshot({path:testInfo.outputPath('catia-outside-roll.png')});
+  const rolled=await camera.textContent();await page.mouse.up({button:'left'});await expectViewport(debug).toContainText('catia/zoom');await expectViewport(camera).toHaveText(rolled!);
+  await page.mouse.up({button:'middle'});
   await page.reload();
   await page.getByRole("button", { name: "选项", exact: true }).click();
   await page.getByRole("dialog",{name:"选项",exact:true}).getByRole("menuitem",{name:"导航与捕获",exact:true}).click();
   await expect(page.getByRole("checkbox", { name: "显示旋转球" })).toBeChecked();
   expect(errors).toEqual([]);
+});
+
+test.describe('CATIA rotation and zoom on a 2K viewport',()=>{
+ test.use({viewport:{width:2560,height:1440}});
+ test('free rotation continues past the sphere rim and zoom responds to shorter drags',async({page},info)=>{
+  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  const {x,y,box}=await openNavigation(page,'3DEXPERIENCE CATIA');
+  await page.getByRole('button',{name:'选项',exact:true}).click();let dialog=page.getByRole('dialog',{name:'选项',exact:true});
+  await dialog.getByRole('menuitem',{name:'导航与捕获',exact:true}).click();await dialog.getByRole('checkbox',{name:'显示旋转球',exact:true}).check();await dialog.getByRole('button',{name:'关闭',exact:true}).click();
+  const state=()=>page.evaluate(()=>{const e=(window as any).__cameraEngine;return {rotation:e.camera.quaternion.toArray() as number[],zoom:e.camera.zoom,action:e.navigation.activeAction}});
+  const angle=(a:number[],b:number[])=>2*Math.acos(Math.min(1,Math.abs(a.reduce((sum,v,i)=>sum+v*b[i],0))));
+  const radius=Math.min(box.width,box.height)*.48;
+  await page.mouse.move(x,y);await page.mouse.down({button:'middle'});await page.mouse.down({button:'left'});const initial=await state();
+  await page.mouse.move(x+radius-8,y,{steps:12});const inside=await state();
+  await page.mouse.move(x+radius+56,y,{steps:8});const outside=await state();
+  await page.mouse.move(x+radius+116,y,{steps:8});const further=await state();
+  expect(outside.action).toBe('orbit');expect(further.action).toBe('orbit');
+  expect(angle(inside.rotation,outside.rotation)).toBeGreaterThan(.03);expect(angle(outside.rotation,further.rotation)).toBeGreaterThan(.03);
+  await page.screenshot({path:info.outputPath('2k-orbit-beyond-rim.png')});
+  await page.mouse.move(x,y,{steps:28});expect(angle(initial.rotation,(await state()).rotation)).toBeLessThan(.0005);
+  await page.mouse.up({button:'left'});await page.mouse.up({button:'middle'});
+  await setProjection(page,'平行');const zoom=(await state()).zoom;
+  await page.mouse.move(x,y);await page.keyboard.down('Control');await page.mouse.down({button:'middle'});
+  await page.mouse.move(x,y-box.height/6,{steps:8});expect((await state()).zoom/zoom).toBeCloseTo(2,5);
+  await page.mouse.up({button:'middle'});await page.keyboard.up('Control');
+  await expectViewport(viewportProbe(page,'viewport-selection')).toHaveAttribute('data-count','0');expect(errors).toEqual([]);
+ });
 });
 
 test("SOLIDWORKS modifiers, entity reference, middle double click and focus loss", async ({ page }, testInfo) => {

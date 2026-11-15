@@ -1,9 +1,8 @@
 import { createContext, createElement, useContext, useState } from "react";
 import {builtinCatalog,type IconDefinition} from "../command/workbench-catalog";
+import {iconTags as tags,iconAttributes as attributes} from "./icon-elements";
 export type CadIconName = string;
 export const CadIconContext=createContext<Record<string,IconDefinition>>(builtinCatalog.icons);
-const tags=new Set(["path","circle","rect","line","polyline","polygon","ellipse"]);
-const attributes=new Set(["d","cx","cy","r","x","y","width","height","rx","ry","x1","x2","y1","y2","points","className"]);
 export function CadIcon({name,className}:{name:string;className?:string}) {
  const icons=useContext(CadIconContext),icon=icons[name];
  const [failedResource,setFailedResource]=useState<string>();

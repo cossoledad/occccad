@@ -17,6 +17,7 @@ export interface CameraRig {
   orbitPixels(deltaX: number, deltaY: number): void;
   orbitQuaternion(rotation: THREE.Quaternion): void;
   dollyPixels(deltaY: number, center?: THREE.Vector3): void;
+  dollyLogScale(logScale: number, center?: THREE.Vector3): void;
   lookAtPivot(): void;
 }
 
@@ -110,7 +111,13 @@ export class ThreeCameraRig implements CameraRig {
 
   dollyPixels(deltaY: number, center: THREE.Vector3 = this.pivot): void {
     if (deltaY === 0 || !Number.isFinite(deltaY)) return;
-    const factor = Math.exp(deltaY * this.options.zoomSensitivity);
+    this.dollyLogScale(deltaY*this.options.zoomSensitivity,center);
+  }
+
+  /** Dimensionless zoom input for profiles normalized to viewport height. */
+  dollyLogScale(logScale:number,center:THREE.Vector3=this.pivot):void {
+    if(logScale===0||!Number.isFinite(logScale))return;
+    const factor = Math.exp(logScale);
     if (this.camera instanceof THREE.PerspectiveCamera) {
       // The default center aliases pivot; snapshot it before transforming pivot.
       const anchor = center.clone();
@@ -122,7 +129,7 @@ export class ThreeCameraRig implements CameraRig {
         ? Math.max(barrier.clearance, distance - barrier.distance + barrier.clearance)
         : this.options.minDistance);
       let nextDistance: number;
-      if (deltaY < 0) {
+      if (logScale < 0) {
         // Ease the remaining travel to the first surface, not the distance to
         // an orbit pivot that may lie inside (or behind) the solid. The same
         // exponential composes across input events and never crosses its limit.
@@ -131,7 +138,7 @@ export class ThreeCameraRig implements CameraRig {
         // Reverse along the same surface reference. At the asymptote retain a
         // model-sized exit step, without jumping back towards an interior pivot.
         const remaining = barrier ? Math.max(distance - limit, barrier.clearance) : distance;
-        nextDistance = Math.min(distance + remaining * Math.expm1(deltaY * this.options.zoomSensitivity),
+        nextDistance = Math.min(distance + remaining * Math.expm1(logScale),
           Math.max(distance, this.options.maxDistance));
       }
       const scale = nextDistance / distance;
