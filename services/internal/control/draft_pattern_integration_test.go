@@ -34,14 +34,14 @@ func TestDraftAdditivePatternLifecycleThroughRouter(t *testing.T) {
 					x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sk, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: length})
 				}
 				rectangle(-23, -16, 20, 18, 4)
-				stock := activeBodyArtifact(t, x.v).Volume
+				stock := measuredArtifactVolume(t, activeBodyArtifact(t, x.v))
 				// Start the boss at the same support plane: the range gate must distinguish
 				// its overlap with stock from the net material above the stock.
 				rectangle(7, -2, 11, 2, 14)
 				boss := x.v.Part.Features[len(x.v.Part.Features)-1]
 				body := boss.BodyID
-				pick := findP7TopologyPick(t, s, x.v, "FACE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-					return p.Anchor.FeatureID == boss.ID && strings.HasPrefix(p.Anchor.OutputSlot, "SIDE_FROM_PROFILE_EDGE/") && p.CreationEvidence.Centroid[0] > 10.9
+				pick := findP7TopologyPick(t, s, x.v, "FACE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+					return p.Anchor.FeatureID == boss.ID && strings.HasPrefix(p.Anchor.OutputSlot, "SIDE_FROM_PROFILE_EDGE/") && queriedTopologyCenter(t, queriedProperties)[0] > 10.9
 				})
 				x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "DRAFT", BodyID: body, Angle: 3, Reversed: reverse, NeutralPlaneID: "datum-xy", Selections: []workspace.FeatureSelection{{Selection: pick.Selection, SourceVersionID: pick.SourceVersionID, SourceFeatureID: boss.ID}}}})
 				draft := x.v.Part.Features[len(x.v.Part.Features)-1]
@@ -81,7 +81,7 @@ func TestDraftAdditivePatternLifecycleThroughRouter(t *testing.T) {
 					t.Fatal("draft angle face display ownership")
 				}
 
-				before := activeBodyArtifact(t, x.v).Volume
+				before := measuredArtifactVolume(t, activeBodyArtifact(t, x.v))
 				delta := before - stock
 				definition := workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "ADD", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: kind, Distribution: "FIXED_STEP", Count: 2, Spacing: 18, Angle: 180, Direction: [3]float64{-1, 0, 0}}, Source: workspace.FeatureStageRef{BodyID: body, FeatureID: draft.ID}, SourceKind: "AUTO"}}
 				if kind == "CIRCULAR" {
@@ -105,12 +105,12 @@ func TestDraftAdditivePatternLifecycleThroughRouter(t *testing.T) {
 				r.PreviewID = preview.PreviewID
 				x.apply(r)
 				pattern := x.v.Part.Features[len(x.v.Part.Features)-1]
-				if math.Abs(activeBodyArtifact(t, x.v).Volume-(stock+2*delta)) > 1e-5 || pattern.Pattern.SourceKind != "FEATURE_DELTA" || pattern.Pattern.StartFeatureID != boss.ID {
-					t.Fatal("wrong net material", activeBodyArtifact(t, x.v).Volume, stock+2*delta, pattern.Pattern)
+				if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, x.v))-(stock+2*delta)) > 1e-5 || pattern.Pattern.SourceKind != "FEATURE_DELTA" || pattern.Pattern.StartFeatureID != boss.ID {
+					t.Fatal("wrong net material", measuredArtifactVolume(t, activeBodyArtifact(t, x.v)), stock+2*delta, pattern.Pattern)
 				}
 				final := activeBodyArtifact(t, x.v)
 				x.apply(workspace.CommandRequest{Type: "UNDO"})
-				if math.Abs(activeBodyArtifact(t, x.v).Volume-before) > 1e-5 {
+				if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, x.v))-before) > 1e-5 {
 					t.Fatal("undo")
 				}
 				x.apply(workspace.CommandRequest{Type: "REDO"})
@@ -166,14 +166,14 @@ func TestDraftAdditivePatternLifecycleThroughRouter(t *testing.T) {
 				// An upstream angle edit recomputes both the source and all copies.
 				draft.Angle = 4
 				x.apply(edit(draft))
-				if math.Abs(activeBodyArtifact(t, x.v).Volume-final.Volume) < 1e-5 {
+				if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, x.v))-measuredArtifactVolume(t, final)) < 1e-5 {
 					t.Fatal("angle did not propagate")
 				}
 				pattern = x.v.Part.Features[len(x.v.Part.Features)-1]
 				coldTarget := pattern
 				if kind == "LINEAR" {
-					edge := findP7TopologyPick(t, s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-						return p.Anchor.FeatureID == pattern.ID && strings.HasPrefix(p.Anchor.OutputSlot, "MEMBER/1/") && math.Abs(p.CreationEvidence.Centroid[2]-14) < 1e-6
+					edge := findP7TopologyPick(t, s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+						return p.Anchor.FeatureID == pattern.ID && strings.HasPrefix(p.Anchor.OutputSlot, "MEMBER/1/") && math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-14) < 1e-6
 					})
 					x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: body, Length: .1, Selections: []workspace.FeatureSelection{{Selection: edge.Selection, SourceVersionID: edge.SourceVersionID, SourceFeatureID: pattern.ID}}}})
 					child := x.v.Part.Features[len(x.v.Part.Features)-1]
@@ -317,17 +317,17 @@ func TestFiniteRemovalRangeLifecycleThroughRouter(t *testing.T) {
 				}(), Extent: family, Reversed: true})
 			}
 			cut := x.v.Part.Features[len(x.v.Part.Features)-1]
-			rawVolume := activeBodyArtifact(t, x.v).Volume
-			floor := findP7TopologyPick(t, s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-				return p.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(p.CreationEvidence.Centroid[2]-6) < 1e-6
+			rawVolume := measuredArtifactVolume(t, activeBodyArtifact(t, x.v))
+			floor := findP7TopologyPick(t, s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+				return p.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-6) < 1e-6
 			})
 			x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: body, Length: .5, Selections: []workspace.FeatureSelection{{Selection: floor.Selection, SourceVersionID: floor.SourceVersionID, SourceFeatureID: cut.ID}}}})
 			round := x.v.Part.Features[len(x.v.Part.Features)-1]
-			if activeBodyArtifact(t, x.v).Volume <= rawVolume {
+			if measuredArtifactVolume(t, activeBodyArtifact(t, x.v)) <= rawVolume {
 				t.Fatal("inner fillet must add material locally")
 			}
-			rim := findP7TopologyPick(t, s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-				return p.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(p.CreationEvidence.Centroid[0]-12) < 1e-6 && math.Abs(p.CreationEvidence.Centroid[2]-12) < 1e-6
+			rim := findP7TopologyPick(t, s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+				return p.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(queriedTopologyCenter(t, queriedProperties)[0]-12) < 1e-6 && math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-12) < 1e-6
 			})
 			x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: body, Length: .2, Selections: []workspace.FeatureSelection{{Selection: rim.Selection, SourceVersionID: rim.SourceVersionID, SourceFeatureID: round.ID}}}})
 			end := x.v.Part.Features[len(x.v.Part.Features)-1]
@@ -335,11 +335,11 @@ func TestFiniteRemovalRangeLifecycleThroughRouter(t *testing.T) {
 			if cap.SourceKind != "FEATURE_DELTA" || cap.StartFeatureID != cut.ID || cap.Operation != "REMOVE" {
 				t.Fatal("range capability", cap)
 			}
-			net := 48000 - activeBodyArtifact(t, x.v).Volume
+			net := 48000 - measuredArtifactVolume(t, activeBodyArtifact(t, x.v))
 			definition := workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "ADD", Pattern: &workspace.FeaturePattern{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: end.ID}, SourceKind: "AUTO", ResultMode: "COMBINE", AdditionalSources: []workspace.PatternSeed{{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: cut.ID}, SourceKind: "AUTO"}, {Source: workspace.FeatureStageRef{BodyID: body, FeatureID: round.ID}, SourceKind: "AUTO"}}, PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 2, Spacing: 24, Direction: [3]float64{-1, 0, 0}}}}
 			req := x.request(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &definition})
 			hot := preview(req)
-			closeVolume(hot.Artifact.Volume, 48000-2*net)
+			closeVolume(measuredArtifactVolume(t, hot.Artifact), 48000-2*net)
 			var reused, executed uint32
 			if hot.Runtime == nil {
 				t.Fatal("runtime evidence missing")
@@ -365,7 +365,7 @@ func TestFiniteRemovalRangeLifecycleThroughRouter(t *testing.T) {
 					p.MirrorPlaneID = "datum-yz"
 				}
 				candidate := preview(x.request(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &f}))
-				closeVolume(candidate.Artifact.Volume, 48000-2*net)
+				closeVolume(measuredArtifactVolume(t, candidate.Artifact), 48000-2*net)
 				s.DiscardPreview(x.v.Document.ID, p6Actor, candidate.PreviewID)
 			}
 			req.PreviewID = hot.PreviewID
@@ -381,7 +381,7 @@ func TestFiniteRemovalRangeLifecycleThroughRouter(t *testing.T) {
 			}
 			first := activeBodyArtifact(t, x.v)
 			x.apply(workspace.CommandRequest{Type: "UNDO"})
-			closeVolume(activeBodyArtifact(t, x.v).Volume, 48000-net)
+			closeVolume(measuredArtifactVolume(t, activeBodyArtifact(t, x.v)), 48000-net)
 			x.apply(workspace.CommandRequest{Type: "REDO"})
 			if activeBodyArtifact(t, x.v).GeometryID != first.GeometryID {
 				t.Fatal("range redo differs")
@@ -399,8 +399,8 @@ func TestFiniteRemovalRangeLifecycleThroughRouter(t *testing.T) {
 			r := edit(changed)
 			r.ParameterExpressions = map[string]string{"length": "0.6 mm"}
 			x.apply(r)
-			net = 48000 - stage(end.ID).Volume
-			closeVolume(activeBodyArtifact(t, x.v).Volume, 48000-2*net)
+			net = 48000 - measuredArtifactVolume(t, stage(end.ID))
+			closeVolume(measuredArtifactVolume(t, activeBodyArtifact(t, x.v)), 48000-2*net)
 			if family == "FINITE" {
 				// Inserting any step into the accepted machining interval is atomic rejection.
 				x.reject(x.insert(cut.ID, [3]float64{40, 25, 6}, .1), "FEATURE_DELTA")
@@ -409,9 +409,9 @@ func TestFiniteRemovalRangeLifecycleThroughRouter(t *testing.T) {
 				f.Pattern = &p
 				p.Count = 3
 				x.apply(edit(f))
-				closeVolume(activeBodyArtifact(t, x.v).Volume, 48000-3*net)
-				mouth := findP7TopologyPick(t, s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-					return p.Anchor.FeatureID == pattern.ID && p.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(p.CreationEvidence.Centroid[0]+36) < 1e-6 && math.Abs(p.CreationEvidence.Centroid[2]-12) < 1e-6
+				closeVolume(measuredArtifactVolume(t, activeBodyArtifact(t, x.v)), 48000-3*net)
+				mouth := findP7TopologyPick(t, s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+					return p.Anchor.FeatureID == pattern.ID && p.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(queriedTopologyCenter(t, queriedProperties)[0]+36) < 1e-6 && math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-12) < 1e-6
 				})
 				x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: body, Length: .05, Selections: []workspace.FeatureSelection{{Selection: mouth.Selection, SourceVersionID: mouth.SourceVersionID, SourceFeatureID: pattern.ID}}}})
 				child := x.v.Part.Features[len(x.v.Part.Features)-1]
@@ -421,7 +421,7 @@ func TestFiniteRemovalRangeLifecycleThroughRouter(t *testing.T) {
 				p.Count = 2
 				r = edit(f)
 				repair := preview(r)
-				closeVolume(repair.Artifact.Volume, 48000-2*net)
+				closeVolume(measuredArtifactVolume(t, repair.Artifact), 48000-2*net)
 				if len(repair.RepairRequired) != 1 || repair.RepairRequired[0].FeatureID != child.ID {
 					t.Fatal("downstream repair preview absent", repair.RepairRequired)
 				}
@@ -442,7 +442,7 @@ func TestFiniteRemovalRangeLifecycleThroughRouter(t *testing.T) {
 					}
 					if bound.Selection != nil {
 						e := bound.Selection.Selection.CreationEvidence
-						if e.GeometryType == "CIRCLE" && math.Abs(e.Centroid[0]+12) < 1e-6 && math.Abs(e.Centroid[2]-12) < 1e-6 {
+						if e.GeometryType == "CIRCLE" && math.Abs(e.Origin[0]+12) < 1e-6 && math.Abs(e.Origin[2]-12) < 1e-6 {
 							pick = bound.Selection
 							break
 						}
@@ -462,10 +462,10 @@ func TestFiniteRemovalRangeLifecycleThroughRouter(t *testing.T) {
 				f.Pattern = &p
 				p.Count = 3
 				x.apply(edit(f))
-				before := activeBodyArtifact(t, x.v).Volume
+				before := measuredArtifactVolume(t, activeBodyArtifact(t, x.v))
 				chain := workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "ADD", Pattern: &workspace.FeaturePattern{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: pattern.ID}, SourceKind: "AUTO", ResultMode: "COMBINE", PatternDefinition: workspace.PatternDefinition{Kind: "MIRROR", Distribution: "FIXED_STEP", Count: 2, Direction: [3]float64{0, 1, 0}, MirrorPlaneID: "datum-xz"}}}
 				x.apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &chain})
-				closeVolume(activeBodyArtifact(t, x.v).Volume, before-2*net)
+				closeVolume(measuredArtifactVolume(t, activeBodyArtifact(t, x.v)), before-2*net)
 			}
 			final := activeBodyArtifact(t, x.v)
 			last := x.v.Part.Features[len(x.v.Part.Features)-1]
@@ -507,12 +507,12 @@ func TestRemovalRangeRejectsOutsideMaterialThroughRouter(t *testing.T) {
 		x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sk, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "circle", Kind: "CIRCLE", Role: "PROFILE", Center: &workspace.SketchPoint2{X: -8}, Radius: 6}}}})
 		x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sk, Generator: "LINEAR_EXTRUDE", Operation: "REMOVE", BodyID: body, Length: 8, Reversed: true})
 		cut := x.v.Part.Features[len(x.v.Part.Features)-1]
-		face := findP7TopologyPick(t, s, x.v, "FACE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-			return p.CreationEvidence.GeometryType == "PLANE" && p.CreationEvidence.Centroid[0] > 19.9
+		face := findP7TopologyPick(t, s, x.v, "FACE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+			return p.CreationEvidence.GeometryType == "PLANE" && queriedTopologyCenter(t, queriedProperties)[0] > 19.9
 		})
 		x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "DRAFT", BodyID: body, Angle: 3, Reversed: reverse, NeutralPlaneID: "datum-xy", Selections: []workspace.FeatureSelection{{Selection: face.Selection, SourceVersionID: face.SourceVersionID, SourceFeatureID: cut.ID}}}})
 		draft := x.v.Part.Features[len(x.v.Part.Features)-1]
-		if activeBodyArtifact(t, x.v).Volume >= 16000 {
+		if measuredArtifactVolume(t, activeBodyArtifact(t, x.v)) >= 16000 {
 			t.Fatal("counterexample must have net volume removal")
 		}
 		f := workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "ADD", Pattern: &workspace.FeaturePattern{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: draft.ID}, SourceKind: "AUTO", PatternDefinition: workspace.PatternDefinition{Kind: "MIRROR", Distribution: "FIXED_STEP", Count: 2, Direction: [3]float64{1, 0, 0}, MirrorPlaneID: "datum-yz"}}}

@@ -80,7 +80,7 @@ func TestContinuousComplexModeling100BaselineThroughRouter(t *testing.T) {
 	apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: stock.BodyID, Operation: "REMOVE", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "CIRCULAR", Distribution: "FULL_CIRCLE", Count: 2, Direction: [3]float64{0, 0, 1}}, SourceKind: "GENERATOR_TOOL", Source: workspace.FeatureStageRef{BodyID: stock.BodyID, FeatureID: seed.ID}, ResultMode: "COMBINE"}}})
 	pattern := last()
 	member := findP7TopologyPick(t, service, view, "EDGE", func(p workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-		return s.Anchor.FeatureID == pattern.ID && strings.HasPrefix(s.Anchor.OutputSlot, "MEMBER/1/") && p.GeometryType == "CIRCLE" && math.Abs(s.CreationEvidence.Centroid[2]) < 1e-5
+		return s.Anchor.FeatureID == pattern.ID && strings.HasPrefix(s.Anchor.OutputSlot, "MEMBER/1/") && p.GeometryType == "CIRCLE" && math.Abs(queriedTopologyCenter(t, p)[2]) < 1e-5
 	})
 	apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: stock.BodyID, Length: 0.15, Selections: []workspace.FeatureSelection{{Selection: member.Selection, SourceVersionID: member.SourceVersionID}}}})
 	chamfer := last()
@@ -104,7 +104,8 @@ func TestContinuousComplexModeling100BaselineThroughRouter(t *testing.T) {
 			before := activeBodyArtifact(t, view).GeometryID
 			elapsed := apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: u.id, Unit: u.unit, Value: u.value})
 			a := activeBodyArtifact(t, view)
-			if !(a.Volume > 0) || math.IsNaN(a.Volume) || math.IsInf(a.Volume, 0) || p6TopologyCount(t, a.Topology, "solids") != 1 {
+			volume := measuredArtifactVolume(t, a)
+			if !(volume > 0) || math.IsNaN(volume) || math.IsInf(volume, 0) || p6TopologyCount(t, a.Topology, "solids") != 1 {
 				t.Fatal("invalid final solid")
 			}
 			if a.GeometryID == before {
@@ -125,7 +126,7 @@ func TestContinuousComplexModeling100BaselineThroughRouter(t *testing.T) {
 			if err := json.Unmarshal(manifest.Runtime, &execution); err != nil {
 				t.Fatal(err)
 			}
-			step := modelingBaselineStep{Index: len(report.Steps) + 1, Round: round, Operation: u.name, Value: u.value, Unit: u.unit, WallMS: float64(elapsed) / float64(time.Millisecond), GeometryID: a.GeometryID, Volume: a.Volume}
+			step := modelingBaselineStep{Index: len(report.Steps) + 1, Round: round, Operation: u.name, Value: u.value, Unit: u.unit, WallMS: float64(elapsed) / float64(time.Millisecond), GeometryID: a.GeometryID, Volume: volume}
 			for _, w := range execution.WorkerRuns {
 				step.Executed += int(w.StagesExecuted)
 				step.Reused += int(w.StagesReused)
@@ -185,7 +186,7 @@ func TestContinuousComplexModeling100BaselineThroughRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	report.ColdCheckMS = float64(time.Since(coldStart)) / float64(time.Millisecond)
-	if cold.Artifact == nil || cold.Artifact.GeometryID != final.GeometryID || math.Abs(cold.Artifact.Volume-final.Volume) > 1e-7 {
+	if cold.Artifact == nil || cold.Artifact.GeometryID != final.GeometryID || math.Abs(measuredArtifactVolume(t, cold.Artifact)-measuredArtifactVolume(t, final)) > 1e-7 {
 		t.Fatal("final state differs from real cold rebuild")
 	}
 	read := func(a workspace.Artifact, role string) []byte {

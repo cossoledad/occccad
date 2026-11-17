@@ -1,3 +1,4 @@
+import {measuredArtifactVolume} from "./measurement-oracle";
 import {searchTool as command} from './command-helpers';
 import {confirmCommandName} from "./command-labels";
 import {expect,test,type Page} from '@playwright/test';
@@ -50,7 +51,7 @@ test('Extracted faces sew and close from viewport as a whole skin while source f
  await ready(page,d);await expect(d).toContainText('Sewn closed skin');const notices=await captureFeatureNotices(page);
  await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);expect(await notices()).toEqual([]);
  let v=await document(page,seed.id);const closed=v.part.features.at(-1);expect(closed.type).toBe('CLOSE_SURFACE');expect(closed.geometry.inputs).toEqual([{kind:'RESULT',featureId:seed.shell,resultId:'result'}]);
- const created=v.part.bodies.find((b:any)=>b.createdByFeatureId===closed.id);expect(v.artifacts[created.geometryKey].volume).toBeCloseTo(1920,5);
+ const created=v.part.bodies.find((b:any)=>b.createdByFeatureId===closed.id);expect(await measuredArtifactVolume(page,v.artifacts[created.geometryKey])).toBeCloseTo(1920,5);
  // Leaving whole-result selection restores normal sub-element commands.
  await command(page,'提取');d=page.getByRole('dialog',{name:'提取',exact:true});await clickWorld(page,[0,0,8]);await ready(page,d);
  await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);v=await document(page,seed.id);const extracted=v.part.features.at(-1);expect(extracted.geometry.inputs[0].kind).toBe('TOPOLOGY');expect(extracted.geometry.inputs[0].selection.selection.expectedType).toBe('FACE');expect(v.artifacts[extracted.result.geometryKey].topology.faces).toBe(1);
@@ -114,11 +115,11 @@ test('Geometry tabs: explicit picks, associative direction, history and reopen',
  await sheet.getByRole('button',{name:confirmCommandName}).click();await expect(sheet).toHaveCount(0);const surface=(await document(page,id)).part.features.at(-1);expect(surface.geometry.direction).toEqual({kind:'RESULT',featureId:seed.direction,resultId:'result'});
  await treeNavigator(page)(surface.name,`/feature:${surface.id}`);await expect(page.locator(`[role=treeitem][data-tree-key$="/feature:${surface.id}"] .tree-type-icon [data-icon="surface-extrude"]`)).toBeVisible();
  await command(page,'加厚');const thick=page.getByRole('dialog',{name:'加厚',exact:true});await clickWorld(page,[17,3,10]);await ready(page,thick);await thick.getByRole('button',{name:confirmCommandName}).click();await expect(thick).toHaveCount(0);
- const volume=(v:any)=>Object.values(v.artifacts).reduce((n:number,a:any)=>n+(a.geometryDomain==='SOLID_SET'?a.volume:0),0);expect(volume(await document(page,id))).toBeCloseTo(1200,5);
+ const volume=async(v:any)=>(await Promise.all(Object.values(v.artifacts).filter((a:any)=>a.geometryDomain==='SOLID_SET').map((a:any)=>measuredArtifactVolume(page,a)))).reduce((n,a)=>n+a,0);expect(await volume(await document(page,id))).toBeCloseTo(1200,5);
  await selectTree(page,seed.points['Direction end'],'Direction end','point');await page.locator(`[role=treeitem][data-tree-key$="/point:${seed.points['Direction end']}"]`).getByText('Direction end',{exact:true}).dblclick();
  const edit=page.getByRole('dialog',{name:'编辑参考点',exact:true});await edit.getByRole('combobox',{name:'Y',exact:true}).fill('13');await edit.getByRole('combobox',{name:'Y',exact:true}).blur();await edit.getByRole('combobox',{name:'Z',exact:true}).fill('5');await edit.getByRole('combobox',{name:'Z',exact:true}).blur();await expect(edit.getByRole('button',{name:confirmCommandName})).toBeEnabled();await edit.getByRole('button',{name:confirmCommandName}).click();await expect(edit).toHaveCount(0);
  const bounds=async()=>{const v=await document(page,id),f=v.part.features.find((f:any)=>f.id===surface.id);return v.artifacts[f.result.geometryKey].bbox};
- await expect.poll(async()=>(await bounds()).max[1]).toBeCloseTo(23,4);expect(volume(await document(page,id))).toBeCloseTo(1200,5);
+ await expect.poll(async()=>(await bounds()).max[1]).toBeCloseTo(23,4);expect(await volume(await document(page,id))).toBeCloseTo(1200,5);
  const edited=(await document(page,id)).part.features.find((f:any)=>f.id===surface.id);expect(edited.geometry).toEqual(surface.geometry);
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await bounds()).max[2]).toBeCloseTo(20,4);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await bounds()).max[1]).toBeCloseTo(23,4);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();await expect.poll(async()=>(await bounds()).max[1]).toBeCloseTo(23,4);await page.screenshot({path:info.outputPath('geometry-reopened.png')});expect(errors).toEqual([]);
@@ -152,7 +153,7 @@ test('Solid sweep selects an exact spatial curve in the viewport',async({page},i
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await treeNavigator(page)(seed.sketchName??'Sketch',`/sketch:${seed.sketch}`);await page.locator(`[role=treeitem][data-tree-key$="/sketch:${seed.sketch}"]`).click();
  await command(page,'扫掠');const dialog=page.getByRole('dialog',{name:/创建.*扫掠/});await expect(dialog.getByRole('button',{name:confirmCommandName})).toBeDisabled();await expect(dialog.getByRole('button',{name:'移除轮廓',exact:true})).toHaveCount(1);await page.locator(`[role=treeitem][data-tree-key$="/sketch:${seed.sketch}"]`).click();await dialog.getByRole('button',{name:'选择路径曲线',exact:true}).click();
  await clickWorld(page,[5,6.25,15]);await ready(page,dialog);await expect(dialog).toContainText('Spatial rail');await page.screenshot({path:info.outputPath('spatial-curve-sweep-preview.png')});
- await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);const v=await document(page,seed.id),sweep=v.part.features.at(-1);expect(sweep.type).toBe('SWEEP');expect(sweep.sweep.path.geometry.kind).toBe('TOPOLOGY');expect(sweep.sweep.path.geometry.selection.selection.sourceResult).toBeTruthy();expect(Object.values(v.artifacts).some((a:any)=>a.geometryDomain==='SOLID_SET'&&a.volume>30*Math.PI)).toBeTruthy();
+ await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);const v=await document(page,seed.id),sweep=v.part.features.at(-1);expect(sweep.type).toBe('SWEEP');expect(sweep.sweep.path.geometry.kind).toBe('TOPOLOGY');expect(sweep.sweep.path.geometry.selection.selection.sourceResult).toBeTruthy();expect((await Promise.all(Object.values(v.artifacts).filter((a:any)=>a.geometryDomain==='SOLID_SET').map((a:any)=>measuredArtifactVolume(page,a)))).some(volume=>volume>30*Math.PI)).toBeTruthy();
 });
 
 test('Associative curve tools preserve input roles and display point results',async({page},info)=>{
@@ -204,7 +205,7 @@ test('Engineering surfaces: empty dialogs, viewport picks, ordered loft, sewing 
  d=await open('连接','geometry.surface-join');for(const f of [walls,...caps])await pick(f);const join=await confirm(d);expect(join.geometry.inputs).toHaveLength(3);
  d=await open('缝合');for(const f of [walls,...caps])await pick(f);const shell=await confirm(d);
  d=await open('封闭');await pick(shell);const closed=await confirm(d);expect(closed.type).toBe('CLOSE_SURFACE');
- let current=await document(page,seed.id);expect(Object.values(current.artifacts).some((a:any)=>a.geometryDomain==='SOLID_SET'&&Math.abs(a.volume-2000)<1e-4)).toBe(true);
+ let current=await document(page,seed.id);expect((await Promise.all(Object.values(current.artifacts).filter((a:any)=>a.geometryDomain==='SOLID_SET').map((a:any)=>measuredArtifactVolume(page,a)))).some(volume=>Math.abs(volume-2000)<1e-4)).toBe(true);
  d=await open('延长');await pick(sweep);await clickWorld(page,[10,0,20]);await page.screenshot({path:info.outputPath('engineering-extension-boundary.png')});const extended=await confirm(d);expect(extended.geometry.inputs[1].kind).toBe('TOPOLOGY');
  d=await open('偏移','geometry.surface-offset');await pick(sweep);const offset=await confirm(d);expect(offset.geometry.parameters.distance).toBe(2);
  d=await open('裁剪','geometry.surface-trim');await pick(sweep);await pick(seed.cutter);await selectTree(page,seed.keep.id,seed.keep.name,'point');await ready(page,d);await page.screenshot({path:info.outputPath('engineering-trim-keep-point.png')});const trim=await confirm(d);expect(trim.geometry.keepPoint.kind).toBe('DATUM');

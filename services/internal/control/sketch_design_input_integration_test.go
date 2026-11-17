@@ -84,8 +84,8 @@ func TestSketchDimensionsDriveSolidThroughRouter(t *testing.T) {
 	volume := func(w float64) {
 		t.Helper()
 		want := 4 * (w*20 - math.Pi*math.Pow(w/16, 2))
-		if math.Abs(activeBodyArtifact(t, view).Volume-want) > 1e-5 {
-			t.Fatalf("volume=%g want=%g", activeBodyArtifact(t, view).Volume, want)
+		if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-want) > 1e-5 {
+			t.Fatalf("volume=%g want=%g", measuredArtifactVolume(t, activeBodyArtifact(t, view)), want)
 		}
 	}
 	volume(40)

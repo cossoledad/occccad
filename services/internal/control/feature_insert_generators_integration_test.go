@@ -12,7 +12,7 @@ func TestInsertExpandedGeneratorsAndExtentsThroughRouter(t *testing.T) {
 	for _, kind := range []string{"TWO_SIDED", "SYMMETRIC", "THROUGH_ALL", "TO_PLANE", "REVOLVE", "HOLE", "LOFT"} {
 		t.Run(kind, func(t *testing.T) {
 			x := newInsertionScene(t)
-			initial := activeBodyArtifact(t, x.v).Volume
+			initial := measuredArtifactVolume(t, activeBodyArtifact(t, x.v))
 			sketch := x.historicalSketch(x.base.ID, kind == "HOLE", false)
 			expected := initial
 			if kind == "REVOLVE" {
@@ -86,8 +86,8 @@ func TestInsertExpandedGeneratorsAndExtentsThroughRouter(t *testing.T) {
 			}
 			r.PreviewID = preview.PreviewID
 			x.apply(r)
-			if math.Abs(activeBodyArtifact(t, x.v).Volume-expected) > 1e-4 {
-				t.Fatal("inserted geometry", activeBodyArtifact(t, x.v).Volume, expected)
+			if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, x.v))-expected) > 1e-4 {
+				t.Fatal("inserted geometry", measuredArtifactVolume(t, activeBodyArtifact(t, x.v)), expected)
 			}
 			inserted := x.v.Part.Features[len(x.v.Part.Features)-2]
 			if inserted.ID == x.chamfer.ID || x.v.Part.Features[len(x.v.Part.Features)-1].ID != x.chamfer.ID {
@@ -95,11 +95,11 @@ func TestInsertExpandedGeneratorsAndExtentsThroughRouter(t *testing.T) {
 			}
 			final := activeBodyArtifact(t, x.v)
 			x.apply(workspace.CommandRequest{Type: "UNDO"})
-			if math.Abs(activeBodyArtifact(t, x.v).Volume-initial) > 1e-5 {
+			if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, x.v))-initial) > 1e-5 {
 				t.Fatal("undo failed")
 			}
 			x.apply(workspace.CommandRequest{Type: "REDO"})
-			if math.Abs(activeBodyArtifact(t, x.v).Volume-expected) > 1e-4 {
+			if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, x.v))-expected) > 1e-4 {
 				t.Fatal("redo failed")
 			}
 			fresh := workspace.NewWithArtifacts(x.db, x.client, x.artifacts)
@@ -157,11 +157,11 @@ func TestInsertInputSketchBeforeFirstGeneratorThroughRouter(t *testing.T) {
 	base.Profile = sketch.ID
 	base.ProfileSelection = &workspace.ProfileRegionSelection{Mode: "REGIONS", RegionIDs: append([]string(nil), x.v.SketchAnalyses[sketch.ID].RegionIDs...)}
 	x.apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: base.ID, Feature: &base, ExpectedFeatureDigest: findP6FeatureDigest(t, x.v.StructureTree, base.ID)})
-	if math.Abs(activeBodyArtifact(t, x.v).Volume-500*math.Pi) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, x.v))-500*math.Pi) > 1e-5 {
 		t.Fatal("generator did not consume newly inserted input")
 	}
 	x.apply(workspace.CommandRequest{Type: "UNDO"})
-	if math.Abs(activeBodyArtifact(t, x.v).Volume-8000) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, x.v))-8000) > 1e-5 {
 		t.Fatal("replacement undo failed")
 	}
 	x.apply(workspace.CommandRequest{Type: "REDO"})

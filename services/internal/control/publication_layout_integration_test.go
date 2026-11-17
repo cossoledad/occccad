@@ -975,8 +975,8 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 			t.Fatal("invalid local candidate")
 		}
 		art := v.Artifacts[cv.Bodies[0].GeometryKey]
-		if math.Abs(art.Volume-wantVolume) > 1e-5 {
-			t.Fatal("wrong exact local volume", art.Volume, wantVolume)
+		if math.Abs(measuredArtifactVolume(t, art)-wantVolume) > 1e-5 {
+			t.Fatal("wrong exact local volume", measuredArtifactVolume(t, art), wantVolume)
 		}
 		for _, f := range cv.Part.Features {
 			if (f.ID == hole || f.ID == chamfer) && f.EvaluationStatus != "" {
@@ -1052,7 +1052,7 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 		}
 		req.PreviewID = preview.PreviewID
 		run(&root, req)
-		check(root, first, firstArt.Volume, 3)
+		check(root, first, measuredArtifactVolume(t, firstArt), 3)
 		b := root.Product.ContextBindings[slices.IndexFunc(root.Product.ContextBindings, func(b workspace.ContextBinding) bool { return b.ID == req.ContextBindingID })]
 		raw, _ := json.Marshal(b)
 		if b.Local == nil || strings.Contains(string(raw), source.Document.ID) || b.Publication.PublicationID != "" || len(b.SourceInstancePath.Segments) != 0 {
@@ -1060,7 +1060,7 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 		}
 	}
 	other, _ := json.Marshal(root.Product.ContextBindings[7:])
-	check(root, second, root.Artifacts[variant(baseline, second).Bodies[0].GeometryKey].Volume, 3)
+	check(root, second, measuredArtifactVolume(t, root.Artifacts[variant(baseline, second).Bodies[0].GeometryKey]), 3)
 	if string(other) != string(originalBindings) {
 		t.Fatal("other occurrence inputs changed")
 	}
@@ -1078,7 +1078,7 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 	if e != nil || defaultPreview.ReplacementView == nil {
 		t.Fatal("accepted default preview", e)
 	}
-	check(*defaultPreview.ReplacementView, first, firstArt.Volume+4*math.Pi, 2)
+	check(*defaultPreview.ReplacementView, first, measuredArtifactVolume(t, firstArt)+4*math.Pi, 2)
 	if defaultPreview.ReplacementView.Product.Instances[1].ReferencedVersionID != independentRevision {
 		t.Fatal("restoration advanced receiver to new Part Head")
 	}
@@ -1095,7 +1095,7 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 		t.Fatal("undo did not restore source")
 	}
 	run(&root, workspace.CommandRequest{Type: "REDO"})
-	check(root, first, firstArt.Volume, 3)
+	check(root, first, measuredArtifactVolume(t, firstArt), 3)
 	for _, id := range bindingIDs[1] {
 		run(&root, workspace.CommandRequest{Type: "LOCALIZE_CONTEXT_INPUT", VersionID: root.Document.VersionID, ContextBindingID: id})
 	}
@@ -1113,7 +1113,7 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 		}
 	}
 	run(&root, workspace.CommandRequest{Type: "UPDATE_REFERENCES", UpdatePlanDigest: plan.Digest})
-	check(root, first, firstArt.Volume, 3)
+	check(root, first, measuredArtifactVolume(t, firstArt), 3)
 	// The source occurrence can now advance without changing local input values.
 	pointPub := source.Part.Publications[slices.IndexFunc(source.Part.Publications, func(p workspace.Publication) bool { return p.Name == "point" })]
 	reconnect := workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-bad-reconnect", Type: "EDIT_CONTEXT_BINDING", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["point"], SourceInstancePath: func() *workspace.InstancePath { p := path(root, 0); return &p }(), PublicationID: pointPub.ID, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"}
@@ -1135,21 +1135,21 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 	reconnect.SourceInstancePath = func() *workspace.InstancePath { p := path(root, 0); return &p }()
 	run(&root, reconnect)
 	wantedPoint[first] = 25
-	check(root, first, firstArt.Volume, 3)
+	check(root, first, measuredArtifactVolume(t, firstArt), 3)
 	b := root.Product.ContextBindings[slices.IndexFunc(root.Product.ContextBindings, func(b workspace.ContextBinding) bool { return b.ID == bindingIDs[0]["point"] })]
 	if b.Local != nil {
 		t.Fatal("reconnect retained local state")
 	}
 	run(&root, workspace.CommandRequest{Type: "RESTORE_CONTEXT_INPUT_DEFAULT", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["Depth"]})
-	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	check(root, first, measuredArtifactVolume(t, firstArt)+4*math.Pi, 2)
 	run(&root, workspace.CommandRequest{Type: "UNDO"})
-	check(root, first, firstArt.Volume, 3)
+	check(root, first, measuredArtifactVolume(t, firstArt), 3)
 	run(&root, workspace.CommandRequest{Type: "REDO"})
-	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	check(root, first, measuredArtifactVolume(t, firstArt)+4*math.Pi, 2)
 	// The old tree/API deletion is precisely the same restoration operation,
 	// including forwarded values and candidate preview/cancel semantics.
 	run(&root, workspace.CommandRequest{Type: "UNDO"})
-	check(root, first, firstArt.Volume, 3)
+	check(root, first, measuredArtifactVolume(t, firstArt), 3)
 	deleteReq := workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-delete-default-preview", Type: "DELETE_CONTEXT_BINDING", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["Depth"]}
 	beforeDelete := root.Document.VersionID
 	p, e := s.PreviewCommand(t.Context(), root.Document.ID, deleteReq)
@@ -1165,17 +1165,17 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 		t.Fatal("delete cancel wrote Head")
 	}
 	run(&root, deleteReq)
-	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	check(root, first, measuredArtifactVolume(t, firstArt)+4*math.Pi, 2)
 	if math.Abs(root.Product.Publications[0].Resolution.Value.SIValue-.002) > 1e-9 {
 		t.Fatal("delete did not commit publication refresh")
 	}
 	run(&root, workspace.CommandRequest{Type: "UNDO"})
-	check(root, first, firstArt.Volume, 3)
+	check(root, first, measuredArtifactVolume(t, firstArt), 3)
 	if math.Abs(root.Product.Publications[0].Resolution.Value.SIValue-.003) > 1e-9 {
 		t.Fatal("undo did not restore forwarded snapshot")
 	}
 	run(&root, workspace.CommandRequest{Type: "REDO"})
-	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	check(root, first, measuredArtifactVolume(t, firstArt)+4*math.Pi, 2)
 	// Every source is removed from the current graph before making it unavailable.
 	run(&root, workspace.CommandRequest{Type: "LOCALIZE_CONTEXT_INPUT", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["point"]})
 	run(&root, workspace.CommandRequest{Type: "DELETE_NODE", TargetKind: "INSTANCE", TargetID: root.Product.Instances[0].ID})
@@ -1190,9 +1190,9 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 		t.Fatal("local rebuild read unavailable source", e)
 	}
 	root = cold
-	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	check(root, first, measuredArtifactVolume(t, firstArt)+4*math.Pi, 2)
 	read(&root)
-	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	check(root, first, measuredArtifactVolume(t, firstArt)+4*math.Pi, 2)
 	// Saved modules remain readable when rebased through multiple owning Products.
 	module := create("PRODUCT", "Saved local module")
 	run(&module, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: root.Document.ID})

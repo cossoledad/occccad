@@ -47,7 +47,9 @@ func newSketchWorkflowFixture(t *testing.T) *sketchWorkflowFixture {
 		t.Fatal(err)
 	}
 	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := NewWithArtifacts(pool, worker, artifact.NewService(pool, store, developmentStaging))
 	actor := "00000000-0000-7000-8000-000000000001"
 	view, err := service.CreateDocument(ctx, CreateDocumentRequest{RequestID: uuid.NewString(), Name: "sketch-workflow-" + uuid.NewString(), Type: "PART", ActorID: actor})
@@ -96,10 +98,10 @@ func (f *sketchWorkflowFixture) volume(v DocumentView, want float64) {
 	f.t.Helper()
 	total := 0.0
 	for _, artifact := range v.Artifacts {
-		total += artifact.Volume
+		total += measuredArtifactVolume(f.t, artifact)
 	}
 	if len(v.Artifacts) == 0 && v.Artifact != nil {
-		total = v.Artifact.Volume
+		total = measuredArtifactVolume(f.t, v.Artifact)
 	}
 	if math.Abs(total-want) > 1e-6*math.Max(1, want) {
 		f.t.Fatalf("exact per-Body solid volume got %g want %.12g bodies=%d", total, want, len(v.Artifacts))
@@ -438,7 +440,7 @@ func TestSketchWorkflowFitPointEditRebuildsCanonicalAndSolid(t *testing.T) {
 	volume := func(v DocumentView) float64 {
 		total := 0.0
 		for _, a := range v.Artifacts {
-			total += a.Volume
+			total += measuredArtifactVolume(t, a)
 		}
 		return total
 	}

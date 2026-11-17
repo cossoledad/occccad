@@ -26,6 +26,12 @@ try {
  const pending=decoder.decode(new ArrayBuffer(600000),true,active.signal),waiting=decoder.decode(new ArrayBuffer(600000),false,queued.signal);
  const stopped=assert.rejects(pending,e=>e.name==='AbortError'),removed=assert.rejects(waiting,e=>e.name==='AbortError');
  decoder.dispose();await Promise.all([stopped,removed]);assert.equal(workers.at(-1).terminated,true);
+ const live={buffers:{positions:new Float32Array([0,0,0,1,0,0,0,1,0]),indices:new Uint32Array(33000),faceIds:new Uint32Array(11000)}};
+ const prepared=decoder.prepareContours(live,new AbortController().signal);
+ const task=workers.at(-1);assert.ok(task.data.incidence);assert.equal(task.data.buffer,undefined,"promotion sends only incidence inputs");
+ assert.equal(live.buffers.indices.byteLength,132000,"live display buffer is never detached");
+ const graph={endpoints:new Uint32Array([0,1])};task.onmessage({data:{id:task.data.id,contourIncidence:graph}});
+ assert.equal(await prepared,graph);
  const shared=new AbortController(),lane=new VisualDecoder(),before=workers.length;
  const requests=Array.from({length:3},()=>assert.rejects(lane.decode(new ArrayBuffer(600000),true,shared.signal),e=>e.name==='AbortError'));
  assert.equal(workers.length,before+1);shared.abort();await Promise.all(requests);

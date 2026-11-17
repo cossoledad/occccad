@@ -227,14 +227,13 @@ CREATE TABLE occccad.geometry_artifacts (
     display_vertex_count bigint DEFAULT 0 NOT NULL,
     bbox_json jsonb NOT NULL,
     topology_json jsonb NOT NULL,
-    volume double precision NOT NULL,
+    validation_policy text NOT NULL,
     evaluation_count integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     reference_geometry_json jsonb DEFAULT '{"primitives": [], "schemaVersion": 1, "referenceGeometry": {"axisSystems": [], "datumPlanes": []}}'::jsonb NOT NULL,
     worker_id text DEFAULT 'metadata-service'::text NOT NULL,
     CONSTRAINT geometry_artifacts_evaluation_count_check CHECK ((evaluation_count > 0)),
     CONSTRAINT geometry_artifacts_units_check CHECK ((units = 'mm'::text)),
-    CONSTRAINT geometry_artifacts_volume_check CHECK ((volume >= (0)::double precision)),
     CONSTRAINT reference_geometry_has_no_display_payload CHECK ((((reference_geometry_json -> 'primitives'::text) IS NULL) OR ((reference_geometry_json -> 'primitives'::text) = ANY (ARRAY['[]'::jsonb, 'null'::jsonb]))))
 );
 

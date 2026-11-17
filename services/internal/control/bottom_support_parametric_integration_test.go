@@ -107,8 +107,8 @@ func TestBottomSupportParametricDatumLifecycleThroughRouter(t *testing.T) {
 			}
 		}
 		want := math.Pi * radius * radius * height / 4
-		if math.Abs(activeBodyArtifact(t, view).Volume-want) > 1e-5 {
-			t.Fatalf("profile/solid did not recompute: %g want %g", activeBodyArtifact(t, view).Volume, want)
+		if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-want) > 1e-5 {
+			t.Fatalf("profile/solid did not recompute: %g want %g", measuredArtifactVolume(t, activeBodyArtifact(t, view)), want)
 		}
 	}
 	check(30, 20, 10)
@@ -172,7 +172,9 @@ func TestBottomSupportParametricDatumLifecycleThroughRouter(t *testing.T) {
 	check(60, 40, 12)
 	// Resolve a planar face through real Naming at the explicitly selected stage.
 	stage := view.Part.Features[len(view.Part.Features)-1]
-	face := findP6FacePick(t, service, view, func(p modelcore.PersistentSelection) bool { return p.CreationEvidence.GeometryType == "PLANE" })
+	face := findP6FacePick(t, service, view, func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.CreationEvidence.GeometryType == "PLANE"
+	})
 	source := workspace.DatumReference{Kind: "TOPOLOGY", FeatureID: stage.ID, Selection: &face.Selection, SourceVersionID: view.Document.VersionID}
 	apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Name: "Face datum", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, DatumDefinition: &workspace.DatumTransform{Source: source, Distance: 3}})
 	faceDatumID := view.Part.DatumPlanes[len(view.Part.DatumPlanes)-1].ID

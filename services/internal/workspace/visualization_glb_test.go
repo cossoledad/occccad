@@ -1,9 +1,11 @@
 package workspace
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"github.com/occccad/occccad/internal/visual"
+	"io"
 	"testing"
 )
 
@@ -71,5 +73,66 @@ func TestVisualV2BinaryAuxiliaryAndReplacement(t *testing.T) {
 	}
 	if _, _, err = visual.Decode(again); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// BIN remains a stream even when business display metadata changes. Allocation
+// scales with JSON/auxiliary arrays rather than triangle count.
+func BenchmarkVisualizationStream(b *testing.B) {
+	const size = 32 << 20
+	jsonChunk := []byte(`{"asset":{"version":"2.0"},"buffers":[{"byteLength":33554432}],"meshes":[],"nodes":[]}`)
+	for len(jsonChunk)%4 != 0 {
+		jsonChunk = append(jsonChunk, ' ')
+	}
+	prefix := make([]byte, 20+len(jsonChunk)+8)
+	binary.LittleEndian.PutUint32(prefix[:4], 0x46546c67)
+	binary.LittleEndian.PutUint32(prefix[4:8], 2)
+	binary.LittleEndian.PutUint32(prefix[8:12], uint32(len(prefix)+size))
+	binary.LittleEndian.PutUint32(prefix[12:16], uint32(len(jsonChunk)))
+	binary.LittleEndian.PutUint32(prefix[16:20], 0x4e4f534a)
+	copy(prefix[20:], jsonChunk)
+	binary.LittleEndian.PutUint32(prefix[len(prefix)-8:], size)
+	binary.LittleEndian.PutUint32(prefix[len(prefix)-4:], 0x004e4942)
+	data := append(prefix, make([]byte, size)...)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(data)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reader, err := glbWithVisualizationReader(bytes.NewReader(data), int64(len(data)), VisualizationManifest{})
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err = io.Copy(io.Discard, reader); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestVisualizationStreamRetainsMeshPrefixAndReplacesAuxiliarySuffix(t *testing.T) {
+	v := VisualizationManifest{SchemaVersion: 1, Primitives: []VisualPrimitive{{ID: "curve", Kind: "POLYLINE", Positions: [][3]float64{{1, 2, 3}, {4, 5, 6}}}}}
+	original, err := glbWithVisualization(nil, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := v
+	next.Primitives = []VisualPrimitive{{ID: "point", Kind: "POINTS", Positions: [][3]float64{{7, 8, 9}}}}
+	reader, err := glbWithVisualizationReader(bytes.NewReader(original), int64(len(original)), next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := visual.Decode(actual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored VisualizationManifest
+	if err = json.Unmarshal(raw, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.Primitives) != 1 || restored.Primitives[0].ID != "point" || len(restored.Primitives[0].Positions) != 1 || restored.Primitives[0].Positions[0] != [3]float64{7, 8, 9} {
+		t.Fatal("old auxiliary arrays survived replacement", restored)
 	}
 }

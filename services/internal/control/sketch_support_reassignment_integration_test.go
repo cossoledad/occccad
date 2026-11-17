@@ -109,7 +109,7 @@ func TestSketchSupportReassignmentThroughRouter(t *testing.T) {
 		t.Fatal("support deletion protection bypassed")
 	}
 	input, e := service.GetFeatureInput(t.Context(), view.Document.ID, workspace.FeatureInputRequest{VersionID: failedHead, FeatureID: sketchID, BodyID: base.BodyID})
-	if e != nil || input.SourceFeatureID != tip.ID || math.Abs(input.Artifact.Volume-2000) > 1e-6 {
+	if e != nil || input.SourceFeatureID != tip.ID || math.Abs(measuredArtifactVolume(t, input.Artifact)-2000) > 1e-6 {
 		t.Fatal("failed support blocked valid input stage", e, input)
 	}
 	var replacement uint64

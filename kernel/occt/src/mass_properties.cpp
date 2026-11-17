@@ -7,6 +7,7 @@
 
 namespace occccad::kernel::detail {
 void volume_properties(const TopoDS_Shape& shape, GProp_GProps& properties, bool centroid) {
+    ++volume_integration_calls();
     TopoDS_Shape integration = shape;
     for (TopExp_Explorer it(shape, TopAbs_FACE); it.More(); it.Next()) {
         const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));

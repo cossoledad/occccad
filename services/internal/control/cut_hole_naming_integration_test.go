@@ -62,7 +62,9 @@ func TestCutHolePersistentSelectionThroughRealRouter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
 	evidenceDirectory := strings.TrimSpace(os.Getenv("OCCCCAD_P6_EVIDENCE_DIR"))
 	debugDirectory := filepath.Join(testsupport.Environment(t).LogDirectory, "debug", "assembly-replays")
@@ -140,12 +142,12 @@ func TestCutHolePersistentSelectionThroughRealRouter(t *testing.T) {
 	part, baseSketch := addRectangle(part.Document.ID, "XY", "", workspace.SketchPoint2{X: 0, Y: 0}, workspace.SketchPoint2{X: 20, Y: 20})
 	part = addExtrude(part.Document.ID, baseSketch, "NEW_BODY", 10, false)
 	baseFeatureID := part.Part.Features[len(part.Part.Features)-1].ID
-	topPick := findP6FacePick(t, service, part, func(selection modelcore.PersistentSelection) bool {
+	topPick := findP6FacePick(t, service, part, func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
 		return selection.Anchor.FeatureID == baseFeatureID && strings.HasPrefix(selection.Anchor.OutputSlot, "END_CAP/")
 	})
-	sidePick := findP6FacePick(t, service, part, func(selection modelcore.PersistentSelection) bool {
+	sidePick := findP6FacePick(t, service, part, func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
 		return selection.Anchor.FeatureID == baseFeatureID && strings.HasPrefix(selection.Anchor.OutputSlot, "SIDE_FROM_PROFILE_EDGE/") &&
-			math.Abs(selection.CreationEvidence.Centroid[1]) < 1e-9
+			math.Abs(queriedTopologyCenter(t, properties)[1]) < 1e-9
 	})
 
 	product = apply(product.Document.ID, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID, Name: "First"})
@@ -198,8 +200,8 @@ func TestCutHolePersistentSelectionThroughRealRouter(t *testing.T) {
 
 	// Reconnect both occurrences to the newly generated top face, then edit the
 	// cut depth. The new selection must survive the following Part Revision.
-	newTop := findP6FacePick(t, service, part, func(selection modelcore.PersistentSelection) bool {
-		return selection.Anchor.FeatureID == deleteFeatureID && math.Abs(selection.CreationEvidence.Centroid[2]-5) < 1e-9
+	newTop := findP6FacePick(t, service, part, func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
+		return selection.Anchor.FeatureID == deleteFeatureID && math.Abs(queriedTopologyCenter(t, properties)[2]-5) < 1e-9
 	})
 	product = apply(product.Document.ID, workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: faceConstraintID,
 		FirstAssemblyRef: p6AssemblyPick(firstInstance, newTop), SecondAssemblyRef: p6AssemblyPick(secondInstance, newTop), DirectionRelation: "SAME"})
@@ -221,7 +223,7 @@ func TestCutHolePersistentSelectionThroughRealRouter(t *testing.T) {
 	product = apply(product.Document.ID, workspace.CommandRequest{Type: "UPDATE_REFERENCES"})
 	assertP6Constraint(t, product, faceConstraintID, modelcore.AssemblyConstraintBroken, modelcore.SupportingElementNotConnected, "")
 	recordEvidence("reconnected-feature-removed", product, faceConstraintID)
-	currentSide := findP6FacePick(t, service, part, func(selection modelcore.PersistentSelection) bool {
+	currentSide := findP6FacePick(t, service, part, func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
 		return selection.Anchor.FeatureID == sidePick.Selection.Anchor.FeatureID && selection.Anchor.OutputSlot == sidePick.Selection.Anchor.OutputSlot
 	})
 	product = apply(product.Document.ID, workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: faceConstraintID,
@@ -270,13 +272,13 @@ type p6FacePick struct {
 }
 
 func findP6FacePick(t *testing.T, service *workspace.Service, view workspace.DocumentView,
-	match func(modelcore.PersistentSelection) bool) p6FacePick {
+	match func(workspace.TopologyElementProperties, modelcore.PersistentSelection) bool) p6FacePick {
 	t.Helper()
 	count := p6TopologyCount(t, activeBodyArtifact(t, view).Topology, "faces")
 	for localID := uint64(1); localID <= count; localID++ {
 		properties, err := service.GetTopologyElementPropertiesAtVersion(t.Context(), view.Document.ID, view.Document.VersionID,
 			activeBodyArtifact(t, view).GeometryKey, "FACE", localID)
-		if err == nil && properties.PersistentSelection != nil && match(*properties.PersistentSelection) {
+		if err == nil && properties.PersistentSelection != nil && match(properties, *properties.PersistentSelection) {
 			if properties.NamingResolution == nil || properties.NamingResolution.Status != modelcore.SelectionResolved {
 				t.Fatalf("matching face %d cannot resolve in its creation revision: %#v", localID, properties.NamingResolution)
 			}

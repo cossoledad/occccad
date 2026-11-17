@@ -999,8 +999,8 @@ func (server *Server) topologyProperties(writer http.ResponseWriter, request *ht
 		return
 	}
 	localID, err := strconv.ParseUint(request.URL.Query().Get("localId"), 10, 64)
-	if err != nil || localID == 0 {
-		writeError(writer, http.StatusBadRequest, "localId must be a positive integer")
+	if err != nil || (localID == 0 && request.URL.Query().Get("kind") != "BODY") || (localID != 0 && request.URL.Query().Get("kind") == "BODY") {
+		writeError(writer, http.StatusBadRequest, "localId must be positive for topology, zero for BODY")
 		return
 	}
 	ctx := request.Context()

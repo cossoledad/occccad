@@ -53,7 +53,7 @@ type Artifact struct {
 	RepresentationKind    string                    `json:"representationKind"`
 	BBox                  map[string]any            `json:"bbox"`
 	Topology              map[string]any            `json:"topology"`
-	Volume                float64                   `json:"volume"`
+	ValidationPolicy      string                    `json:"validationPolicy"`
 	OCCTVersion           string                    `json:"occtVersion"`
 	GLBBytes              int                       `json:"glbBytes"`
 	BRepBytes             int                       `json:"brepBytes"`

@@ -1,8 +1,14 @@
 import { decodeMeshGLB } from './mesh-glb';
+import type {MeshBuffers} from "../rendering/mesh-topology-index";
 import { buildContourIncidence } from '../rendering/mesh-contour-incidence';
 
-self.onmessage = ({data}: MessageEvent<{id: number; buffer: ArrayBuffer; contours: boolean}>) => {
+self.onmessage = ({data}: MessageEvent<{id: number; buffer: ArrayBuffer; contours: boolean;incidence?:MeshBuffers}>) => {
   try {
+    if(data.incidence){
+      const contourIncidence=buildContourIncidence(data.incidence);
+      self.postMessage({id:data.id,contourIncidence},{transfer:Object.values(contourIncidence).map(a=>a.buffer as ArrayBuffer)});
+      return;
+    }
     const decoded = decodeMeshGLB(data.buffer), mesh = decoded.mesh;
     const contourIncidence = data.contours && mesh.buffers!.indices.length ? buildContourIncidence(mesh.buffers!) : undefined;
     // Explicit DTO: structured cloning the lazy MeshData would invoke all its

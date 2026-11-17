@@ -77,7 +77,7 @@ function boxArtifact(key: string, size: Vec3, sketchFeatureId?: string): Artifac
     },
     bbox: { min: [0, 0, 0], max: size },
     topology: { faces: 6, edges: 12, vertices: 8, solids: 1 },
-    volume: x * y * z, occtVersion: "mock-7.9.1", glbBytes: 4096, brepBytes: 2048,
+    validationPolicy: "occccad.geometry.brep-valid.v1", occtVersion: "mock-7.9.1", glbBytes: 4096, brepBytes: 2048,
     evaluatorVersion: "mock-v1", workerId: "mock-geometry-1", storageState: "OBJECT", createdAt: now(),
     visualization: { schemaVersion: 1, referenceGeometry: { datumPlanes, axisSystems }, primitives:
       sketchFeatureId ? [
@@ -1074,8 +1074,8 @@ export const mockApi: CadApi = {
   },
   getTopologyProperties: async (_documentID, geometryKey, kind, localId) => pause({
     geometryKey, geometryId: `geometry-${geometryKey}`, kind, localId,
-    geometryType: kind === "FACE" ? "PLANE" : kind === "EDGE" ? "LINE" : "POINT",
-    properties: mockTopologyProperties(kind), namingStatus: "UNAVAILABLE" as const,
+    geometryType: kind === "BODY"?"SOLID_SET":kind === "FACE" ? "PLANE" : kind === "EDGE" ? "LINE" : "POINT",
+    properties: kind==='BODY'?{}:mockTopologyProperties(kind), namingStatus: "UNAVAILABLE" as const,
     workerId: "mock-geometry-1", occtVersion: "mock-7.9.1",
   }),
   getHistory: async (documentID) => pause(histories.get(documentID) ?? []),

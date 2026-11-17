@@ -80,13 +80,13 @@ func TestCppWorkerChamferedCornerFillets(t *testing.T) {
 	if len(fillet.Selections) != 2 {
 		t.Fatal("expected two bottom edges separated by the bevel")
 	}
-	previousVolume := beveled.GetVolume()
+	previousVolume := measuredEvaluationVolume(t, client, beveled)
 	for _, radius := range []float64{1, 1.5, 2} {
 		fillet.Length = radius
 		result, _ := evaluate([]ProfilePad{base, chamfer, fillet})
-		if result.GetVolume() <= 0 || result.GetVolume() >= previousVolume {
-			t.Fatalf("radius %g: incorrect material removal %g", radius, result.GetVolume())
+		if measuredEvaluationVolume(t, client, result) <= 0 || measuredEvaluationVolume(t, client, result) >= previousVolume {
+			t.Fatalf("radius %g: incorrect material removal %g", radius, measuredEvaluationVolume(t, client, result))
 		}
-		previousVolume = result.GetVolume()
+		previousVolume = measuredEvaluationVolume(t, client, result)
 	}
 }

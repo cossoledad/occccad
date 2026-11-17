@@ -3,7 +3,6 @@ package workspace
 import (
 	"context"
 	"fmt"
-	"math"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/geometry"
@@ -11,7 +10,7 @@ import (
 
 // Restore the explicitly owned import transition from the accepted Body's
 // immutable Naming artifact. Later Body transitions do not alter that frozen
-// root. The input mass comes from the exact import artifact, not the Body tip.
+// root. Validation is qualified by the exact immutable BREP, never by mass properties.
 func (s *Service) importBaseStage(ctx context.Context, baseKey string, base geometry.ArtifactReference, seed *workerv1.ImportTopologySeed, model PartModel) (*workerv1.PartBaseStage, error) {
 	if seed == nil || geometry.PartRuntime(ctx).ForceCold || s.artifacts == nil {
 		return nil, nil
@@ -20,7 +19,7 @@ func (s *Service) importBaseStage(ctx context.Context, baseKey string, base geom
 	if err != nil {
 		return nil, err
 	}
-	if input.GeometryID != "sha256:"+base.SHA256 || math.IsNaN(input.Volume) || math.IsInf(input.Volume, 0) || input.Volume <= 1e-9 {
+	if input.GeometryID != "sha256:"+base.SHA256 || input.ValidationPolicy != geometryValidationPolicy {
 		return nil, fmt.Errorf("%w: IMPORT_BASE_STAGE_GEOMETRY_MISMATCH", ErrValidation)
 	}
 	for _, body := range model.Bodies {
@@ -66,7 +65,7 @@ func (s *Service) importBaseStage(ctx context.Context, baseKey string, base geom
 			if rootHistory == nil {
 				return nil, fmt.Errorf("import naming history unavailable")
 			}
-			return &workerv1.PartBaseStage{GeometryId: input.GeometryID, Volume: input.Volume, RootHistory: rootHistory, Naming: &workerv1.ArtifactReference{
+			return &workerv1.PartBaseStage{GeometryId: input.GeometryID, ValidationPolicy: input.ValidationPolicy, RootHistory: rootHistory, Naming: &workerv1.ArtifactReference{
 				Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType,
 			}}, nil
 		}

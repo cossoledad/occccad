@@ -141,7 +141,7 @@ func TestAssociationUpdateAndRepairThroughRouter(t *testing.T) {
 		}
 	}
 	replacement := findP7TopologyPick(t, service, part, "FACE", func(p workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-		return s.Anchor.FeatureID == cut.ID && p.GeometryType == "PLANE" && math.Abs(s.CreationEvidence.Centroid[2]-7) < 1e-6
+		return s.Anchor.FeatureID == cut.ID && p.GeometryType == "PLANE" && math.Abs(queriedTopologyCenter(t, p)[2]-7) < 1e-6
 	})
 	request := workspace.CommandRequest{ActorID: p6Actor, RequestID: product.Document.ID + "-repair", Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: mate, FirstAssemblyRef: p7AssemblyPick(ids[0], replacement), SecondAssemblyRef: p7AssemblyPick(ids[1], replacement)}
 	head := product.Document.VersionID

@@ -42,7 +42,7 @@ func TestPatternReexecutionPerMemberTerminationRepairAndIdentity(t *testing.T) {
 	}
 	volume := func(removed float64) {
 		t.Helper()
-		if got := activeBodyArtifact(t, view).Volume; math.Abs(got-(6000-removed*math.Pi)) > 1e-5 {
+		if got := measuredArtifactVolume(t, activeBodyArtifact(t, view)); math.Abs(got-(6000-removed*math.Pi)) > 1e-5 {
 			t.Fatal("per-position termination volume", got, 6000-removed*math.Pi)
 		}
 	}
@@ -157,8 +157,8 @@ func TestPatternReexecutionPerMemberTerminationRepairAndIdentity(t *testing.T) {
 				t.Fatal("measurement preview", mode, i, e)
 			}
 			want := 6000 - (24-delta/3)*math.Pi
-			if math.Abs(result.Artifact.Volume-want) > 1e-5 {
-				t.Fatal("measurement changed precision", mode, i, result.Artifact.Volume, want)
+			if math.Abs(measuredArtifactVolume(t, result.Artifact)-want) > 1e-5 {
+				t.Fatal("measurement changed precision", mode, i, measuredArtifactVolume(t, result.Artifact), want)
 			}
 			phases := recorder.SnapshotMilliseconds()
 			if mode == "hot" && i > 1 && phases["sketch-rpc"] != 0 {

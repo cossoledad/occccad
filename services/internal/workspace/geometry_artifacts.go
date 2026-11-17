@@ -72,7 +72,7 @@ func (s *Service) persistGeometry(ctx context.Context, key string, a Artifact, o
 		return err
 	}
 	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `INSERT INTO occccad.geometry_artifacts(geometry_key,geometry_id,evaluator_version,occt_version,units,bbox_json,topology_json,volume,triangle_count,display_vertex_count,reference_geometry_json,worker_id) VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(geometry_key) DO NOTHING`, key, a.GeometryID, evaluatorVersion, a.OCCTVersion, bbox, topology, a.Volume, a.TriangleCount, a.DisplayVertexCount, visual, a.WorkerID)
+	_, err = tx.Exec(ctx, `INSERT INTO occccad.geometry_artifacts(geometry_key,geometry_id,evaluator_version,occt_version,units,bbox_json,topology_json,validation_policy,triangle_count,display_vertex_count,reference_geometry_json,worker_id) VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(geometry_key) DO NOTHING`, key, a.GeometryID, evaluatorVersion, a.OCCTVersion, bbox, topology, a.ValidationPolicy, a.TriangleCount, a.DisplayVertexCount, visual, a.WorkerID)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 	if !solid && (e.GetTopology().GetFaceCount()+e.GetTopology().GetEdgeCount()+e.GetTopology().GetVertexCount() == 0 || e.GetEvaluationManifest() == nil && len(imported) == 0) {
 		return fmt.Errorf("%w: independent geometry result required", ErrValidation)
 	}
-	if (e.GetRepresentationKind() != "PERSISTENT" && e.GetRepresentationKind() != "EXACT_STAGE") || solid && (e.GetTopology().GetSolidCount() == 0 || e.GetVolume() <= 0) {
+	if (e.GetRepresentationKind() != "PERSISTENT" && e.GetRepresentationKind() != "EXACT_STAGE") || solid && (geometryDomain(e) != "SOLID_SET" || e.GetTopology().GetSolidCount() == 0 || e.GetValidationPolicy() != geometryValidationPolicy) {
 		return fmt.Errorf("%w: persistent solid result required", ErrValidation)
 	}
 	brep, err := s.adoptEvaluationObject(ctx, e.BrepArtifact, artifactstore.KindBREP)
@@ -131,21 +131,21 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 		worker := s.worker.WorkerFor(key)
 		v.Primitives = nil
 		v.FeatureAssociations = nil
-		return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, Volume: e.Volume, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount, "domain": geometryDomain(e)}, Visualization: v}, objects)
+		return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, ValidationPolicy: e.ValidationPolicy, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount, "domain": geometryDomain(e)}, Visualization: v}, objects)
 	}
 	ref := e.GetGlbArtifact()
 	if ref == nil || ref.GetSizeBytes() > uint64(^uint64(0)>>1) {
 		return fmt.Errorf("visual ArtifactReference required")
 	}
-	visual, err := s.artifacts.AdoptTransformed(ctx, artifactstore.KindGLB, "model/gltf-binary", ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), func(data []byte) ([]byte, error) {
-		return glbWithVisualization(data, v, map[string]string{"geometryId": e.GeometryId, "namingDigest": e.GetEvaluationManifest().GetTopologyManifestDigest()})
+	visual, err := s.artifacts.AdoptTransformed(ctx, artifactstore.KindGLB, "model/gltf-binary", ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), func(data io.Reader, size int64) (io.Reader, error) {
+		return glbWithVisualizationReader(data, size, v, map[string]string{"geometryId": e.GeometryId, "namingDigest": e.GetEvaluationManifest().GetTopologyManifestDigest()})
 	})
 	if err != nil {
 		return err
 	}
 	objects["VISUAL"] = visual
 	worker := s.worker.WorkerFor(key)
-	return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, Volume: e.Volume, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount, "domain": geometryDomain(e)}, TriangleCount: e.TriangleCount, DisplayVertexCount: e.DisplayVertexCount, Visualization: v}, objects)
+	return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, ValidationPolicy: e.ValidationPolicy, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount, "domain": geometryDomain(e)}, TriangleCount: e.TriangleCount, DisplayVertexCount: e.DisplayVertexCount, Visualization: v}, objects)
 }
 func (s *Service) ensureVisualizationArtifact(ctx context.Context, model PartModel) (string, error) {
 	v := bodyDisplayMetadata(model)
@@ -214,7 +214,7 @@ func (s *Service) loadArtifact(ctx context.Context, key string) (Artifact, error
 	}
 	a := Artifact{GeometryKey: key, RepresentationKind: "PERSISTENT", StorageState: "OBJECT", Representations: map[string]Representation{}}
 	var bbox, topology, visual []byte
-	err := s.database.QueryRow(ctx, `SELECT geometry_id,bbox_json,topology_json,volume,occt_version,evaluator_version,worker_id,created_at::text,reference_geometry_json,triangle_count,display_vertex_count FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).Scan(&a.GeometryID, &bbox, &topology, &a.Volume, &a.OCCTVersion, &a.EvaluatorVersion, &a.WorkerID, &a.CreatedAt, &visual, &a.TriangleCount, &a.DisplayVertexCount)
+	err := s.database.QueryRow(ctx, `SELECT geometry_id,bbox_json,topology_json,validation_policy,occt_version,evaluator_version,worker_id,created_at::text,reference_geometry_json,triangle_count,display_vertex_count FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).Scan(&a.GeometryID, &bbox, &topology, &a.ValidationPolicy, &a.OCCTVersion, &a.EvaluatorVersion, &a.WorkerID, &a.CreatedAt, &visual, &a.TriangleCount, &a.DisplayVertexCount)
 	if err != nil {
 		return a, err
 	}

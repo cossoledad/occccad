@@ -28,7 +28,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const evaluatorVersion = "part-solid-generators-v79-history-blocks"
+const geometryValidationPolicy = "occccad.geometry.brep-valid.v1"
+
+const evaluatorVersion = "part-solid-generators-v80-deferred-properties"
 
 // Display algorithm changes qualify newly evaluated representations separately
 // from exact/Naming semantics and the accepted dependency manifest.
@@ -2170,8 +2172,8 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 	ctx context.Context, documentID, versionID, geometryKey, kind string, localID uint64,
 ) (TopologyElementProperties, error) {
 	kind = strings.ToUpper(strings.TrimSpace(kind))
-	if (kind != "FACE" && kind != "EDGE" && kind != "VERTEX") || localID == 0 {
-		return TopologyElementProperties{}, fmt.Errorf("%w: kind must be FACE, EDGE, or VERTEX and localId must be positive", ErrValidation)
+	if (kind == "BODY" && localID != 0) || (kind != "BODY" && ((kind != "FACE" && kind != "EDGE" && kind != "VERTEX") || localID == 0)) {
+		return TopologyElementProperties{}, fmt.Errorf("%w: kind must be BODY with localId 0, or FACE, EDGE, VERTEX with a positive localId", ErrValidation)
 	}
 	finishAuthorize := perf.Start(ctx, "topology-authorize")
 	var documentType string
@@ -2200,6 +2202,21 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 	finishAuthorize()
 	if !allowed {
 		return TopologyElementProperties{}, ErrNotFound
+	}
+	if kind == "BODY" {
+		// Body has stable ownership; localId=0 means the complete exact
+		// snapshot, not a synthetic persistent face or an array identity.
+		if versionID != "" && documentType == "PART" {
+			var owned bool
+			err := service.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.document_versions v CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') b WHERE v.document_id=$1 AND v.id=$2 AND b->>'geometryKey'=$3)`, documentID, versionID, geometryKey).Scan(&owned)
+			if err != nil {
+				return TopologyElementProperties{}, err
+			}
+			if !owned {
+				return TopologyElementProperties{}, ErrNotFound
+			}
+		}
+		return service.bodyProperties(ctx, geometryKey)
 	}
 	result, err := service.getTopologyElementPropertiesFromArtifact(ctx, geometryKey, kind, localID)
 	if err != nil {

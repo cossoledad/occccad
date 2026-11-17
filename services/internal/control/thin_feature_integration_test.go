@@ -35,7 +35,7 @@ func TestThinFeaturesThroughRouter(t *testing.T) {
 			}
 			volume := func(want float64) {
 				t.Helper()
-				if got := activeBodyArtifact(t, view).Volume; math.Abs(got-want) > 1e-5 {
+				if got := measuredArtifactVolume(t, activeBodyArtifact(t, view)); math.Abs(got-want) > 1e-5 {
 					t.Fatal("thin volume", got, want)
 				}
 			}

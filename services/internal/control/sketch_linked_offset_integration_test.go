@@ -54,8 +54,8 @@ func TestLinkedOffsetParametricSolidAndHistoryThroughRouter(t *testing.T) {
 	padID := view.Part.Features[len(view.Part.Features)-1].ID
 	volume := func(want float64) {
 		t.Helper()
-		if math.Abs(activeBodyArtifact(t, view).Volume-want) > 1e-5 {
-			t.Fatal(activeBodyArtifact(t, view).Volume, want)
+		if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-want) > 1e-5 {
+			t.Fatal(measuredArtifactVolume(t, activeBodyArtifact(t, view)), want)
 		}
 	}
 	volume(5 * math.Pi * 36)

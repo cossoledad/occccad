@@ -313,7 +313,7 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 			if err != nil {
 				return err
 			}
-			if artifact.Volume <= 1.0e-9 {
+			if artifact.GeometryDomain != "SOLID_SET" || artifact.ValidationPolicy != geometryValidationPolicy {
 				broken("PUBLICATION_BODY_EMPTY", "published Body has no solid result")
 				continue
 			}

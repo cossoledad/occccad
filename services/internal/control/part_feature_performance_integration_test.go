@@ -123,7 +123,7 @@ func TestDenseSTEPFaceSketchAndFirstCutThroughRouter(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if preview.Artifact == nil || preview.Runtime == nil || math.Abs(preview.Artifact.Volume-(base.Volume-40)) > 1e-4 {
+	if preview.Artifact == nil || preview.Runtime == nil || math.Abs(measuredArtifactVolume(t, preview.Artifact)-(measuredArtifactVolume(t, base)-40)) > 1e-4 {
 		t.Fatalf("first STEP cut invalid: %v", preview.Artifact)
 	}
 	var calls uint32
@@ -159,8 +159,8 @@ func TestDenseSTEPFaceSketchAndFirstCutThroughRouter(t *testing.T) {
 	apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: feature.ID, Feature: &feature, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, feature.ID)})
 	t.Logf("different-depth elapsed_ms=%.3f runtime=%s", float64(lastElapsed)/float64(time.Millisecond), mustRuntimeJSON(readRuntime()))
 	accepted := activeBodyArtifact(t, view)
-	if math.Abs(accepted.Volume-(base.Volume-36)) > 1e-4 {
-		t.Fatal("different-depth cut volume", accepted.Volume)
+	if math.Abs(measuredArtifactVolume(t, accepted)-(measuredArtifactVolume(t, base)-36)) > 1e-4 {
+		t.Fatal("different-depth cut volume", measuredArtifactVolume(t, accepted))
 	}
 	cold, e := service.PreviewCommand(workspace.WithColdEvaluation(ctx), view.Document.ID, workspace.CommandRequest{Type: "EDIT_FEATURE", ActorID: p6Actor, RequestID: prefix + "-cold", TargetID: feature.ID, Feature: &feature, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, feature.ID)})
 	if e != nil || cold.Artifact == nil {
@@ -253,7 +253,7 @@ func TestGrowingTopologyPartFeaturesAndNamingThroughRouter(t *testing.T) {
 		elapsed := apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: profile, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: length})
 		artifact := activeBodyArtifact(t, view)
 		run := readRun()
-		if math.Abs(artifact.Volume-expectedVolume) > 1e-5 || !artifact.Naming.CanBind || p6TopologyCount(t, artifact.Topology, "faces") < uint64(6+step*2) {
+		if math.Abs(measuredArtifactVolume(t, artifact)-expectedVolume) > 1e-5 || !artifact.Naming.CanBind || p6TopologyCount(t, artifact.Topology, "faces") < uint64(6+step*2) {
 			t.Fatalf("growing solid %d invalid: %+v", step, artifact)
 		}
 		if run.StagesExecuted != 1 || run.StagesReused < uint32(step) {
@@ -275,8 +275,8 @@ func TestGrowingTopologyPartFeaturesAndNamingThroughRouter(t *testing.T) {
 	}
 	t.Logf("growing-router tip-edit steps=%d elapsed_ms=%.3f worker=%s", count, float64(elapsed)/float64(time.Millisecond), mustRuntimeJSON(run))
 	edited := activeBodyArtifact(t, view)
-	if math.Abs(edited.Volume-(expectedVolume+lastArea*.25)) > 1e-5 {
-		t.Fatal("edited volume", edited.Volume)
+	if math.Abs(measuredArtifactVolume(t, edited)-(expectedVolume+lastArea*.25)) > 1e-5 {
+		t.Fatal("edited volume", measuredArtifactVolume(t, edited))
 	}
 	for _, pick := range picks {
 		start := time.Now()
@@ -324,7 +324,7 @@ func TestGrowingTopologyPartFeaturesAndNamingThroughRouter(t *testing.T) {
 		t.Fatal("tip edit republished durable prefix blocks", mustRuntimeJSON(run))
 	}
 	apply(workspace.CommandRequest{Type: "UNDO"})
-	if math.Abs(activeBodyArtifact(t, view).Volume-expectedVolume) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-expectedVolume) > 1e-5 {
 		t.Fatal("undo changed the accepted shape")
 	}
 	apply(workspace.CommandRequest{Type: "REDO"})
@@ -427,7 +427,7 @@ func TestLongPartChainWithFixedTopologyThroughRouter(t *testing.T) {
 	checkCut := func(count int, volume float64) *workerv1.PartRuntimeStats {
 		t.Helper()
 		artifact := activeBodyArtifact(t, view)
-		if math.Abs(artifact.Volume-volume) > 1e-5 || p6TopologyCount(t, artifact.Topology, "faces") != 6 || p6TopologyCount(t, artifact.Topology, "edges") != 12 || p6TopologyCount(t, artifact.Topology, "vertices") != 8 || !artifact.Naming.CanBind {
+		if math.Abs(measuredArtifactVolume(t, artifact)-volume) > 1e-5 || p6TopologyCount(t, artifact.Topology, "faces") != 6 || p6TopologyCount(t, artifact.Topology, "edges") != 12 || p6TopologyCount(t, artifact.Topology, "vertices") != 8 || !artifact.Naming.CanBind {
 			t.Fatalf("cut %d changed fixed topology/volume: %+v", count, artifact)
 		}
 		run := readRun()
@@ -558,12 +558,12 @@ func TestPartSketchEditingIsolationThroughRouter(t *testing.T) {
 	}
 	// A real profile consumer still updates geometry and has the original gates.
 	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: profile, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "hole", Kind: "CIRCLE", Role: "PROFILE", Center: &workspace.SketchPoint2{X: 50, Y: 50}, Radius: 5}}}})
-	if got := activeBodyArtifact(t, view); got.GeometryKey == accepted.GeometryKey || math.Abs(got.Volume-(200000-500*math.Pi)) > 1e-5 || !got.Naming.CanBind {
+	if got := activeBodyArtifact(t, view); got.GeometryKey == accepted.GeometryKey || math.Abs(measuredArtifactVolume(t, got)-(200000-500*math.Pi)) > 1e-5 || !got.Naming.CanBind {
 		t.Fatalf("profile consumers were skipped: %+v", got)
 	}
 	apply(workspace.CommandRequest{Type: "UNDO"})
-	if got := activeBodyArtifact(t, view); math.Abs(got.Volume-accepted.Volume) > 1e-5 {
-		t.Fatal("undo lost the Body", got.Volume)
+	if got := activeBodyArtifact(t, view); math.Abs(measuredArtifactVolume(t, got)-measuredArtifactVolume(t, accepted)) > 1e-5 {
+		t.Fatal("undo lost the Body", measuredArtifactVolume(t, got))
 	}
 	if got := view.Part.Features[2].Sketch.Support.DependencySnapshot; got == nil || *got != *originalSupport.DependencySnapshot {
 		t.Fatalf("restored exact source changed its frozen support: original=%+v restored=%+v", originalSupport.DependencySnapshot, got)
@@ -579,7 +579,7 @@ func TestPartSketchEditingIsolationThroughRouter(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		apply(workspace.CommandRequest{Type: "REDO"})
 	}
-	if len(view.Part.Features) != 22 || math.Abs(activeBodyArtifact(t, view).Volume-accepted.Volume) > 1e-5 {
+	if len(view.Part.Features) != 22 || math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-measuredArtifactVolume(t, accepted)) > 1e-5 {
 		t.Fatal("drawing replay lost the accepted Body or sketches")
 	}
 }
@@ -626,8 +626,8 @@ func TestPartFeatureChainIncrementalAndColdThroughRouter(t *testing.T) {
 	checkVolume := func(want float64) {
 		t.Helper()
 		a := activeBodyArtifact(t, view)
-		if math.Abs(a.Volume-want) > 1e-5 || !a.Naming.CanBind {
-			t.Fatalf("volume/naming: %g != %g, %+v", a.Volume, want, a.Naming)
+		if math.Abs(measuredArtifactVolume(t, a)-want) > 1e-5 || !a.Naming.CanBind {
+			t.Fatalf("volume/naming: %g != %g, %+v", measuredArtifactVolume(t, a), want, a.Naming)
 		}
 	}
 	checkRuns := func(minReused uint32, maxExecuted uint32) {

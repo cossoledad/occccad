@@ -4,8 +4,8 @@ import "fmt"
 
 const (
 	TopologyNamingPolicyID                = "occccad.topology.naming.v1"
-	TopologyNamingEvaluator               = "occccad.topology.contract.v7"
-	TopologyNamingPolicyDigest            = "sha256:6031a62968c1fe7f2622ad8f7184893d8e0647c5fc44d59a5d847677d4645c7c"
+	TopologyNamingEvaluator               = "occccad.topology.contract.v8"
+	TopologyNamingPolicyDigest            = "sha256:170cf14de31dac0fa64173a98167ee1f41af70536cb8fa0973e55b6815a9576b"
 	TopologyNamingSchemaVersion           = uint32(1)
 	TopologyNamingLinearToleranceMeters   = 1e-7
 	TopologyNamingAngularToleranceRadians = 1e-9
@@ -91,7 +91,7 @@ type TopologySelectionEvidence struct {
 	ParameterStart   *float64              `json:"parameterStart,omitempty"`
 	ParameterEnd     *float64              `json:"parameterEnd,omitempty"`
 	EndpointRole     string                `json:"endpointRole,omitempty"`
-	Centroid         [3]float64            `json:"centroid,omitempty"`
+	Centroid         [3]float64            `json:"centroid,omitzero"`
 	Origin           [3]float64            `json:"origin,omitempty"`
 	Direction        [3]float64            `json:"direction,omitempty"`
 	Adjacent         []SemanticTopologyRef `json:"adjacent,omitempty"`

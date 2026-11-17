@@ -87,7 +87,7 @@ func TestCppWorkerShellAfterFilletAndMixedLoft(t *testing.T) {
 						t.Fatal("expected one opening face")
 					}
 					result, _ := evaluate(t, append(fixture.chain, shell))
-					if result.GetVolume() <= 0 || result.GetVolume() >= original.GetVolume() {
+					if measuredEvaluationVolume(t, client, result) <= 0 || measuredEvaluationVolume(t, client, result) >= measuredEvaluationVolume(t, client, original) {
 						t.Fatal("incorrect inward shell volume")
 					}
 					repeated, repeatedNaming := evaluate(t, append(fixture.chain, shell))

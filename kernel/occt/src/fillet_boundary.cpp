@@ -1,3 +1,4 @@
+#include <internal/solid_material.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Check.hxx>
@@ -77,11 +78,15 @@ struct Stage {
                   << '\n';
     }
 };
-double volume(const TopoDS_Shape& s) {
-    GProp_GProps p;
-    BRepGProp::VolumeProperties(s, p);
-    return p.Mass();
+bool material_difference(const TopoDS_Shape& left,const TopoDS_Shape& right) {
+    BRepAlgoAPI_Cut difference;
+    TopTools_ListOfShape arguments,tools;arguments.Append(left);tools.Append(right);
+    difference.SetArguments(arguments);difference.SetTools(tools);difference.SetNonDestructive(Standard_True);
+    difference.Build();
+    if(!difference.IsDone()||difference.HasErrors())throw std::runtime_error("FILLET_BOUNDARY_MATERIAL_CHECK_FAILED");
+    return has_solid_material(difference.Shape());
 }
+
 gp_Dir normal(const TopoDS_Face& f) {
     auto n = BRepAdaptor_Surface(f).Plane().Axis().Direction();
     if (f.Orientation() == TopAbs_REVERSED)
@@ -103,7 +108,7 @@ bool convex_cylinder(const TopoDS_Face& face) {
     return outward.Dot(radial) > 0;
 }
 void valid(const TopoDS_Shape& s, const char* stage) {
-    if (s.IsNull() || !TopExp_Explorer(s, TopAbs_SOLID).More() || volume(s) <= 1e-9)
+    if (s.IsNull() || !TopExp_Explorer(s, TopAbs_SOLID).More() || !has_solid_material(s))
         throw std::invalid_argument(std::string("FILLET_BOUNDARY_") + stage + "_NO_MATERIAL");
     if (!BRepCheck_Analyzer(s, Standard_True, Standard_False, Standard_True).IsValid())
         throw std::runtime_error(std::string("FILLET_BOUNDARY_") + stage + "_INVALID_SOLID");
@@ -733,8 +738,8 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
         if (!retained)
             throw std::runtime_error("FILLET_BOUNDARY_TRANSITION_CONSUMED_BY_LIMITS");
     }
-    if ((convex && volume(result.shape) >= volume(input) - 1e-9) ||
-        (!convex && volume(result.shape) <= volume(input) + 1e-9))
+    if ((convex && !material_difference(input,result.shape)) ||
+        (!convex && !material_difference(result.shape,input)))
         throw std::runtime_error("FILLET_BOUNDARY_NO_MATERIAL_CHANGE");
     return result;
 }

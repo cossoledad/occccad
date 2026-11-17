@@ -45,10 +45,12 @@ try{
  const preview=main.previewRepository();
  const before=calls;
  const displayed=await preview.hydrate(view);
+ assert.equal(displayed.artifact.mesh.contourIncidence,undefined,"preview has no unused contour graph");
  preview.dispose();
  const committed=await main.hydrate(view);
  assert.equal(calls-before,1,"promotion reuses verified preview bytes");
  assert.equal(displayed.artifact.mesh,committed.artifact.mesh,"promotion reuses decoded geometry");
+ assert.ok(committed.artifact.mesh.contourIncidence,"pickable display prepares contours before becoming interactive");
  main.dispose();
  const bounded=new VisualRepository();
  for(const objectId of ["older","newer"]){

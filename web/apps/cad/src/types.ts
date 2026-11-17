@@ -46,6 +46,7 @@ export type PartBody = { appearance?: SurfaceAppearance; displayFallback?: BodyD
 
 export type FeatureInputResolution = { status: "RESOLVED" | "MISSING" | "AMBIGUOUS" | "TYPE_MISMATCH" | "SOURCE_UNAVAILABLE" | "CONTRACT_MISMATCH" | "OUTSIDE_CURRENT_TIP"; diagnosticCode?: string; diagnostic?: string };
 export type FeatureInput = {
+ properties?:TopologyElementProperties;
  referenceGeometry?:{datumPlanes:DatumPlane[];datumAxes:DatumAxis[];axisSystems:AxisSystem[]};
  pointPick?:FeatureInputResolution;
  loftStartPicks?:NonNullable<FeatureInput["neutralPick"]>[];loftEndPicks?:NonNullable<FeatureInput["neutralPick"]>[];
@@ -70,7 +71,7 @@ export type Artifact = {
   displayVertexCount:number;
   bbox: { min: Vec3; max: Vec3 };
   topology: { faces: number; edges: number; vertices: number; solids: number };
-  volume: number;
+  validationPolicy: string;
   occtVersion: string;
   glbBytes: number;
 	brepBytes: number;
@@ -628,7 +629,7 @@ export type Selection = SelectionItem | null;
 
 export type TopologyElementProperties = {
   element?:ElementPresentation;
-  geometryKey: string; geometryId: string; kind: "FACE" | "EDGE" | "VERTEX"; localId: number;
+  geometryKey: string; geometryId: string; kind: "BODY" | "FACE" | "EDGE" | "VERTEX"; localId: number;
   geometryType: string; bbox?: { min: Vec3; max: Vec3 }; point?: Vec3;
   properties: Record<string, number | boolean | string | Vec3>; workerId: string; occtVersion: string;
   namingDiagnostic?: NamingAvailability;

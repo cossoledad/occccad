@@ -3,6 +3,7 @@
 #include <internal/naming_digest.hpp>
 #include "internal/mesh_reuse.hpp"
 #include <internal/mass_properties.hpp>
+#include <internal/solid_material.hpp>
 #include <BSplCLib.hxx>
 #include <GeomConvert.hxx>
 #include <Geom_TrimmedCurve.hxx>
@@ -61,6 +62,7 @@
 #include <Bnd_Box.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <GProp_GProps.hxx>
+#include <GeomTools.hxx>
 #include <GeomAPI_Interpolate.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
@@ -453,6 +455,10 @@ void append_curve_properties(const TopoDS_Edge& edge, EdgeInfo& output) {
         output.properties.push_back(
             number_property("length", GCPnts_AbscissaPoint::Length(curve, first, last)));
     }
+    // Exact linear centroid is a requested read-only property, never Naming or
+    // Feature metadata. Keep the existing adaptive length policy above.
+    GProp_GProps centroid;BRepGProp::LinearProperties(edge,centroid);
+    output.properties.push_back(vector_property("centroid",centroid.CentreOfMass().XYZ()));
     output.properties.push_back(boolean_property("closed", curve.IsClosed()));
     output.properties.push_back(boolean_property("periodic", curve.IsPeriodic()));
     if (const auto line = analytic_line(edge); line && curve.GetType() != GeomAbs_Line) {
@@ -1524,7 +1530,8 @@ private:
 // orientation). They never establish persistent topology identity.
 struct ShapeFacts {
     struct NamedEvidence { std::string ref; const SelectionEvidence* value; };
-    std::unordered_map<TopoDS_Shape, double> volumes;
+    std::unordered_map<TopoDS_Shape, bool> materials;
+    std::unordered_set<TopoDS_Shape> validated;
     std::unordered_map<TopoDS_Shape, SelectionEvidence> faces;
     std::unordered_map<TopoDS_Shape, NamedEvidence> named;
     std::function<bool()> cancelled;
@@ -1534,18 +1541,42 @@ struct ShapeFacts {
     }
 };
 
-double shape_volume(const TopoDS_Shape& shape, ShapeFacts* facts = nullptr) {
+bool has_material(const TopoDS_Shape& shape, ShapeFacts* facts = nullptr) {
     if (facts) {
         facts->check();
-        const auto known = facts->volumes.find(shape);
-        if (known != facts->volumes.end()) return known->second;
+        const auto known=facts->materials.find(shape);
+        if (known!=facts->materials.end()) return known->second;
     }
-    GProp_GProps properties;
-    if (facts && facts->stats) ++facts->stats->volume_integrations;
-    detail::volume_properties(shape, properties);
-    const auto volume = properties.Mass();
-    if (facts) { facts->check(); facts->volumes.emplace(shape, volume); }
-    return volume;
+    const bool result=detail::has_solid_material(shape,facts?facts->cancelled:std::function<bool()>{});
+    if(facts)facts->materials.emplace(shape,result);
+    return result;
+}
+
+bool has_material_difference(const TopoDS_Shape& left, const TopoDS_Shape& right,
+                             ShapeFacts* facts = nullptr, double tolerance = Precision::Confusion()) {
+    if(left.IsNull()) return false;
+    if(right.IsNull()) return has_material(left,facts);
+    BRepAlgoAPI_Cut difference;
+    TopTools_ListOfShape arguments,tools;arguments.Append(left);tools.Append(right);
+    difference.SetArguments(arguments);difference.SetTools(tools);
+    difference.SetNonDestructive(Standard_True);
+    const Handle(Message_ProgressIndicator) progress=new PartProgress(facts?facts->cancelled:std::function<bool()>{});
+    difference.Build(progress->Start());
+    if(facts)facts->check();
+    if(!difference.IsDone()||difference.HasErrors())throw std::runtime_error("MATERIAL_DIFFERENCE_FAILED");
+    std::vector<std::unique_ptr<BRepClass3d_SolidClassifier>> leftSolids,rightSolids;
+    for(TopExp_Explorer it(left,TopAbs_SOLID);it.More();it.Next())leftSolids.push_back(std::make_unique<BRepClass3d_SolidClassifier>(it.Current()));
+    for(TopExp_Explorer it(right,TopAbs_SOLID);it.More();it.Next())rightSolids.push_back(std::make_unique<BRepClass3d_SolidClassifier>(it.Current()));
+    // Reclassify partition-cell witnesses against both original operands. OCCT
+    // can label coincident-support cells as a Cut result even though they belong
+    // to both operands; signed mass of such a cell is not a membership test.
+    return detail::visit_solid_material(difference.Shape(),[&](const auto& point) {
+        bool inside=false;
+        for(const auto& solid:leftSolids){solid->Perform(point,tolerance);if(solid->State()==TopAbs_IN){inside=true;break;}}
+        if(!inside)return false;
+        for(const auto& solid:rightSolids){solid->Perform(point,tolerance);if(solid->State()!=TopAbs_OUT)return false;}
+        return true;
+    },facts?facts->cancelled:std::function<bool()>{},tolerance);
 }
 
 int solid_count(const TopoDS_Shape& shape) {
@@ -1555,7 +1586,8 @@ int solid_count(const TopoDS_Shape& shape) {
 }
 
 void validate_body_solid_set(const TopoDS_Shape& shape, ShapeFacts* facts = nullptr) {
-    if (shape.IsNull() || solid_count(shape) == 0 || shape_volume(shape, facts) <= 1.0e-9)
+    if(facts){facts->check();if(facts->validated.find(shape)!=facts->validated.end())return;}
+    if (shape.IsNull() || solid_count(shape) == 0)
         throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
     if (!BRepCheck_Analyzer(shape).IsValid())
         throw std::runtime_error("INVALID_RESULT: solid operation produced invalid B-Rep");
@@ -1564,6 +1596,10 @@ void validate_body_solid_set(const TopoDS_Shape& shape, ShapeFacts* facts = null
     for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
         if (TopExp_Explorer(shape, type, TopAbs_SOLID).More())
             throw std::invalid_argument("INVALID_RESULT: body contains topology outside solids");
+    for(TopExp_Explorer solids(shape,TopAbs_SOLID);solids.More();solids.Next())
+        if(!has_material(solids.Current(),facts))
+            throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
+    if(facts)facts->validated.insert(shape);
 }
 
 struct BodyOperationResult {
@@ -1700,6 +1736,47 @@ void sort_refs(std::vector<SemanticTopologyRef>& refs) {
     });
 }
 
+// Geometry-only evidence: native tolerance/flags and serializer table order
+// are not geometry. Include exact supports, placements, curve ranges and every
+// trimmed pcurve (both periodic seams), with deterministic boundary ordering.
+std::string boundary_evidence_digest(const TopoDS_Shape& shape) {
+    const auto placement=[](std::ostream& out,const TopLoc_Location& location){
+        const auto transform=location.Transformation();
+        for(int r=1;r<=3;++r)for(int c=1;c<=4;++c)out<<transform.Value(r,c)<<',';
+    };
+    const auto edge_geometry=[&](const TopoDS_Edge& edge){
+        std::ostringstream out;out.precision(17);TopLoc_Location location;double first,last;
+        const auto curve=BRep_Tool::Curve(edge,location,first,last);
+        out<<"edge|"<<BRep_Tool::Degenerated(edge)<<'|'<<first<<'|'<<last<<'|';placement(out,location);
+        if(!curve.IsNull())GeomTools::Write(curve,out);
+        std::vector<std::string> vertices;
+        for(TopExp_Explorer it(edge,TopAbs_VERTEX);it.More();it.Next()){
+            const auto point=BRep_Tool::Pnt(TopoDS::Vertex(it.Current()));std::ostringstream value;value.precision(17);value<<point.X()<<','<<point.Y()<<','<<point.Z();vertices.push_back(value.str());
+        }
+        std::sort(vertices.begin(),vertices.end());for(const auto& vertex:vertices)out<<'|'<<vertex;
+        return out.str();
+    };
+    if(shape.ShapeType()==TopAbs_EDGE)return make_geometry_id(edge_geometry(TopoDS::Edge(shape)));
+    std::ostringstream out;out.precision(17);out<<"boundary-evidence-v8|";
+    if(shape.ShapeType()==TopAbs_FACE){
+        const auto face=TopoDS::Face(shape);TopLoc_Location location;const auto surface=BRep_Tool::Surface(face,location);
+        out<<int(face.Orientation())<<'|'<<BRep_Tool::NaturalRestriction(face)<<'|';placement(out,location);GeomTools::Write(surface,out);
+        std::vector<std::string> wires;
+        for(TopExp_Explorer loops(face.Oriented(TopAbs_FORWARD),TopAbs_WIRE);loops.More();loops.Next()){
+            std::vector<std::string> curves;
+            for(TopExp_Explorer uses(loops.Current(),TopAbs_EDGE);uses.More();uses.Next()){
+                const auto edge=TopoDS::Edge(uses.Current());double first,last;
+                const auto pcurve=BRep_Tool::CurveOnSurface(edge,face,first,last);
+                std::ostringstream curve;curve.precision(17);curve<<int(edge.Orientation())<<'|'<<edge_geometry(edge)<<'|'<<first<<'|'<<last<<'|';
+                if(!pcurve.IsNull())GeomTools::Write(pcurve,curve);curves.push_back(make_geometry_id(curve.str()));
+            }
+            std::sort(curves.begin(),curves.end());std::ostringstream wire;wire<<int(loops.Current().Orientation());for(const auto& curve:curves)wire<<'|'<<curve;wires.push_back(wire.str());
+        }
+        std::sort(wires.begin(),wires.end());for(const auto& wire:wires)out<<'|'<<wire;
+    }else BRepTools::Write(shape,out,Standard_False,Standard_False,TopTools_FormatVersion_CURRENT);
+    return make_geometry_id(out.str());
+}
+
 SelectionEvidence face_evidence(const TopoDS_Face& face, ShapeFacts* facts = nullptr) {
     if (facts) {
         facts->check();
@@ -1712,11 +1789,6 @@ SelectionEvidence face_evidence(const TopoDS_Face& face, ShapeFacts* facts = nul
     }
     SelectionEvidence evidence;
     evidence.geometry_type = std::to_string(classify_surface(face));
-    GProp_GProps properties;
-    BRepGProp::SurfaceProperties(face, properties, 1e-10);
-    evidence.measure_si = properties.Mass() * 1.0e-6;
-    evidence.measure_dimension = "AREA";
-    evidence.centroid = to_vec3(properties.CentreOfMass());
     BRepAdaptor_Surface surface(face);
     if (surface.GetType() == GeomAbs_Plane) {
         evidence.geometry_type = "PLANE";
@@ -1747,8 +1819,7 @@ SelectionEvidence face_evidence(const TopoDS_Face& face, ShapeFacts* facts = nul
         evidence.material_side = analytic_material_side(face, surface);
     std::ostringstream canonical;
     canonical.precision(17);
-    canonical << evidence.geometry_type << '|' << *evidence.measure_si << '|' << evidence.centroid.x
-              << ',' << evidence.centroid.y << ',' << evidence.centroid.z << '|'
+    canonical << boundary_evidence_digest(face) << '|' << evidence.geometry_type << '|'
               << evidence.origin.x << ',' << evidence.origin.y << ',' << evidence.origin.z << '|'
               << evidence.direction.x << ',' << evidence.direction.y << ',' << evidence.direction.z;
     if (evidence.radius_mm) canonical << "|radius_mm=" << *evidence.radius_mm;
@@ -1788,11 +1859,6 @@ std::string curve_geometry_type(const TopoDS_Edge& edge) {
 SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
     SelectionEvidence evidence;
     evidence.geometry_type = curve_geometry_type(edge);
-    GProp_GProps properties;
-    BRepGProp::LinearProperties(edge, properties);
-    evidence.measure_si = properties.Mass() * 1.0e-3;
-    evidence.measure_dimension = "LENGTH";
-    evidence.centroid = to_vec3(properties.CentreOfMass());
     BRepAdaptor_Curve curve(edge);
     if (std::isfinite(curve.FirstParameter()))
         evidence.parameter_start = curve.FirstParameter();
@@ -1826,9 +1892,7 @@ SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
     }
     std::ostringstream canonical;
     canonical.precision(17);
-    canonical << evidence.geometry_type << '|' << *evidence.measure_si << '|'
-              << evidence.centroid.x << ',' << evidence.centroid.y << ','
-              << evidence.centroid.z << '|' << evidence.origin.x << ',' << evidence.origin.y
+    canonical << boundary_evidence_digest(edge) << '|' << evidence.geometry_type << '|' << evidence.origin.x << ',' << evidence.origin.y
               << ',' << evidence.origin.z << '|' << evidence.direction.x << ','
               << evidence.direction.y << ',' << evidence.direction.z << '|'
               << evidence.parameter_start.value_or(curve.FirstParameter()) << ','
@@ -1843,13 +1907,11 @@ SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
 SelectionEvidence vertex_evidence(const TopoDS_Vertex& vertex) {
     SelectionEvidence evidence;
     evidence.geometry_type = "POINT";
-    evidence.measure_dimension = "NONE";
-    evidence.centroid = to_vec3(BRep_Tool::Pnt(vertex));
-    evidence.origin = evidence.centroid;
+    evidence.origin = to_vec3(BRep_Tool::Pnt(vertex));
     std::ostringstream canonical;
     canonical.precision(17);
-    canonical << evidence.geometry_type << '|' << evidence.centroid.x << ','
-              << evidence.centroid.y << ',' << evidence.centroid.z;
+    canonical << evidence.geometry_type << '|' << evidence.origin.x << ','
+              << evidence.origin.y << ',' << evidence.origin.z;
     evidence.evidence_digest = make_geometry_id(canonical.str());
     return evidence;
 }
@@ -2590,14 +2652,9 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     std::vector<NamedShape> mapped;
     std::vector<NamedShape> sources = input_named;
     sources.insert(sources.end(), tool.named.begin(), tool.named.end());
-    // A Compound may legally contain several (even overlapping) Solids.
-    // Complement results then do not necessarily preserve the same signed
-    // component multiplicity. Keep whole-result integration for that domain.
-    const bool local_material = solid_count(input)==1 && solid_count(tool.shape)==1;
-    // The Boolean's own partition supplies the changed material. Integrate that
-    // region rather than subtracting two large whole-solid integrals. Reusing
-    // its PaveFiller avoids a second intersection pass and preserves history.
-    const auto changed_volume = [&](const auto& algorithm, bool addition) {
+    // Reuse the Boolean's own partition to ask whether a three-dimensional
+    // material region exists. No mass integration or whole-body subtraction.
+    const auto changed_material = [&](const auto& algorithm, bool addition) {
         if (facts) facts->check();
         const Handle(Message_ProgressIndicator) progress=new PartProgress(facts?facts->cancelled:std::function<bool()>{});
         TopTools_ListOfShape arguments, tools;
@@ -2606,31 +2663,16 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
         TopoDS_Shape changed;
         if (addition) {
             BRepAlgoAPI_Cut delta(*algorithm.DSFiller());
-            delta.SetNonDestructive(Standard_True); delta.SetArguments(arguments); delta.SetTools(tools); delta.Build(progress->Start());
-            if(facts)facts->check();
-            if (!delta.IsDone()) throw std::runtime_error("MATERIAL_CHANGE_BOOLEAN_FAILED");
-            changed = delta.Shape();
+            delta.SetNonDestructive(Standard_True);delta.SetArguments(arguments);delta.SetTools(tools);delta.Build(progress->Start());
+            if(!delta.IsDone()||delta.HasErrors())throw std::runtime_error("MATERIAL_CHANGE_BOOLEAN_FAILED");
+            changed=delta.Shape();
         } else {
             BRepAlgoAPI_Common delta(*algorithm.DSFiller());
-            delta.SetNonDestructive(Standard_True); delta.SetArguments(arguments); delta.SetTools(tools); delta.Build(progress->Start());
-            if(facts)facts->check();
-            if (!delta.IsDone()) throw std::runtime_error("MATERIAL_CHANGE_BOOLEAN_FAILED");
-            changed = delta.Shape();
+            delta.SetNonDestructive(Standard_True);delta.SetArguments(arguments);delta.SetTools(tools);delta.Build(progress->Start());
+            if(!delta.IsDone()||delta.HasErrors())throw std::runtime_error("MATERIAL_CHANGE_BOOLEAN_FAILED");
+            changed=delta.Shape();
         }
-        TopTools_IndexedMapOfShape solids;
-        TopExp::MapShapes(changed, TopAbs_SOLID, solids);
-        if (solids.IsEmpty()) return 0.0; // Boundary contact removes/adds no material.
-        BRep_Builder builder; TopoDS_Compound material; builder.MakeCompound(material);
-        for (int i = 1; i <= solids.Extent(); ++i) builder.Add(material, solids(i));
-        return shape_volume(material, facts);
-    };
-    const auto remember_volume = [&](double before, double delta, bool addition) {
-        if (!facts || result.IsNull() || solid_count(result) == 0) return;
-        const double after = addition ? before + delta : before - delta;
-        // Near complete removal, subtraction loses significant digits. Keep
-        // strict integration of the small result as the authoritative fallback.
-        const double error_band = std::max(1e-9, (std::abs(before) + std::abs(delta)) * 1e-8);
-        if (std::isfinite(after) && after > error_band) facts->volumes.insert_or_assign(result, after);
+        return has_material(changed,facts);
     };
     const auto failed = [&](const char* diagnostic) {
         if (diagnose_loft) {
@@ -2651,11 +2693,8 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
             failed("body fuse failed");
         result = algorithm.Shape();
         mapped = map_named_shapes(sources, algorithm, result);
-        const auto delta = local_material ? changed_volume(algorithm, true) :
-            shape_volume(result, facts)-shape_volume(input, facts);
-        if (delta <= 1.0e-9)
+        if (!changed_material(algorithm,true))
             throw std::invalid_argument("NO_MATERIAL_CHANGE: add does not change the target body");
-        if (facts && local_material) remember_volume(shape_volume(input, facts), delta, true);
     } else if (operation == "REMOVE") {
         BRepAlgoAPI_Cut algorithm;
         algorithm.SetNonDestructive(Standard_True);
@@ -2669,12 +2708,9 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
         if (result.IsNull() || solid_count(result)==0)
             throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
         mapped = map_named_shapes(sources, algorithm, result);
-        const auto delta = local_material ? changed_volume(algorithm, false) :
-            shape_volume(input, facts)-shape_volume(result, facts);
-        if (delta <= 1.0e-9)
+        if (!changed_material(algorithm,false))
             throw std::invalid_argument(
                 "NO_MATERIAL_CHANGE: cut does not intersect the target body");
-        if (facts && local_material) remember_volume(shape_volume(input, facts), delta, false);
     } else if (operation == "INTERSECT") {
         BRepAlgoAPI_Common algorithm;
         algorithm.SetNonDestructive(Standard_True);
@@ -2688,7 +2724,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
         if (result.IsNull() || solid_count(result)==0)
             throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
         mapped = map_named_shapes(sources, algorithm, result);
-        if (!result.IsNull() && shape_volume(input, facts) - shape_volume(result, facts) <= 1.0e-9)
+        if (!has_material_difference(input,result,facts))
             throw std::invalid_argument(
                 "NO_MATERIAL_CHANGE: intersection does not change the target body");
     } else {
@@ -2707,8 +2743,6 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     unifier.Build();
     mapped = map_named_history(mapped, unifier.History(), unifier.Shape());
     if (facts) {
-        const auto mass = facts->volumes.find(result);
-        if (mass != facts->volumes.end()) facts->volumes.insert_or_assign(unifier.Shape(), mass->second);
         facts->check();
     }
     result = unifier.Shape();
@@ -2755,19 +2789,14 @@ ToolBuild material_range_tool(const ToolBuild& base, const ToolBuild& end,
         // Compare an actual spatial difference, never the two overall volumes.
         // REMOVE requires B1\B0 empty; ADD requires B0\B1 empty.
         TopTools_ListOfShape baseline,endpoint;baseline.Append(b0.shape);endpoint.Append(b1.shape);
-        BRepAlgoAPI_Cut outside;outside.SetNonDestructive(Standard_True);
-        outside.SetArguments(operation=="REMOVE"?endpoint:baseline);
-        outside.SetTools(operation=="REMOVE"?baseline:endpoint);outside.Build();
-        if (!outside.IsDone() || outside.HasErrors())
-            throw std::runtime_error("PATTERN_RANGE_BASELINE_CHECK_FAILED");
-        if (shape_volume(outside.Shape())>std::max(1e-7,shape_volume(b0.shape)*1e-10))
+        if (has_material_difference(operation=="REMOVE"?b1.shape:b0.shape,operation=="REMOVE"?b0.shape:b1.shape))
             throw std::invalid_argument(operation=="REMOVE"?"PATTERN_RANGE_ADDS_MATERIAL":"PATTERN_RANGE_REMOVES_BASELINE");
         BRepAlgoAPI_Cut cut;cut.SetNonDestructive(Standard_True);
         cut.SetArguments(operation=="REMOVE"?baseline:endpoint);
         cut.SetTools(operation=="REMOVE"?endpoint:baseline);cut.Build();
         if (!cut.IsDone() || cut.HasErrors())
             throw std::runtime_error("PATTERN_RANGE_EXTRACTION_FAILED");
-        if (cut.Shape().IsNull() || shape_volume(cut.Shape())<=1e-9)
+        if (!has_material(cut.Shape()))
             throw std::invalid_argument("PATTERN_RANGE_EMPTY");
         validate_body_solid_set(cut.Shape());
         auto sources=b1.named;
@@ -3382,15 +3411,13 @@ ComposedModifier sequential_inward_face_shell(const TopoDS_Shape& input,
         branch->Merge(args, clip);
         ComposedModifier wall{clip.Shape(), branch};
         prune_shell_internal_traces(wall, workspaceTolerance);
-        std::clog << "shell stage=face_clip index=" << walls.size() << " model_volume="
-                  << shape_volume(wall.shape)/(workspaceScale*workspaceScale*workspaceScale) << '\n';
+        std::clog << "shell stage=face_clip index=" << walls.size() << '\n';
         accumulate_shell_history(branches, branch, working, wall.shape);
         walls.push_back(wall.shape);
     }
     if (walls.empty()) throw std::invalid_argument("SHELL_NO_RETAINED_FACES");
     history->Merge(branches);
     auto result = walls.front();
-    const double materialTolerance = std::max(1e-7, shape_volume(working) * 1e-9);
     for (std::size_t i = 1; i < walls.size(); ++i) {
         const auto previous = result;
         TopTools_ListOfShape objects, tools;
@@ -3403,12 +3430,10 @@ ComposedModifier sequential_inward_face_shell(const TopoDS_Shape& input,
         history->Merge(args, fuse);
         ComposedModifier candidate{fuse.Shape(), history};
         prune_shell_internal_traces(candidate, workspaceTolerance);
-        std::clog << "shell stage=wall_union index=" << i << " model_volume="
-                  << shape_volume(candidate.shape)/(workspaceScale*workspaceScale*workspaceScale) << '\n';
-        const auto volume = shape_volume(candidate.shape);
-        const auto before = shape_volume(previous), added = shape_volume(walls[i]);
-        if (volume < std::max(before, added) - materialTolerance || volume > before + added + materialTolerance)
-            throw std::runtime_error("SHELL_WALL_MATERIAL_LOST");
+        std::clog << "shell stage=wall_union index=" << i << '\n';
+        // The checked Fuse constructs the union. Retained-face interior
+        // witnesses below independently verify wall material after assembly.
+        validate_body_solid_set(candidate.shape);
         result = candidate.shape; history = candidate.history;
     }
     ShapeUpgrade_UnifySameDomain simplify(result, Standard_True, Standard_True, Standard_False);
@@ -3692,7 +3717,7 @@ ToolBuild make_hole_tool(const ProfilePadSpec& spec, const TopoDS_Shape& target,
         tool.named=map_named_shapes(tool.named,fuse,fuse.Shape());tool.shape=fuse.Shape();
     }
     tool=add_hole_recess(std::move(tool),effective);
-    if(require_material){TopTools_ListOfShape objects,targets;objects.Append(tool.shape);targets.Append(target);BRepAlgoAPI_Common common;common.SetArguments(objects);common.SetTools(targets);common.SetNonDestructive(Standard_True);common.Build();if(!common.IsDone()||shape_volume(common.Shape())<=1e-9)throw std::invalid_argument("HOLE_POSITION_NO_MATERIAL_INTERSECTION:"+spec.profile_feature_id+":"+spec.regions[0].outer.curves[0].entity_id);}
+    if(require_material){TopTools_ListOfShape objects,targets;objects.Append(tool.shape);targets.Append(target);BRepAlgoAPI_Common common;common.SetArguments(objects);common.SetTools(targets);common.SetNonDestructive(Standard_True);common.Build();if(!common.IsDone()||!has_material(common.Shape()))throw std::invalid_argument("HOLE_POSITION_NO_MATERIAL_INTERSECTION:"+spec.profile_feature_id+":"+spec.regions[0].outer.curves[0].entity_id);}
     return tool;
 }
 
@@ -3807,7 +3832,7 @@ ToolBuild rebuild_through_hole(const ThroughHoleTool& recipe, const TopoDS_Shape
 // saved local topology index, geometry search, or nearest-element recovery.
 BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                                          const std::vector<NamedShape>& upstream_named,
-                                         const ProfilePadSpec& spec) {
+                                         const ProfilePadSpec& spec, ShapeFacts* facts = nullptr) {
     // Local OCCT builders can adjust their inputs. Immutable stage artifacts
     // must never be changed by preview, failure, or a later modifier.
     BRepBuilderAPI_Copy copy(upstream, Standard_True, Standard_False);
@@ -3837,7 +3862,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
         if (!algorithm.IsDone())
             throw std::runtime_error("MODIFIER_ALGORITHM_FAILED:" + spec.generator);
         const auto result = algorithm.Shape();
-        validate_body_solid_set(result);
+        validate_body_solid_set(result,facts);
         std::vector<NamedShape> mapped;
         std::vector<TopologyLineage> derived;
         TopTools_IndexedMapOfShape members;
@@ -3885,7 +3910,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
             throw std::runtime_error(spec.generator + ":" + error.what());
         }
         derived.insert(derived.end(), closure.begin(), closure.end());
-        BodyOperationResult output{result, std::move(mapped), std::move(derived), {}};
+        BodyOperationResult output{result, std::move(mapped), std::move(derived), {}, {}, true};
         for (const auto& source : copied_sources ? *copied_sources : named)
             if (members.Contains(source.shape))
                 output.unchanged.push_back(source);
@@ -4040,18 +4065,32 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
     }
     if (spec.generator == "SHELL") {
         validate_positive(spec.pad_length, "shell thickness");
-        const double tolerance = std::max(1.0e-7, shape_volume(input) * 1.0e-9);
-        const auto inward_valid = [&](const TopoDS_Shape& shape) {
-            if (shape.IsNull() || shape_volume(shape) >= shape_volume(input) - tolerance) return false;
-            BRepAlgoAPI_Cut outside(shape, input);
-            outside.Build();
-            return outside.IsDone() && shape_volume(outside.Shape()) <= tolerance;
+        const double toleranceLimit = std::max(1e-5, shell_input_tolerance(input) * 1.01);
+        const auto removed_material_witness = [&](const TopoDS_Shape& shape) {
+            TopExp_Explorer sourceSolid(input,TopAbs_SOLID),resultSolid(shape,TopAbs_SOLID);
+            if(!sourceSolid.More()||!resultSolid.More())return false;
+            BRepClass3d_SolidClassifier original(sourceSolid.Current()),remaining(resultSolid.Current());
+            for(const auto& closing:selected) {
+                if(facts)facts->check();
+                if(detail::visit_face_interior(TopoDS::Face(closing),[&](const gp_Pnt& point,const gp_Vec& normal) {
+                    for(const double factor:{.25,.5,1.,2.})for(const double sign:{-1.,1.}) {
+                        const auto sample=point.Translated(normal*(sign*factor*spec.pad_length));
+                        original.Perform(sample,toleranceLimit);if(original.State()!=TopAbs_IN)continue;
+                        remaining.Perform(sample,toleranceLimit);if(remaining.State()==TopAbs_OUT)return true;
+                    }
+                    return false;
+                }))return true;
+            }
+            return false;
         };
         if (!spec.reversed) {
             try {
                 auto planar = convex_planar_shell(input, selected, spec.pad_length);
                 auto result = finish(planar);
-                if (!inward_valid(result.shape)) throw std::invalid_argument("SHELL_THICKNESS_EXCEEDS_INTERIOR");
+                // A strict material-removal witness rejects unchanged/full
+                // results without deriving global mass as a validity proxy.
+                if (!removed_material_witness(result.shape))
+                    throw std::invalid_argument("SHELL_THICKNESS_EXCEEDS_INTERIOR");
                 result.diagnostics.push_back("SHELL_CONVEX_PLANAR_OFFSET_HISTORY");
                 return result;
             } catch (const std::invalid_argument& error) {
@@ -4059,7 +4098,6 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                 if (code != "SHELL_PLANAR_FALLBACK_UNSUPPORTED" && code != "SHELL_PLANAR_FALLBACK_NONCONVEX") throw;
             }
         }
-        const double toleranceLimit = std::max(1e-5, shell_input_tolerance(input) * 1.01);
         std::string failure;
         const auto attempt = [&](auto build, bool clippedToInput = false) -> std::optional<BodyOperationResult> {
             try {
@@ -4067,14 +4105,15 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                 std::vector<TopoDS_Shape> closing;
                 for (const auto& face : selected) closing.push_back(attemptCopy.ModifiedShape(face));
                 auto candidate = build(attemptCopy.Shape(), closing);
-                // A partition's constructive containment proof is reusable only
-                // while its exact boundary has not been repositioned. Candidates
-                // needing junction refinement must use the independently checked path.
+                // Preserve the native boundary/tolerance and wall checks. An
+                // actual cavity witness independently rejects a no-op result.
+                // Re-cutting coincident spline supports is not a reliable test
+                // of containment (nor is the signed volume of that difference).
                 if (clippedToInput) prune_shell_internal_traces(candidate, toleranceLimit, false);
                 else verify_shell_offset(candidate, toleranceLimit);
                 if (solid_count(candidate.shape) != solid_count(input)) throw std::runtime_error("SHELL_DISCONNECTED_WALLS");
-                if (!spec.reversed && (shape_volume(candidate.shape) >= shape_volume(input) - tolerance ||
-                    (!clippedToInput && !inward_valid(candidate.shape)))) throw std::runtime_error("SHELL_INVALID_INTERIOR");
+                if (!spec.reversed && !removed_material_witness(candidate.shape))
+                    throw std::runtime_error("SHELL_INVALID_INTERIOR");
                 TopTools_ListOfShape source; source.Append(input);
                 Handle(BRepTools_History) history = new BRepTools_History(source, attemptCopy);
                 history->Merge(detail::shell_result_history(attemptCopy.Shape(), candidate.shape, candidate.history));
@@ -4265,7 +4304,7 @@ struct OcctKernel::Impl {
         TopoDS_Shape shape;
         std::shared_ptr<const std::vector<uint8_t>> brep;
         uint64_t used = 0;
-        std::optional<double> volume;
+        bool validated = false;
         size_t charge = 0;
     };
 
@@ -4278,7 +4317,6 @@ struct OcctKernel::Impl {
         std::vector<NamedShape> named;
         std::shared_ptr<const FeatureHistory> history;
         bool history_complete = false;
-        std::optional<double> volume;
         bool pattern_context_complete = true;
         ToolContext tools, bodies, bases;
         size_t bytes = 0, compact_bytes = 0;
@@ -4334,7 +4372,7 @@ struct OcctKernel::Impl {
         // Conservative additive charges reuse already serialized bytes. Shared
         // native graphs can be overcharged; accounting never re-encodes all
         // resident geometry or pins evicted OCCT handles.
-        shapes.emplace(id,StoredGeometry{shape,std::make_shared<const std::vector<uint8_t>>(std::move(bytes)),++clock,{},incoming});
+        shapes.emplace(id,StoredGeometry{shape,std::make_shared<const std::vector<uint8_t>>(std::move(bytes)),++clock,false,incoming});
         shape_bytes+=incoming;
         if(retain_operation_graph)return;
         trim_shapes(id);
@@ -4620,9 +4658,11 @@ GeometryId OcctKernel::evaluateRectangularPads(const std::vector<RectangularPadS
 ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     const std::vector<ProfilePadSpec>& specs, const std::vector<uint8_t>& base_brep,
     const ImportTopologySeed* import_seed, const PartRuntimeOptions& runtime) {
+    const auto mesh_admission=impl_->mesh_reuse.on_failure();
     PartRuntimeStats local_stats;
     auto& stats = runtime.stats ? *runtime.stats : local_stats;
     stats = {};
+    const auto integrations_before=detail::volume_integration_calls();
     const auto accounting_started=impl_->accounting_ms;
     const auto accounting_serializations_started=impl_->accounting_serializations;
     ShapeFacts facts;
@@ -4699,13 +4739,18 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
             if (TopExp_Explorer(result, type, TopAbs_SOLID).More())
                 throw std::invalid_argument("IMPORT_NAMING_REQUIRES_VALID_SOLID_DEFINITION");
+        if(!frozen) {
+            for(TopExp_Explorer members(result,TopAbs_SOLID);members.More();members.Next())
+                if(!has_material(members.Current(),&facts))throw std::invalid_argument("IMPORT_NAMING_REQUIRES_VALID_SOLID_DEFINITION");
+            facts.validated.insert(result);
+        }
         if (seed.identities.size() != static_cast<std::size_t>(faces.Extent() + edges.Extent() + vertices.Extent()))
             throw std::invalid_argument("IMPORT_SEED_COVERAGE_MISMATCH");
         std::unordered_map<std::string, const SemanticTopologyOutput*> frozen_outputs;
         if (frozen) {
             if (frozen->geometry_id != result_id || frozen->root.result_geometry_id != result_id ||
                 frozen->root.feature_id != seed.feature_id || frozen->root.body_id != seed.body_id ||
-                !frozen->root.topology_history_complete || !std::isfinite(frozen->volume) || frozen->volume <= 1e-9 ||
+                !frozen->root.topology_history_complete || !frozen->validated ||
                 frozen->root.semantic_outputs.size() != seed.identities.size() ||
                 frozen->root.topology_history.lineage.size()!=seed.identities.size() ||
                 frozen->root.topology_history.policy_digest!=topology_policy_digest() ||
@@ -4716,7 +4761,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 if (!frozen_outputs.emplace(key, &output).second)
                     throw std::invalid_argument("IMPORT_BASE_STAGE_DUPLICATE_LOCATOR");
             }
-            facts.volumes.emplace(result, frozen->volume);
+            facts.materials.emplace(result,true);facts.validated.insert(result);
             stats.base_stage_restored = true;
         }
         FeatureResult root=frozen?frozen->root:FeatureResult{};
@@ -4748,9 +4793,6 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 if (source == frozen_outputs.end() || !same_ref(source->second->semantic_ref, ref))
                     throw std::invalid_argument("IMPORT_BASE_STAGE_IDENTITY_MISMATCH");
                 facts.named.emplace(shape,ShapeFacts::NamedEvidence{ref_key(ref),&source->second->evidence});
-                if (entry.topology_type == PersistentTopologyType::face) {
-                    evidence=source->second->evidence;evidence.adjacent.clear();facts.faces.emplace(shape,evidence);
-                }
             } else {
                 evidence = topology_evidence(shape, &facts);
                 append_semantic_role(evidence, ref, entry.topology_type);
@@ -4770,7 +4812,6 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         root.topology_history.evidence_digest = topology_history_digest(root.topology_history);
         }
         evaluation.feature_results.push_back(std::move(root));
-        if(frozen)impl_->shapes.at(result_id).volume=frozen->volume;
         topology_history_complete = true;
         result_validated = true;
     }
@@ -4825,10 +4866,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         stats.stages_reused=resume;
         // Re-adopt the saved BREP handle if the repository was explicitly unloaded.
         if(!is_loaded(result_id))impl_->store(result);
-        if (restored->volume) {
-            facts.volumes.emplace(result, *restored->volume);
-            impl_->shapes.at(result_id).volume = restored->volume;
-        }
+        facts.materials.emplace(result,true);facts.validated.insert(result);
         if (!evaluation.feature_results.empty()) {
             std::unordered_map<std::string,const SelectionEvidence*> evidence;
             evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->visit_outputs([&](auto,auto,const auto& ref,const auto& value){
@@ -4838,9 +4876,16 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 const auto found=evidence.find(ref_key(named.ref));
                 if(found!=evidence.end()) {
                     facts.named.emplace(named.shape,ShapeFacts::NamedEvidence{found->first,found->second});
-                    if(named.shape.ShapeType()==TopAbs_FACE){auto raw=*found->second;raw.adjacent.clear();facts.faces.emplace(named.shape,std::move(raw));}
                 }
             }
+        }
+    }
+    if(!evaluation.feature_results.empty() && facts.named.empty()) {
+        std::unordered_map<std::string,const SelectionEvidence*> root_evidence;
+        evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->visit_outputs([&](auto,auto,const auto& ref,const auto& evidence){root_evidence.emplace(ref_key(ref),&evidence);});
+        for(const auto& named:live_named) {
+            const auto found=root_evidence.find(ref_key(named.ref));
+            if(found!=root_evidence.end())facts.named.emplace(named.shape,ShapeFacts::NamedEvidence{found->first,found->second});
         }
     }
     using FeatureHistory=Impl::FeatureHistory;
@@ -4945,8 +4990,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     ToolBuild part;
                     try {part=build_generator_tool(definition,input_shape,input_named,&runtime);
                         TopTools_ListOfShape members,targets;members.Append(part.shape);targets.Append(input_shape);
-                        if(pattern_spec.body_operation=="REMOVE"){BRepAlgoAPI_Common common;common.SetArguments(members);common.SetTools(targets);common.SetNonDestructive(Standard_True);common.Build();if(!common.IsDone()||shape_volume(common.Shape())<=1e-9)throw std::invalid_argument("PATTERN_MEMBER_NO_MATERIAL_INTERSECTION");}
-                        else {BRepAlgoAPI_Cut added;added.SetArguments(members);added.SetTools(targets);added.SetNonDestructive(Standard_True);added.Build();if(!added.IsDone()||shape_volume(added.Shape())<=1e-9)throw std::invalid_argument("PATTERN_MEMBER_NO_MATERIAL_CHANGE");}
+                        if(pattern_spec.body_operation=="REMOVE"){BRepAlgoAPI_Common common;common.SetArguments(members);common.SetTools(targets);common.SetNonDestructive(Standard_True);common.Build();if(!common.IsDone()||!has_material(common.Shape()))throw std::invalid_argument("PATTERN_MEMBER_NO_MATERIAL_INTERSECTION");}
+                        else {BRepAlgoAPI_Cut added;added.SetArguments(members);added.SetTools(targets);added.SetNonDestructive(Standard_True);added.Build();if(!added.IsDone()||!has_material(added.Shape()))throw std::invalid_argument("PATTERN_MEMBER_NO_MATERIAL_CHANGE");}
                     }
                     catch(const std::exception& error){throw std::invalid_argument("PATTERN_MEMBER_FAILED:"+std::to_string(member.slot)+":"+source.feature_id+":"+error.what());}
                     ++stats.generator_calls;
@@ -5080,18 +5125,58 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 : spec.generator=="BOOLEAN" && spec.explicit_boolean_regions
                     ? assemble_boolean_regions(*impl_->boolean_partition(result,live_named,tool.shape,tool.region_named),result,live_named,tool,spec)
                 : spec.generator=="SOLID_PATTERN" && (tool.private_boolean || !tool.through_holes.empty()) ? apply_private_pattern()
-                : modifier ? apply_local_modifier(result, live_named, spec)
+                : modifier ? apply_local_modifier(result, live_named, spec, &facts)
                            : apply_body_operation(result, live_named, tool, spec.body_operation, spec.generator == "LOFT", &facts);
             result = operation.shape;
             result_validated=operation.validated;
             if(!result_validated) {
-                if(result.IsNull()||!BRepCheck_Analyzer(result).IsValid())
-                    throw std::runtime_error("feature chain produced invalid B-Rep");
+                validate_body_solid_set(result,&facts);
                 result_validated=true;
             }
             result_id = impl_->store(result);
-            const auto result_volume = facts.volumes.find(result);
-            if (result_volume != facts.volumes.end()) impl_->shapes.at(result_id).volume = result_volume->second;
+            impl_->shapes.at(result_id).validated=result_validated;
+            // Only real unchanged-copy history grants correspondence. A stable
+            // semantic ref by itself is insufficient: modified faces often retain
+            // the same ref and must recompute their geometry evidence and mesh.
+            TopTools_IndexedMapOfShape survivor_members;TopExp::MapShapes(result,survivor_members);
+            for(const auto& source:input_named)if(survivor_members.Contains(source.shape))operation.unchanged.push_back(source);
+            detail::MeshReuse::Correspondence survivors;
+            const detail::SemanticRefIndex<NamedShape> input_index(input_named,[](const auto& value)->const auto&{return value.ref;});
+            for(const auto& unchanged:operation.unchanged) {
+                const auto& previous=input_index.all(unchanged.ref);
+                if(previous.size()!=1 || previous.front()->shape.ShapeType()!=unchanged.shape.ShapeType())continue;
+                const auto& before=previous.front()->shape;
+                if(before.Location()!=unchanged.shape.Location() ||
+                   (before.ShapeType()==TopAbs_FACE&&before.Orientation()!=unchanged.shape.Orientation()))continue;
+                survivors.emplace_back(before,unchanged.shape);
+                const auto known=facts.named.find(before);
+                if(known!=facts.named.end())facts.named.insert_or_assign(unchanged.shape,known->second);
+                if(before.ShapeType()==TopAbs_FACE) {
+                    const auto raw=facts.faces.find(before);
+                    if(raw!=facts.faces.end())facts.faces.insert_or_assign(unchanged.shape,raw->second);
+                }
+            }
+            // Some native builders rebuild a TFace solely to update tolerance
+            // records. A one-to-one typed history continuation may also reuse
+            // geometry when its complete support/trim evidence is exactly equal.
+            // Stable refs alone never grant this certificate.
+            std::unordered_set<std::string> certified;
+            for(const auto& unchanged:operation.unchanged)certified.insert(ref_key(unchanged.ref));
+            const detail::SemanticRefIndex<NamedShape> images(operation.named,[](const auto& value)->const auto&{return value.ref;});
+            for(const auto& source:input_named){
+                const auto key=ref_key(source.ref);if(certified.count(key)||input_index.all(source.ref).size()!=1)continue;
+                const auto& descendants=images.all(source.ref);TopTools_IndexedMapOfShape unique;
+                for(const auto* image:descendants)if(image->shape.ShapeType()==source.shape.ShapeType()&&survivor_members.Contains(image->shape))unique.Add(image->shape);
+                if(unique.Extent()!=1)continue;
+                const auto known=facts.named.find(source.shape);if(known==facts.named.end()||known->second.ref!=key)continue;
+                const auto target=survivor_members(survivor_members.FindIndex(unique(1)));
+                if(source.shape.Location()!=target.Location()||(target.ShapeType()==TopAbs_FACE&&source.shape.Orientation()!=target.Orientation()))continue;
+                auto evidence=topology_evidence(target,&facts);append_semantic_role(evidence,source.ref,persistent_topology_type(target));
+                if(evidence.evidence_digest!=known->second.value->evidence_digest)continue;
+                survivors.emplace_back(source.shape,target);operation.unchanged.push_back({source.ref,target});
+                facts.named.insert_or_assign(target,known->second);certified.insert(key);
+            }
+            impl_->mesh_reuse.inherit(survivors,input_id,input_shape,result_id,result);
 
             stats.exact_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-exact_started).count();
             const auto naming_started=std::chrono::steady_clock::now();
@@ -5407,6 +5492,20 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 pattern_bodies.emplace(spec.feature_id,freeze_tool(std::move(stage)));
             }
             evaluation.feature_results.push_back(std::move(feature));
+            // Borrow the new immutable tip rather than accumulating a map of
+            // every historical face. All later private-copy descendants can
+            // carry these facts through the same verified survivor contract.
+            facts.named.clear();facts.faces.clear();
+            std::unordered_map<std::string,const SelectionEvidence*> tip_evidence;
+            evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->visit_outputs([&](auto,auto,const auto& ref,const auto& evidence){
+                tip_evidence.emplace(ref_key(ref),&evidence);
+            });
+            for(const auto& named:live_named) {
+                const auto found=tip_evidence.find(ref_key(named.ref));
+                if(found!=tip_evidence.end()) {
+                    facts.named.emplace(named.shape,ShapeFacts::NamedEvidence{found->first,found->second});
+                }
+            }
             stats.naming_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-naming_started).count();
             ++stats.stages_executed;stats.executed_feature_ids.push_back(spec.feature_id);
             stats.stages.push_back({spec.feature_id,runtime.stage_keys.size()==specs.size()?runtime.stage_keys[spec_index]:"",result_id,false});
@@ -5416,7 +5515,6 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 stage->shape=result;stage->geometry_id=result_id;stage->named=live_named;
                 history=FeatureHistory::append(history,evaluation.feature_results.frozen(evaluation.feature_results.size()-1),evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->charged_bytes());
                 stage->history=history;stage->history_complete=topology_history_complete;
-                stage->volume=impl_->shapes.at(result_id).volume;
                 stage->tools=pattern_tools;stage->bodies=pattern_bodies;stage->bases=pattern_range_bases;
                 stage->pattern_context_complete=!restored||restored->pattern_context_complete;
                 const auto accounting_begin=std::chrono::steady_clock::now();
@@ -5497,12 +5595,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     }
     if (result.IsNull())
         throw std::invalid_argument("feature chain contains no solid geometry");
-    if (!result_validated && !BRepCheck_Analyzer(result).IsValid())
-        throw std::runtime_error("feature chain produced invalid B-Rep");
+    if (!result_validated) validate_body_solid_set(result,&facts);
     evaluation.geometry_id = result_id.empty() ? impl_->store(result) : result_id;
+    impl_->shapes.at(evaluation.geometry_id).validated=true;
     stats.stage_cache_bytes=impl_->stage_bytes;stats.stage_evictions=impl_->stage_evictions-evictions_before;
     stats.cache_accounting_ms=impl_->accounting_ms-accounting_started;
     stats.cache_accounting_serializations=impl_->accounting_serializations-accounting_serializations_started;
+    stats.volume_integrations=detail::volume_integration_calls()-integrations_before;
     return evaluation;
 }
 
@@ -5586,7 +5685,16 @@ const TopologyInfo& OcctKernel::getTopologyProperties(const GeometryId& id, cons
             std::max({full.face_count,full.edge_count,full.vertex_count});
         if(local_id>available)throw std::invalid_argument("TOPOLOGY_LOCAL_ID_INVALID");
         if (cache_hit) *cache_hit = true;
-        return cached->second;
+        if(kind.empty()&&!local_id)return cached->second;
+        const auto query=kind+"/"+std::to_string(local_id);
+        auto& projections=impl_->topology_queries[id];const auto known=projections.find(query);
+        if(known!=projections.end())return known->second;
+        TopologyInfo selected{};selected.face_count=full.face_count;selected.edge_count=full.edge_count;
+        selected.vertex_count=full.vertex_count;selected.solid_count=full.solid_count;selected.geometry_domain=full.geometry_domain;
+        if(kind.empty()||kind=="FACE")for(const auto& face:full.faces)if(!local_id||face.local_id==local_id)selected.faces.push_back(face);
+        if(kind.empty()||kind=="EDGE")for(const auto& edge:full.edges)if(!local_id||edge.local_id==local_id)selected.edges.push_back(edge);
+        if(kind.empty()||kind=="VERTEX")for(const auto& vertex:full.vertices)if(!local_id||vertex.local_id==local_id)selected.vertices.push_back(vertex);
+        return projections.emplace(query,std::move(selected)).first->second;
     }
     const auto query = kind + "/" + std::to_string(local_id);
     const auto queries = impl_->topology_queries.find(id);
@@ -5653,13 +5761,23 @@ const TopologyInfo& OcctKernel::getTopologyProperties(const GeometryId& id, cons
     return impl_->topology_queries[id].emplace(query, std::move(info)).first->second;
 }
 
+void OcctKernel::validateResult(const GeometryId& id) {
+    auto& stored=impl_->shapes.at(id);
+    if(stored.validated)return;
+    // This boundary also publishes imported mixed/open geometry. Body-only
+    // membership gates belong to the Feature evaluator, which marks its result
+    // validated there; a valid imported shell is not a failed solid operation.
+    if(stored.shape.IsNull()||!BRepCheck_Analyzer(stored.shape).IsValid())
+        throw std::runtime_error("INVALID_RESULT: invalid geometry result");
+    for(TopExp_Explorer solids(stored.shape,TopAbs_SOLID);solids.More();solids.Next())
+        if(!has_material(solids.Current()))throw std::runtime_error("INVALID_RESULT: empty solid");
+    stored.validated=true;
+}
+
 double OcctKernel::getVolume(const GeometryId& id) {
-    auto& stored = impl_->shapes.at(id);
-    if (stored.volume) return *stored.volume;
     GProp_GProps properties;
     detail::volume_properties(impl_->find(id), properties);
-    stored.volume = properties.Mass();
-    return *stored.volume;
+    return properties.Mass();
 }
 
 TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const double linear_deflection,
@@ -5671,6 +5789,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                                           const double angular_deflection, const bool parallel,
                                           std::function<bool()> cancelled, std::function<bool()> fresh_cancelled) {
     const auto check_cancel=[&](){if(cancelled&&cancelled())throw std::runtime_error("EVALUATION_CANCELLED");};
+    const auto mesh_admission=impl_->mesh_reuse.on_failure();
     check_cancel();
     validate_positive(linear_deflection, "linear_deflection");
     validate_positive(angular_deflection, "angular_deflection");
@@ -5686,7 +5805,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             BRepBuilderAPI_Copy copy(source, Standard_True, Standard_False);
             const auto shape = copy.Shape();
             std::vector<Handle(Poly_Triangulation)> seeded;
-            if(reuse && !preserveBoundary)attempted_reuse=impl_->mesh_reuse.seed(source,copy,seeded)>0;
+            if(reuse && !preserveBoundary)attempted_reuse=impl_->mesh_reuse.seed(geometry_id,source,copy,seeded)>0;
             IMeshTools_Parameters parameters;
             parameters.Deflection = linear_deflection;
             parameters.Angle = angular_deflection;
@@ -5820,7 +5939,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             result.timings.computed_faces=face_map.Extent()-result.timings.reused_faces;
             const auto& admission=fresh_cancelled?fresh_cancelled:cancelled;
             if(admission&&admission())throw std::runtime_error("EVALUATION_CANCELLED");
-            if(!preserveBoundary)impl_->mesh_reuse.admit(source,copy,impl_->shapes.at(geometry_id).brep->capacity()*16);
+            if(!preserveBoundary)impl_->mesh_reuse.admit(geometry_id,source,copy);
             return result;
         };
         try {

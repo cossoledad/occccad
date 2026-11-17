@@ -1,7 +1,6 @@
 package artifact
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -115,7 +114,7 @@ func StagingKey(requestID, fileName string) string {
 
 // AdoptTransformed decorates a staged result before publication. In particular,
 // adding business visualization metadata must not publish a second, unused GLB.
-func (service *Service) AdoptTransformed(ctx context.Context, kind Kind, contentType, key, digest string, size int64, transform func([]byte) ([]byte, error)) (Object, error) {
+func (service *Service) AdoptTransformed(ctx context.Context, kind Kind, contentType, key, digest string, size int64, transform func(io.Reader, int64) (io.Reader, error)) (Object, error) {
 	if size < 0 || size == int64(^uint64(0)>>1) {
 		return Object{}, fmt.Errorf("invalid staged object size")
 	}
@@ -123,28 +122,69 @@ func (service *Service) AdoptTransformed(ctx context.Context, kind Kind, content
 	if err != nil {
 		return Object{}, err
 	}
-	data, err := io.ReadAll(io.LimitReader(reader, size+1))
-	closeErr := reader.Close()
+	closed := false
+	defer func() {
+		if !closed {
+			_ = reader.Close()
+		}
+	}()
+	hash := sha256.New()
+	source := &countedReader{reader: io.TeeReader(io.LimitReader(contextReader{ctx, reader}, size+1), hash)}
+	output, err := transform(source, size)
 	if err != nil {
 		return Object{}, err
 	}
-	if closeErr != nil {
-		return Object{}, closeErr
-	}
-	hash := sha256.Sum256(data)
-	if int64(len(data)) != size || hex.EncodeToString(hash[:]) != digest {
-		return Object{}, fmt.Errorf("staged artifact integrity mismatch")
-	}
-	output, err := transform(data)
+	verified := &verifiedTransform{output: output, finish: func() error {
+		if _, err := io.Copy(io.Discard, source); err != nil {
+			return err
+		}
+		closeErr := reader.Close()
+		closed = true
+		if closeErr != nil {
+			return closeErr
+		}
+		if source.count != size || hex.EncodeToString(hash.Sum(nil)) != digest {
+			return fmt.Errorf("staged artifact integrity mismatch")
+		}
+		return ctx.Err()
+	}}
+	object, err := service.Put(ctx, kind, contentType, verified)
 	if err != nil {
 		return Object{}, err
 	}
-	object, err := service.Put(ctx, kind, contentType, bytes.NewReader(output))
-	if err != nil {
-		return Object{}, err
-	}
-	if err := service.staging.Delete(ctx, key); err != nil {
+	if err = service.staging.Delete(ctx, key); err != nil {
 		return Object{}, err
 	}
 	return object, nil
+}
+
+type countedReader struct {
+	reader io.Reader
+	count  int64
+}
+
+func (r *countedReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.count += int64(n)
+	return n, err
+}
+
+// A Store may finalize only after EOF. Verify the entire original object before
+// exposing that EOF, including a discarded previous metadata suffix. A corrupt,
+// truncated or canceled source never becomes a READY transformed object.
+type verifiedTransform struct {
+	output  io.Reader
+	finish  func() error
+	checked bool
+}
+
+func (r *verifiedTransform) Read(p []byte) (int, error) {
+	n, err := r.output.Read(p)
+	if err == io.EOF && !r.checked {
+		r.checked = true
+		if verifyErr := r.finish(); verifyErr != nil {
+			return n, verifyErr
+		}
+	}
+	return n, err
 }

@@ -104,8 +104,8 @@ func TestHoleLifecycleThroughRouter(t *testing.T) {
 	checkVolume := func(want float64) {
 		t.Helper()
 		input, e := service.GetFeatureInput(t.Context(), view.Document.ID, workspace.FeatureInputRequest{VersionID: view.Document.VersionID, FeatureID: hole.ID, ResultStage: true})
-		if e != nil || math.Abs(input.Artifact.Volume-want) > 1e-5 {
-			t.Fatal("hole volume", input.Artifact.Volume, want, e)
+		if e != nil || math.Abs(measuredArtifactVolume(t, input.Artifact)-want) > 1e-5 {
+			t.Fatal("hole volume", measuredArtifactVolume(t, input.Artifact), want, e)
 		}
 	}
 	checkVolume(12000 - 40*math.Pi)
@@ -201,7 +201,7 @@ func TestHoleLifecycleThroughRouter(t *testing.T) {
 		if reverse {
 			length = 20
 		}
-		if e != nil || candidate.Artifact == nil || math.Abs(candidate.Artifact.Volume-(12000-9*math.Pi*length)) > 1e-5 {
+		if e != nil || candidate.Artifact == nil || math.Abs(measuredArtifactVolume(t, candidate.Artifact)-(12000-9*math.Pi*length)) > 1e-5 {
 			t.Fatal("directional through", reverse, e)
 		}
 	}
@@ -230,7 +230,7 @@ func TestHoleLifecycleThroughRouter(t *testing.T) {
 	}
 	failedHead := view.Document.VersionID
 	input, e := service.GetFeatureInput(t.Context(), view.Document.ID, workspace.FeatureInputRequest{VersionID: failedHead, FeatureID: hole.ID})
-	if e != nil || input.PointPick == nil || input.PointPick.Status != modelcore.SelectionMissing || math.Abs(input.Artifact.Volume-12000) > 1e-6 {
+	if e != nil || input.PointPick == nil || input.PointPick.Status != modelcore.SelectionMissing || math.Abs(measuredArtifactVolume(t, input.Artifact)-12000) > 1e-6 {
 		t.Fatal("failed point blocks valid upstream", e)
 	}
 	broken := saved(hole.ID)
@@ -381,7 +381,7 @@ func TestHoleAdmissionAndReplicationThroughRouter(t *testing.T) {
 			pattern.Pattern.StartFeatureID = hole.ID
 		}
 		candidate, e := service.PreviewCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: view.Document.ID + "-pattern-" + kind, Type: "CREATE_PATTERN", Feature: pattern})
-		if e != nil || candidate.Artifact == nil || math.Abs(candidate.Artifact.Volume-want) > 1e-5 {
+		if e != nil || candidate.Artifact == nil || math.Abs(measuredArtifactVolume(t, candidate.Artifact)-want) > 1e-5 {
 			t.Fatal("Hole replication", kind, e, candidate.Artifact)
 		}
 	}
@@ -398,7 +398,7 @@ func TestHoleAdmissionAndReplicationThroughRouter(t *testing.T) {
 	// A different standard support rotates the evaluated axis and retains local point identity.
 	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "UPDATE_ENTITY_POINT", EntityID: "p", SubElement: "POINT", Point: &workspace.SketchPoint2{Y: 15}}}})
 	apply(workspace.CommandRequest{Type: "REASSIGN_SKETCH_SUPPORT", SketchID: sketch, VersionID: view.Document.VersionID, DatumPlaneID: "datum-yz"})
-	if math.Abs(activeBodyArtifact(t, view).Volume-(12000-20*math.Pi)) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-(12000-20*math.Pi)) > 1e-5 {
 		t.Fatal("rotated Hole volume")
 	}
 	wall := findP7TopologyPick(t, service, view, "FACE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
@@ -478,8 +478,8 @@ func TestEngineeringHoleLifecycleThroughRouter(t *testing.T) {
 	checkVolume := func(extra float64) {
 		t.Helper()
 		stage, e := service.GetFeatureInput(t.Context(), v.Document.ID, workspace.FeatureInputRequest{VersionID: v.Document.VersionID, FeatureID: hole.ID, ResultStage: true})
-		if e != nil || math.Abs(stage.Artifact.Volume-(12000-math.Pi*(40+extra))) > 1e-5 {
-			t.Fatal("volume", stage.Artifact.Volume, extra, e)
+		if e != nil || math.Abs(measuredArtifactVolume(t, stage.Artifact)-(12000-math.Pi*(40+extra))) > 1e-5 {
+			t.Fatal("volume", measuredArtifactVolume(t, stage.Artifact), extra, e)
 		}
 	}
 	checkVolume(36)

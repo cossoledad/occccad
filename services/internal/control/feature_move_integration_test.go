@@ -117,7 +117,7 @@ func TestMoveFeatureLifecycleThroughRouter(t *testing.T) {
 	apply(r)
 	first := ids()
 	movedGeometry := activeBodyArtifact(t, v)
-	if !slices.Equal(first, []string{profile, base.ID, location, hole.ID, round.ID}) || !reflect.DeepEqual(params, v.Part.Parameters) || math.Abs(originalGeometry.Volume-movedGeometry.Volume) > 1e-6 {
+	if !slices.Equal(first, []string{profile, base.ID, location, hole.ID, round.ID}) || !reflect.DeepEqual(params, v.Part.Parameters) || math.Abs(measuredArtifactVolume(t, originalGeometry)-measuredArtifactVolume(t, movedGeometry)) > 1e-6 {
 		t.Fatal("move changed identities, parameters or final volume")
 	}
 	if saved(hole.ID).Name != hole.Name || saved(hole.ID).BodyID != hole.BodyID || !reflect.DeepEqual(saved(hole.ID).HolePoint, hole.HolePoint) || !reflect.DeepEqual(saved(round.ID).Selections, round.Selections) {
@@ -128,8 +128,8 @@ func TestMoveFeatureLifecycleThroughRouter(t *testing.T) {
 		t.Fatal("idempotent commit", e)
 	}
 	stage, e := service.GetFeatureInput(t.Context(), v.Document.ID, workspace.FeatureInputRequest{VersionID: v.Document.VersionID, FeatureID: hole.ID, ResultStage: true})
-	if e != nil || math.Abs(stage.Artifact.Volume-(8000-20*math.Pi)) > 1e-5 {
-		t.Fatal("Hole stage still included fillet", e, stage.Artifact.Volume)
+	if e != nil || math.Abs(measuredArtifactVolume(t, stage.Artifact)-(8000-20*math.Pi)) > 1e-5 {
+		t.Fatal("Hole stage still included fillet", e, measuredArtifactVolume(t, stage.Artifact))
 	}
 	apply(move(hole.ID, round.ID, "AFTER"))
 	second := ids()
@@ -317,8 +317,8 @@ func TestMoveFeatureCollectionsThroughRouter(t *testing.T) {
 				return x.v.Part.Features[len(x.v.Part.Features)-1]
 			}
 			chamfer := func(center float64) workspace.Feature {
-				p := findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-					c := p.CreationEvidence.Centroid
+				p := findP7TopologyPick(t, x.s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+					c := queriedTopologyCenter(t, queriedProperties)
 					return p.SourceBodyID == body && math.Abs(c[0]-center) < 1e-7 && math.Abs(c[1]+3) < 1e-7 && math.Abs(c[2]-20) < 1e-7
 				})
 				x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: body, Length: .3, Selections: []workspace.FeatureSelection{{Selection: p.Selection, SourceVersionID: p.SourceVersionID}}}})
@@ -337,8 +337,8 @@ func TestMoveFeatureCollectionsThroughRouter(t *testing.T) {
 			x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: otherSketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 4.8, Y: -3.2}, Second: &workspace.SketchPoint2{X: 5.2, Y: -2.8}}, {Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 30, Y: -3.2}, Second: &workspace.SketchPoint2{X: 31, Y: -2.8}}}})
 			x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: otherSketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 3})
 			x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: body})
-			side, _ := x.faceWhere(second.ID, body, body, false, func(p workspace.FeatureSelection) bool {
-				return math.Abs(p.Selection.CreationEvidence.Centroid[0]+10) < 1e-7
+			side, _ := x.faceWhere(second.ID, body, body, false, func(p workspace.FeatureSelection, center [3]float64) bool {
+				return math.Abs(center[0]+10) < 1e-7
 			})
 			x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "DRAFT", BodyID: body, Angle: 2, NeutralPlaneID: "datum-xy", Suppressed: true, Selections: []workspace.FeatureSelection{side}}})
 			suppressed := x.v.Part.Features[len(x.v.Part.Features)-1]
@@ -401,8 +401,8 @@ func TestMoveFeatureCollectionsThroughRouter(t *testing.T) {
 			r.PreviewID = preview.PreviewID
 			x.apply(r)
 			final := activeBodyArtifact(t, x.v)
-			if math.Abs(final.Volume-original.Volume) > 1e-6 {
-				t.Fatal("range exchange changed material", original.Volume, final.Volume)
+			if math.Abs(measuredArtifactVolume(t, final)-measuredArtifactVolume(t, original)) > 1e-6 {
+				t.Fatal("range exchange changed material", measuredArtifactVolume(t, original), measuredArtifactVolume(t, final))
 			}
 			for i, id := range members {
 				at := slices.IndexFunc(x.v.Part.Features, func(f workspace.Feature) bool { return f.ID == id })

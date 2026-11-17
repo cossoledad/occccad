@@ -53,7 +53,9 @@ func testLoftPointLifecycle(t *testing.T, wholeSketch bool) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	artifacts := artifact.NewService(db, store, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 
@@ -120,23 +122,23 @@ func testLoftPointLifecycle(t *testing.T, wholeSketch bool) {
 	if !loft.Sections[0].CorrespondenceResolved || loft.Sections[0].SeamEntityID == "" {
 		t.Fatal("accepted correspondence not persisted")
 	}
-	if v := activeBodyArtifact(t, view).Volume; math.Abs(v-400) > 1e-5 {
+	if v := measuredArtifactVolume(t, activeBodyArtifact(t, view)); math.Abs(v-400) > 1e-5 {
 		t.Fatal("point loft volume", v)
 	}
 	accepted := append([]workspace.LoftSection(nil), loft.Sections...)
 	apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + base + ":constraint:width:value", Value: 12, Unit: "mm"})
-	if v := activeBodyArtifact(t, view).Volume; math.Abs(v-480) > 1e-4 {
+	if v := measuredArtifactVolume(t, activeBodyArtifact(t, view)); math.Abs(v-480) > 1e-4 {
 		t.Fatal("parameter loft volume", v)
 	}
 	if !reflect.DeepEqual(view.Part.Features[len(view.Part.Features)-1].Sections, accepted) {
 		t.Fatal("parameter changed correspondence")
 	}
 	apply(workspace.CommandRequest{Type: "UNDO"})
-	if math.Abs(activeBodyArtifact(t, view).Volume-400) > 1e-4 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-400) > 1e-4 {
 		t.Fatal("undo")
 	}
 	apply(workspace.CommandRequest{Type: "REDO"})
-	if math.Abs(activeBodyArtifact(t, view).Volume-480) > 1e-4 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-480) > 1e-4 {
 		t.Fatal("redo")
 	}
 	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
@@ -162,7 +164,7 @@ func testLoftPointLifecycle(t *testing.T, wholeSketch bool) {
 	edited.Sections = append([]workspace.LoftSection(nil), edited.Sections...)
 	edited.Sections[0], edited.Sections[1] = edited.Sections[1], edited.Sections[0]
 	apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: loft.ID, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, loft.ID), Feature: &edited})
-	if math.Abs(activeBodyArtifact(t, view).Volume-480) > 1e-4 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-480) > 1e-4 {
 		t.Fatal("reversed point endpoint")
 	}
 }

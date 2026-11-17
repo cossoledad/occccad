@@ -54,8 +54,8 @@ func TestBooleanResultRegionsLifecycleThroughRouter(t *testing.T) {
 	for _, c := range analysis.Regions {
 		if c.Eligible {
 			regions = append(regions, c.Reference)
-			if math.Abs(c.Artifact.Volume-1000) > 1e-6 {
-				t.Fatal(c.Artifact.Volume)
+			if math.Abs(measuredArtifactVolume(t, c.Artifact)-1000) > 1e-6 {
+				t.Fatal(measuredArtifactVolume(t, c.Artifact))
 			}
 		}
 	}
@@ -79,7 +79,7 @@ func TestBooleanResultRegionsLifecycleThroughRouter(t *testing.T) {
 	input.BooleanResult.Regions = regions[:1]
 	input.RequestID = doc + "-select-one"
 	preview, e := service.PreviewCommand(t.Context(), doc, input)
-	if e != nil || preview.Artifact == nil || math.Abs(preview.Artifact.Volume-1000) > 1e-6 {
+	if e != nil || preview.Artifact == nil || math.Abs(measuredArtifactVolume(t, preview.Artifact)-1000) > 1e-6 {
 		t.Fatal("select one preview", e)
 	}
 	afterPreview, e := service.GetDocument(t.Context(), doc)
@@ -98,8 +98,8 @@ func TestBooleanResultRegionsLifecycleThroughRouter(t *testing.T) {
 	check := func(volume float64, consumed bool) {
 		t.Helper()
 		for _, b := range view.Part.Bodies {
-			if b.ID == base.BodyID && math.Abs(view.Artifacts[b.GeometryKey].Volume-volume) > 1e-6 {
-				t.Fatal("target volume", view.Artifacts[b.GeometryKey].Volume, volume)
+			if b.ID == base.BodyID && math.Abs(measuredArtifactVolume(t, view.Artifacts[b.GeometryKey])-volume) > 1e-6 {
+				t.Fatal("target volume", measuredArtifactVolume(t, view.Artifacts[b.GeometryKey]), volume)
 			}
 			if b.ID == tool.BodyID && b.Consumed != consumed {
 				t.Fatal("keepTools coupled to retained regions")

@@ -18,14 +18,14 @@ func TestSketchSolidCombinedWorkflowAcrossRepeatedOccurrences(t *testing.T) {
 	defBase := 0.
 	for _, b := range c.v.Part.Bodies {
 		if b.ID == body {
-			defBase = c.v.Artifacts[b.GeometryKey].Volume
+			defBase = measuredArtifactVolume(t, c.v.Artifacts[b.GeometryKey])
 		}
 	}
 	base := map[string]float64{}
 	for _, v := range c.root.ContextVariants {
 		for _, b := range v.Part.Bodies {
 			if b.ID == body {
-				base[v.OwningInstancePath.Canonical] = c.root.Artifacts[b.GeometryKey].Volume
+				base[v.OwningInstancePath.Canonical] = measuredArtifactVolume(t, c.root.Artifacts[b.GeometryKey])
 			}
 		}
 	}
@@ -70,7 +70,7 @@ func TestSketchSolidCombinedWorkflowAcrossRepeatedOccurrences(t *testing.T) {
 		definitionVolume := 0.
 		for _, b := range c.v.Part.Bodies {
 			if b.ID == body {
-				definitionVolume = c.v.Artifacts[b.GeometryKey].Volume
+				definitionVolume = measuredArtifactVolume(t, c.v.Artifacts[b.GeometryKey])
 			}
 		}
 		if math.Abs(definitionVolume-(defBase-240-holeVolume)) > 1e-5 {
@@ -90,7 +90,7 @@ func TestSketchSolidCombinedWorkflowAcrossRepeatedOccurrences(t *testing.T) {
 				t.Fatal("accepted input followed newer source Head", height)
 			}
 			for _, b := range v.Part.Bodies {
-				got := c.root.Artifacts[b.GeometryKey].Volume
+				got := measuredArtifactVolume(t, c.root.Artifacts[b.GeometryKey])
 				want := 2 * math.Pi
 				if b.ID == body {
 					want = base[v.OwningInstancePath.Canonical] - 24*height - holeVolume
@@ -194,7 +194,7 @@ func TestMasterSketchRegionsDriveShellAndLinkedOffsetBodies(t *testing.T) {
 			} else if b.ID != ringBody {
 				t.Fatal("unexpected body", b.ID)
 			}
-			if got := view.Artifacts[b.GeometryKey].Volume; math.Abs(got-want) > 1e-5 {
+			if got := measuredArtifactVolume(t, view.Artifacts[b.GeometryKey]); math.Abs(got-want) > 1e-5 {
 				t.Fatal("shared wall parameter did not drive both bodies", b.ID, got, want)
 			}
 		}
@@ -237,7 +237,7 @@ func TestMasterSketchRegionsDriveShellAndLinkedOffsetBodies(t *testing.T) {
 
 func TestInsertSweepBeforeModifierKeepsInputsAndColdHistory(t *testing.T) {
 	x := newInsertionScene(t)
-	prior := activeBodyArtifact(t, x.v).Volume
+	prior := measuredArtifactVolume(t, activeBodyArtifact(t, x.v))
 	body := x.base.BodyID
 	sketch := func(after, plane, datum string) workspace.Feature {
 		t.Helper()
@@ -274,7 +274,7 @@ func TestInsertSweepBeforeModifierKeepsInputsAndColdHistory(t *testing.T) {
 	if x.v.Part.Features[len(x.v.Part.Features)-1].ID != x.chamfer.ID || feature.Sweep.Path.Direction == nil {
 		t.Fatal("insertion position or direction identity")
 	}
-	if got := activeBodyArtifact(t, x.v).Volume; math.Abs(got-(prior+4*math.Pi)) > 1e-5 {
+	if got := measuredArtifactVolume(t, activeBodyArtifact(t, x.v)); math.Abs(got-(prior+4*math.Pi)) > 1e-5 {
 		t.Fatal("historical sweep volume", got, prior+4*math.Pi)
 	}
 	final := activeBodyArtifact(t, x.v)

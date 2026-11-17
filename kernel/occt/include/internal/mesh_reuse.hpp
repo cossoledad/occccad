@@ -5,118 +5,171 @@
 #include <BRepBuilderAPI_Copy.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Poly_PolygonOnTriangulation.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
-#include <TopTools_ShapeMapHasher.hxx>
 #include <algorithm>
-#include <iterator>
 #include <memory>
+#include <exception>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 namespace occccad::kernel::detail {
 
-// Exact, process-local identity only. Never serialized as a topology reference.
-struct OrientedShapeHash {
-    size_t operator()(const TopoDS_Shape& s) const noexcept {
-        return TopTools_ShapeMapHasher{}(s) ^ (static_cast<size_t>(s.Orientation()) << 1);
-    }
-};
-struct OrientedShapeEqual {
-    bool operator()(const TopoDS_Shape& a, const TopoDS_Shape& b) const noexcept { return a.IsEqual(b); }
-};
-
-/** Immutable face packets are copied into an isolated meshing shape. Shared
- * source TShapes establish reuse; the normal boundary validator remains the
- * authority on compatibility with newly meshed adjacent faces. */
+/** Immutable packets contain no BREP handles. A frame is addressed by the SHA
+ * of the complete frozen BREP and locators within that exact snapshot, just as
+ * mesh.faceIds are. Locators are never persistent naming or cross-Revision
+ * identities. Only verified unchanged-copy correspondence can bridge frames. */
 class MeshReuse {
-    struct Edge {
-        TopoDS_Edge source;
-        Handle(Poly_PolygonOnTriangulation) forward, reverse;
-    };
-    struct Packet {
-        TopoDS_Face source;
+    struct Edge {Handle(Poly_PolygonOnTriangulation) forward,reverse;};
+    struct Payload {
         Handle(Poly_Triangulation) triangulation;
         TopLoc_Location location;
         std::vector<Edge> edges;
-        size_t bytes = 0;
+        size_t bytes=0;
+    };
+    struct Packet {
+        std::shared_ptr<const Payload> payload;
+        std::vector<int> edges;
+        TopAbs_Orientation orientation;
     };
     struct Frame {
-        std::unordered_map<TopoDS_Shape,std::shared_ptr<const Packet>,OrientedShapeHash,OrientedShapeEqual> packets;
-        size_t source_charge = 0;
+        std::string geometry;
+        std::unordered_map<int,std::shared_ptr<const Packet>> packets;
+        uint64_t used=0;
     };
     std::vector<Frame> frames_;
-    double linear_ = 0, angular_ = 0;
-    size_t budget_ = 128 * 1024 * 1024;
-
-    std::shared_ptr<const Packet> find(const TopoDS_Shape& face) const {
-        for (const auto& frame : frames_) { const auto it = frame.packets.find(face); if (it != frame.packets.end()) return it->second; }
+    Frame pending_;
+    std::string input_;
+    std::vector<std::pair<int,int>> faces_,edges_;
+    uint64_t clock_=0;
+    double linear_=0,angular_=0;
+    size_t budget_=128*1024*1024;
+    Frame* find_frame(const std::string& geometry) {
+        for(auto& frame:frames_)if(frame.geometry==geometry){frame.used=++clock_;return &frame;}
+        return nullptr;
+    }
+    std::shared_ptr<const Packet> find(const std::string& geometry,int face) {
+        if(pending_.geometry==geometry){const auto at=pending_.packets.find(face);if(at!=pending_.packets.end())return at->second;}
+        if(auto* frame=find_frame(geometry)){const auto at=frame->packets.find(face);if(at!=frame->packets.end())return at->second;}
         return {};
     }
     size_t bytes() const {
-        std::unordered_set<const Packet*> unique; size_t result = 0;
-        for (const auto& frame : frames_) {
-            result += frame.source_charge;
-            for (const auto& entry : frame.packets) if (unique.insert(entry.second.get()).second) {
-                result += entry.second->bytes + sizeof(Packet);
+        std::unordered_set<const Payload*> unique;
+        size_t result=(faces_.capacity()+edges_.capacity())*sizeof(std::pair<int,int>);
+        const auto charge=[&](const Frame& frame){
+            for(const auto& entry:frame.packets){
+                result+=sizeof(entry)+sizeof(Packet)+entry.second->edges.capacity()*sizeof(int)+3*sizeof(void*);
+                const auto& payload=entry.second->payload;
+                if(unique.insert(payload.get()).second)result+=sizeof(Payload)+payload->bytes+payload->edges.capacity()*sizeof(Edge);
             }
-        }
-        // Root estimates reuse the frozen BREP already owned by the kernel.
-        // Across frames this conservatively overcharges shared native graphs;
-        // triangulations shared by packets are charged only once.
+        };
+        for(const auto& frame:frames_) charge(frame);
+        charge(pending_);
         return result;
     }
 public:
-    void clear() { frames_.clear(); }
-    void policy(double linear, double angular) {
-        if (linear != linear_ || angular != angular_) { clear(); linear_ = linear; angular_ = angular; }
+    using Correspondence=std::vector<std::pair<TopoDS_Shape,TopoDS_Shape>>;
+    void discard_pending(){pending_=Frame{};input_.clear();faces_.clear();edges_.clear();}
+    class FailureGuard {
+        MeshReuse& owner_;int depth_=std::uncaught_exceptions();
+    public:
+        explicit FailureGuard(MeshReuse& owner):owner_(owner){}
+        FailureGuard(const FailureGuard&)=delete;
+        ~FailureGuard(){if(std::uncaught_exceptions()>depth_)owner_.discard_pending();}
+    };
+    FailureGuard on_failure(){return FailureGuard(*this);}
+
+    void clear(){frames_.clear();pending_=Frame{};input_.clear();faces_={};edges_={};}
+    void policy(double linear,double angular){
+        if(linear!=linear_||angular!=angular_){frames_.clear();pending_.packets.clear();linear_=linear;angular_=angular;}
     }
-    size_t seed(const TopoDS_Shape& source, const BRepBuilderAPI_Copy& copy,
-                std::vector<Handle(Poly_Triangulation)>& seeded) const {
-        BRep_Builder builder; size_t count = 0;
-        for (TopExp_Explorer faces(source,TopAbs_FACE); faces.More(); faces.Next()) {
-            const auto packet = find(faces.Current()); if (!packet) continue;
-            const auto face = TopoDS::Face(copy.ModifiedShape(packet->source));
-            const auto triangulation = packet->triangulation->Copy();
-            builder.UpdateFace(face,triangulation);
-            for (const auto& edge : packet->edges) {
-                const auto target = TopoDS::Edge(copy.ModifiedShape(edge.source));
-                if (!edge.forward.IsNull() && !edge.reverse.IsNull())
-                    builder.UpdateEdge(target,edge.forward->Copy(),edge.reverse->Copy(),triangulation,packet->location);
-                else builder.UpdateEdge(target,(!edge.forward.IsNull()?edge.forward:edge.reverse)->Copy(),triangulation,packet->location);
+    void inherit(const Correspondence& pairs,const std::string& input,const TopoDS_Shape& before,
+                 const std::string& output,const TopoDS_Shape& after){
+        TopTools_IndexedMapOfShape oldFaces,newFaces,oldEdges,newEdges;
+        TopExp::MapShapes(before,TopAbs_FACE,oldFaces);TopExp::MapShapes(after,TopAbs_FACE,newFaces);
+        TopExp::MapShapes(before,TopAbs_EDGE,oldEdges);TopExp::MapShapes(after,TopAbs_EDGE,newEdges);
+        input_=input;faces_.clear();edges_.clear();
+        std::unordered_map<int,int> edges;
+        for(const auto& pair:pairs){
+            if(pair.first.Location()!=pair.second.Location())continue;
+            if(pair.first.ShapeType()==TopAbs_EDGE){const int a=oldEdges.FindIndex(pair.first),b=newEdges.FindIndex(pair.second);if(a&&b){edges.emplace(a,b);edges_.emplace_back(a,b);}}
+            if(pair.first.ShapeType()==TopAbs_FACE&&pair.first.Orientation()==pair.second.Orientation()){
+                const int a=oldFaces.FindIndex(pair.first),b=newFaces.FindIndex(pair.second);if(a&&b)faces_.emplace_back(a,b);
             }
-            seeded.push_back(triangulation); ++count;
+        }
+        Frame next;next.geometry=output;
+        for(const auto& face:faces_){
+            const auto previous=find(input,face.first);if(!previous)continue;
+            auto packet=std::make_shared<Packet>();packet->payload=previous->payload;packet->orientation=previous->orientation;bool complete=true;
+            for(const auto edge:previous->edges){const auto at=edges.find(edge);if(at==edges.end()){complete=false;break;}packet->edges.push_back(at->second);}
+            if(complete)next.packets.emplace(face.second,std::move(packet));
+        }
+        pending_=std::move(next);if(bytes()>budget_)pending_=Frame{};
+    }
+    size_t seed(const std::string& geometry,const TopoDS_Shape& source,const BRepBuilderAPI_Copy& copy,
+                std::vector<Handle(Poly_Triangulation)>& seeded){
+        TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(source,TopAbs_FACE,faces);TopExp::MapShapes(source,TopAbs_EDGE,edges);
+        BRep_Builder builder;size_t count=0;
+        for(int id=1;id<=faces.Extent();++id){
+            const auto original=TopoDS::Face(faces(id));const auto packet=find(geometry,id);if(!packet||packet->orientation!=original.Orientation())continue;
+            TopTools_IndexedMapOfShape boundary;TopExp::MapShapes(original,TopAbs_EDGE,boundary);
+            if(std::any_of(packet->edges.begin(),packet->edges.end(),[&](int e){return e<1||e>edges.Extent()||!boundary.Contains(edges(e));}))continue;
+            const auto& payload=*packet->payload;const auto face=TopoDS::Face(copy.ModifiedShape(original));
+            const auto triangulation=payload.triangulation->Copy();builder.UpdateFace(face,triangulation);
+            for(size_t i=0;i<packet->edges.size();++i){
+                const auto target=TopoDS::Edge(copy.ModifiedShape(edges(packet->edges[i])));const auto& edge=payload.edges[i];
+                if(!edge.forward.IsNull()&&!edge.reverse.IsNull())builder.UpdateEdge(target,edge.forward->Copy(),edge.reverse->Copy(),triangulation,payload.location);
+                else builder.UpdateEdge(target,(!edge.forward.IsNull()?edge.forward:edge.reverse)->Copy(),triangulation,payload.location);
+            }
+            seeded.push_back(triangulation);++count;
         }
         return count;
     }
-    void admit(const TopoDS_Shape& source, const BRepBuilderAPI_Copy& copy, size_t source_charge) {
-        Frame frame;frame.source_charge=source_charge;
-        for (TopExp_Explorer faces(source,TopAbs_FACE); faces.More(); faces.Next()) {
-            const auto original = TopoDS::Face(faces.Current());
-            if (frame.packets.find(original) != frame.packets.end()) continue;
-            const auto previous = find(original);
-            if (previous) { frame.packets.emplace(original,previous); continue; }
-            auto packet = std::make_shared<Packet>(); packet->source = original;
-            const auto face = TopoDS::Face(copy.ModifiedShape(original));
-            const auto triangulation = BRep_Tool::Triangulation(face,packet->location);
-            if (triangulation.IsNull()) continue;
-            packet->triangulation = triangulation->Copy();
-            packet->bytes = triangulation->NbNodes() * (sizeof(gp_Pnt)+sizeof(gp_Pnt2d)+sizeof(gp_Vec3f)) + triangulation->NbTriangles()*sizeof(Poly_Triangle);
-            for (TopExp_Explorer uses(original.Oriented(TopAbs_FORWARD),TopAbs_EDGE); uses.More(); uses.Next()) {
-                const auto originalEdge = TopoDS::Edge(uses.Current());
-                const auto edge = TopoDS::Edge(copy.ModifiedShape(originalEdge).Oriented(originalEdge.Orientation()));
-                const auto polygon = BRep_Tool::PolygonOnTriangulation(edge,triangulation,packet->location);
-                if (polygon.IsNull()) continue;
-                auto existing = std::find_if(packet->edges.begin(),packet->edges.end(),[&](const auto& e){return e.source.IsSame(originalEdge);});
-                if (existing == packet->edges.end()) {packet->edges.push_back({originalEdge,{},{}}); existing = std::prev(packet->edges.end());}
-                auto& target = originalEdge.Orientation() == TopAbs_REVERSED ? existing->reverse : existing->forward;
-                target = polygon->Copy(); packet->bytes += polygon->NbNodes() * (sizeof(int)+sizeof(double));
+    void admit(const std::string& geometry,const TopoDS_Shape& source,const BRepBuilderAPI_Copy& copy){
+        Frame frame;frame.geometry=geometry;
+        TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(source,TopAbs_FACE,faces);TopExp::MapShapes(source,TopAbs_EDGE,edges);
+        for(int id=1;id<=faces.Extent();++id){
+            const auto original=TopoDS::Face(faces(id));const auto previous=find(geometry,id);
+            if(previous){frame.packets.emplace(id,previous);continue;}
+            auto payload=std::make_shared<Payload>();auto packet=std::make_shared<Packet>();packet->payload=payload;packet->orientation=original.Orientation();
+            const auto face=TopoDS::Face(copy.ModifiedShape(original));const auto triangulation=BRep_Tool::Triangulation(face,payload->location);if(triangulation.IsNull())continue;
+            payload->triangulation=triangulation->Copy();
+            payload->bytes=triangulation->NbNodes()*(sizeof(gp_Pnt)+sizeof(gp_Pnt2d)+sizeof(gp_Vec3f))+triangulation->NbTriangles()*sizeof(Poly_Triangle);
+            for(TopExp_Explorer uses(original.Oriented(TopAbs_FORWARD),TopAbs_EDGE);uses.More();uses.Next()){
+                const auto originalEdge=TopoDS::Edge(uses.Current());const int edgeId=edges.FindIndex(originalEdge);
+                const auto edge=TopoDS::Edge(copy.ModifiedShape(originalEdge).Oriented(originalEdge.Orientation()));
+                const auto polygon=BRep_Tool::PolygonOnTriangulation(edge,triangulation,payload->location);if(polygon.IsNull())continue;
+                auto at=std::find(packet->edges.begin(),packet->edges.end(),edgeId);
+                if(at==packet->edges.end()){packet->edges.push_back(edgeId);payload->edges.push_back({});at=std::prev(packet->edges.end());}
+                auto& pair=payload->edges[std::distance(packet->edges.begin(),at)];auto& target=originalEdge.Orientation()==TopAbs_REVERSED?pair.reverse:pair.forward;
+                target=polygon->Copy();payload->bytes+=polygon->NbNodes()*(sizeof(int)+sizeof(double));
             }
-            frame.packets.emplace(original,std::move(packet));
+            frame.packets.emplace(id,std::move(packet));
         }
-        frames_.insert(frames_.begin(),std::move(frame));
-        while (!frames_.empty() && (frames_.size() > 2 || bytes() > budget_)) frames_.pop_back();
+        if(!input_.empty()&&pending_.geometry==geometry){
+            Frame input;input.geometry=input_;std::unordered_map<int,int> reverse;
+            for(const auto& edge:edges_)reverse.emplace(edge.second,edge.first);
+            for(const auto& face:faces_){
+                const auto at=frame.packets.find(face.second);if(at==frame.packets.end())continue;
+                auto packet=std::make_shared<Packet>();packet->payload=at->second->payload;packet->orientation=at->second->orientation;bool complete=true;
+                for(const auto edge:at->second->edges){const auto key=reverse.find(edge);if(key==reverse.end()){complete=false;break;}packet->edges.push_back(key->second);}
+                if(complete)input.packets.emplace(face.first,std::move(packet));
+            }
+            if(!input.packets.empty()){
+                if(auto* previous=find_frame(input_)){for(auto& entry:input.packets)previous->packets.emplace(std::move(entry));}
+                else{input.used=++clock_;frames_.push_back(std::move(input));}
+            }
+        }
+        frame.used=++clock_;
+        frames_.erase(std::remove_if(frames_.begin(),frames_.end(),[&](const auto& f){return f.geometry==geometry;}),frames_.end());
+        frames_.push_back(std::move(frame));pending_=Frame{};input_.clear();faces_.clear();edges_.clear();
+        // LRU keeps the repeatedly used input and latest result; count shared
+        // payloads once. This budget owns mesh data, never the original BREP graph.
+        while(!frames_.empty()&&(frames_.size()>2||bytes()>budget_))frames_.erase(std::min_element(frames_.begin(),frames_.end(),[](const auto& a,const auto& b){return a.used<b.used;}));
     }
 };
 } // namespace occccad::kernel::detail

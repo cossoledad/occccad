@@ -56,8 +56,8 @@ func TestProfileReclosureAfterDeletedBoundaryThroughRouter(t *testing.T) {
 		}
 		for _, b := range view.Part.Bodies {
 			if b.ID == feature.BodyID {
-				if math.Abs(view.Artifacts[b.GeometryKey].Volume-want) > 1e-6 {
-					t.Fatal("wrong restored volume", view.Artifacts[b.GeometryKey].Volume, want)
+				if math.Abs(measuredArtifactVolume(t, view.Artifacts[b.GeometryKey])-want) > 1e-6 {
+					t.Fatal("wrong restored volume", measuredArtifactVolume(t, view.Artifacts[b.GeometryKey]), want)
 				}
 				return
 			}

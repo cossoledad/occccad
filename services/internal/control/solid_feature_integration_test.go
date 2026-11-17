@@ -72,7 +72,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 		if request.Type == "CREATE_MODIFY_FEATURE" || (request.Type == "CREATE_SOLID_FEATURE" && request.Feature != nil && request.Feature.Type == "LOFT") {
 			head := view.Document.VersionID
 			candidate, e := service.PreviewCommand(t.Context(), doc, request)
-			if e != nil || candidate.Artifact == nil || candidate.Artifact.Volume <= 0 {
+			if e != nil || candidate.Artifact == nil || measuredArtifactVolume(t, candidate.Artifact) <= 0 {
 				t.Fatalf("%s preview: %v %+v", request.Type, e, candidate.Artifact)
 			}
 			unchanged, e := service.GetDocument(t.Context(), doc, p6Actor)
@@ -102,7 +102,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Artifact == nil || math.Abs(preview.Artifact.Volume-3750) > 1e-6 {
+	if preview.Artifact == nil || math.Abs(measuredArtifactVolume(t, preview.Artifact)-3750) > 1e-6 {
 		t.Fatalf("incorrect exact preview: %+v", preview.Artifact)
 	}
 	reopened, err := service.GetDocument(t.Context(), doc, p6Actor)
@@ -118,8 +118,8 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 		t.Helper()
 		for _, b := range v.Part.Bodies {
 			if b.ID == base.BodyID {
-				if a := v.Artifacts[b.GeometryKey]; math.Abs(a.Volume-volume) > 1e-6 {
-					t.Fatalf("volume %v want %v", a.Volume, volume)
+				if a := v.Artifacts[b.GeometryKey]; math.Abs(measuredArtifactVolume(t, a)-volume) > 1e-6 {
+					t.Fatalf("volume %v want %v", measuredArtifactVolume(t, a), volume)
 				}
 			}
 			if b.ID == tool.BodyID && (b.Consumed != consumed || !b.Visible) {
@@ -155,7 +155,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	swapped.Operation = "INTERSECT"
 	view = apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: boolean.ID, ExpectedFeatureDigest: digest, Feature: &swapped})
 	for _, body := range view.Part.Bodies {
-		if body.ID == tool.BodyID && math.Abs(view.Artifacts[body.GeometryKey].Volume-250) > 1e-6 {
+		if body.ID == tool.BodyID && math.Abs(measuredArtifactVolume(t, view.Artifacts[body.GeometryKey])-250) > 1e-6 {
 			t.Fatal("editing Boolean target/tool failed")
 		}
 	}
@@ -218,17 +218,17 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	}
 	findInputDigest([]workspace.DocumentStructureNode{*view.StructureTree})
 	view = apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: editedFillet.ID, ExpectedFeatureDigest: inputDigest, Feature: &editedFillet})
-	if math.Abs(activeBodyArtifact(t, view).Volume-activeBodyArtifact(t, unchanged).Volume) > 1e-7 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-measuredArtifactVolume(t, activeBodyArtifact(t, unchanged))) > 1e-7 {
 		t.Fatal("stage selection edit changed geometry")
 	}
 
 	downstream := view.Part.Features[len(view.Part.Features)-1].ID
-	expectedVolume := activeBodyArtifact(t, view).Volume
+	expectedVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 	if !(expectedVolume < 3750 && expectedVolume > 3700) {
 		t.Fatalf("bad chamfer volume %g", expectedVolume)
 	}
 	view = apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + base.ID + ":length", Value: 12, Unit: "mm"})
-	if activeBodyArtifact(t, view).Volume <= expectedVolume {
+	if measuredArtifactVolume(t, activeBodyArtifact(t, view)) <= expectedVolume {
 		t.Fatal("upstream edit did not recompute chamfer")
 	}
 	// Excessive radius/distance fails without pretending the previous result is current.
@@ -336,7 +336,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 			t.Fatal("recovery retained fallback")
 		}
 	}
-	if activeBodyArtifact(t, view).Volume <= expectedVolume {
+	if measuredArtifactVolume(t, activeBodyArtifact(t, view)) <= expectedVolume {
 		t.Fatal("undo did not recover evaluated output")
 	}
 	edit := func(feature workspace.Feature) workspace.DocumentView {
@@ -367,7 +367,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 			sides = append(sides, workspace.FeatureSelection{Selection: *properties.PersistentSelection, SourceVersionID: view.Document.VersionID})
 		}
 	}
-	neutral := findP6FacePick(t, service, view, func(selection modelcore.PersistentSelection) bool {
+	neutral := findP6FacePick(t, service, view, func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
 		return strings.HasPrefix(selection.Anchor.OutputSlot, "START_CAP/")
 	})
 	view = apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "DRAFT", BodyID: secondBase.BodyID, Angle: 5, NeutralPlane: &workspace.FeatureSelection{Selection: neutral.Selection, SourceVersionID: view.Document.VersionID}, Selections: sides}})
@@ -376,22 +376,22 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	if err != nil || draftInput.NeutralPick == nil || draftInput.NeutralPick.BodyID != secondBase.BodyID || len(draftInput.Picks) != len(sides) {
 		t.Fatalf("draft planar input restore: %v %+v", err, draftInput)
 	}
-	top := findP6FacePick(t, service, view, func(selection modelcore.PersistentSelection) bool {
+	top := findP6FacePick(t, service, view, func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
 		return strings.HasPrefix(selection.Anchor.OutputSlot, "END_CAP/")
 	})
 	view = apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "SHELL", BodyID: secondBase.BodyID, Length: 1, Selections: []workspace.FeatureSelection{{Selection: top.Selection, SourceVersionID: view.Document.VersionID}}}})
 	shellFeature := view.Part.Features[len(view.Part.Features)-1]
-	shellVolume := activeBodyArtifact(t, view).Volume
+	shellVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 	opening := rectangle(49, -1, 2, 4, 20)
 	view = apply(workspace.CommandRequest{Type: "CREATE_BOOLEAN_FEATURE", BodyID: secondBase.BodyID, Operation: "REMOVE", Tools: []workspace.FeatureStageRef{{BodyID: opening.BodyID, FeatureID: opening.ID}}})
 	view = apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: secondBase.BodyID})
-	if activeBodyArtifact(t, view).Volume >= shellVolume {
+	if measuredArtifactVolume(t, activeBodyArtifact(t, view)) >= shellVolume {
 		t.Fatal("shell opening did not remove material")
 	}
-	secondBefore := activeBodyArtifact(t, view).Volume
+	secondBefore := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 	view = apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + secondBase.ID + ":length", Value: 12, Unit: "mm"})
 	assertReady(view)
-	if math.Abs(activeBodyArtifact(t, view).Volume-secondBefore) < 1 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-secondBefore) < 1 {
 		t.Fatal("draft/shell chain did not recompute")
 	}
 	brokenShell := shellFeature
@@ -424,25 +424,25 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 		return properties.GeometryType == "LINE"
 	})
 	view = apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: loft.BodyID, Length: 0.5, Selections: []workspace.FeatureSelection{{Selection: pick.Selection, SourceVersionID: pick.SourceVersionID}}}})
-	if activeBodyArtifact(t, view).Volume >= 7500 {
+	if measuredArtifactVolume(t, activeBodyArtifact(t, view)) >= 7500 {
 		t.Fatal("loft Boolean/fillet chain volume")
 	}
 	last := view.Part.Features[len(view.Part.Features)-1]
-	finalVolume := activeBodyArtifact(t, view).Volume
+	finalVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 	digest = ""
 	findFeature([]workspace.DocumentStructureNode{*view.StructureTree}, last.ID)
 	suppress := true
 	view = apply(workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: last.ID, ExpectedFeatureDigest: digest, Suppressed: &suppress})
 	assertReady(view)
-	if math.Abs(activeBodyArtifact(t, view).Volume-7500) > 1e-5 {
-		t.Fatalf("suppression did not restore Boolean input: %.12g", activeBodyArtifact(t, view).Volume)
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-7500) > 1e-5 {
+		t.Fatalf("suppression did not restore Boolean input: %.12g", measuredArtifactVolume(t, activeBodyArtifact(t, view)))
 	}
 	if view.Part.Features[len(view.Part.Features)-1].EvaluationStatus != "SUPPRESSED" {
 		t.Fatal("suppression was confused with failure")
 	}
 	view = apply(workspace.CommandRequest{Type: "UNDO"})
 	assertReady(view)
-	if math.Abs(activeBodyArtifact(t, view).Volume-finalVolume) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-finalVolume) > 1e-6 {
 		t.Fatal("modifier undo failed")
 	}
 	view = apply(workspace.CommandRequest{Type: "REDO"})
@@ -453,7 +453,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	view = apply(workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: last.ID, ExpectedFeatureDigest: digest, Suppressed: &suppress})
 	assertReady(view)
 	view = apply(workspace.CommandRequest{Type: "DELETE_NODE", TargetKind: "FEATURE", TargetID: last.ID})
-	if math.Abs(activeBodyArtifact(t, view).Volume-7500) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-7500) > 1e-5 {
 		t.Fatal("modifier delete failed")
 	}
 	view = apply(workspace.CommandRequest{Type: "UNDO"})
@@ -461,17 +461,17 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	loft.Ruled = true
 	view = edit(loft)
 	assertReady(view)
-	if math.Abs(activeBodyArtifact(t, view).Volume-finalVolume) > 1e-4 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-finalVolume) > 1e-4 {
 		t.Fatal("loft edit changed straight prism volume")
 	}
 	view = apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + sections[1].SketchID + ":constraint:section-width-1:value", Value: 21, Unit: "mm"})
 	assertReady(view)
-	if activeBodyArtifact(t, view).Volume <= finalVolume {
+	if measuredArtifactVolume(t, activeBodyArtifact(t, view)) <= finalVolume {
 		t.Fatal("upstream section parameter did not recompute loft/Boolean/fillet")
 	}
 	view = apply(workspace.CommandRequest{Type: "UNDO"})
 	assertReady(view)
-	if math.Abs(activeBodyArtifact(t, view).Volume-finalVolume) > 1e-4 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-finalVolume) > 1e-4 {
 		t.Fatal("section history did not recover original loft")
 	}
 	last.Length = 1000
@@ -489,7 +489,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	for _, b := range view.Part.Bodies {
 		if b.GeometryKey != "" && !b.Consumed {
 			expectedBodies++
-			if view.Artifacts[b.GeometryKey].Volume > 0 {
+			if measuredArtifactVolume(t, view.Artifacts[b.GeometryKey]) > 0 {
 				expectedSolids++
 			}
 		}

@@ -60,7 +60,9 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	artifactService := artifact.NewService(db, store, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifactService)
 	debugStore, err := debugartifact.NewStore(t.TempDir(), 50, time.Hour)
@@ -131,15 +133,15 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 		v := [3]float64{n[1]*u[2] - n[2]*u[1], n[2]*u[0] - n[0]*u[2], n[0]*u[1] - n[1]*u[0]}
 		var x, y float64
 		for i := 0; i < 3; i++ {
-			delta := pick.Selection.CreationEvidence.Centroid[i] - support.Origin[i]
+			delta := pick.Center[i] - support.Origin[i]
 			x += delta * u[i]
 			y += delta * v[i]
 		}
 		first, second := workspace.SketchPoint2{X: x - 1, Y: y - 1}, workspace.SketchPoint2{X: x + 1, Y: y + 1}
 		part = apply(part.Document.ID, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: feature.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &first, Second: &second}}})
 		part = addExtrude(part.Document.ID, feature.ID, "REMOVE", 1, true)
-		if math.Abs(activeBodyArtifact(t, part).Volume-3996) > 1e-5 {
-			t.Fatalf("pocket on %v volume = %g", expected, activeBodyArtifact(t, part).Volume)
+		if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, part))-3996) > 1e-5 {
+			t.Fatalf("pocket on %v volume = %g", expected, measuredArtifactVolume(t, activeBodyArtifact(t, part)))
 		}
 		for undo := 0; undo < 3; undo++ {
 			part = apply(part.Document.ID, workspace.CommandRequest{Type: "UNDO"})
@@ -151,12 +153,12 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 	topEdge := findP7TopologyPick(t, service, part, "EDGE", func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
 		return selection.Anchor.FeatureID == baseFeatureID &&
 			strings.HasPrefix(selection.Anchor.OutputSlot, "END_BOUNDARY_FROM_PROFILE_EDGE/") &&
-			properties.GeometryType == "LINE" && math.Abs(selection.CreationEvidence.Centroid[2]-10) < 1e-9
+			properties.GeometryType == "LINE" && math.Abs(queriedTopologyCenter(t, properties)[2]-10) < 1e-9
 	})
-	topVertex := findP7TopologyPick(t, service, part, "VERTEX", func(_ workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
+	topVertex := findP7TopologyPick(t, service, part, "VERTEX", func(queriedProperties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
 		return selection.Anchor.FeatureID == baseFeatureID &&
 			strings.HasPrefix(selection.Anchor.OutputSlot, "END_VERTEX_FROM_PROFILE_ENDPOINTS/") &&
-			math.Abs(selection.CreationEvidence.Centroid[2]-10) < 1e-9
+			math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-10) < 1e-9
 	})
 	if topEdge.Selection.CreationEvidence.ParameterStart == nil || topEdge.Selection.CreationEvidence.ParameterEnd == nil ||
 		topEdge.Selection.CreationEvidence.EndpointRole != "END_CAP_BOUNDARY" {
@@ -277,10 +279,10 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 	}
 	newTopEdge := findP7TopologyPick(t, service, part, "EDGE", func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
 		return selection.Anchor.FeatureID == deleteFeatureID && properties.GeometryType == "LINE" &&
-			math.Abs(selection.CreationEvidence.Centroid[2]-5) < 1e-9
+			math.Abs(queriedTopologyCenter(t, properties)[2]-5) < 1e-9
 	})
-	newTopVertex := findP7TopologyPick(t, service, part, "VERTEX", func(_ workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
-		return selection.Anchor.FeatureID == deleteFeatureID && math.Abs(selection.CreationEvidence.Centroid[2]-5) < 1e-9
+	newTopVertex := findP7TopologyPick(t, service, part, "VERTEX", func(queriedProperties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
+		return selection.Anchor.FeatureID == deleteFeatureID && math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-5) < 1e-9
 	})
 	product = apply(product.Document.ID, workspace.CommandRequest{Type: "UPDATE_REFERENCES"})
 	reconnect := []workspace.CommandRequest{
@@ -322,6 +324,7 @@ type p7TopologyPick struct {
 	LocalID         uint64
 	SourceVersionID string
 	Selection       modelcore.PersistentSelection
+	Center          [3]float64 // Explicit query witness; never part of the persisted selection.
 }
 
 func findP7TopologyPick(t *testing.T, service *workspace.Service, view workspace.DocumentView, kind string,
@@ -334,7 +337,7 @@ func findP7TopologyPick(t *testing.T, service *workspace.Service, view workspace
 			view.Document.VersionID, activeBodyArtifact(t, view).GeometryKey, kind, localID)
 		if err == nil && properties.PersistentSelection != nil && match(properties, *properties.PersistentSelection) {
 			return p7TopologyPick{Kind: kind, GeometryKey: activeBodyArtifact(t, view).GeometryKey, LocalID: localID,
-				SourceVersionID: view.Document.VersionID, Selection: *properties.PersistentSelection}
+				SourceVersionID: view.Document.VersionID, Selection: *properties.PersistentSelection, Center: queriedTopologyCenter(t, properties)}
 		}
 	}
 	t.Fatalf("matching %s was not found", kind)

@@ -160,7 +160,7 @@ func TestS3WorkerExchangeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if imported.GetVolume() <= 0 {
+	if measuredEvaluationVolume(t, client, imported) <= 0 {
 		t.Fatal("missing solid")
 	}
 	exported, err := client.ExportExchange(t.Context(), "s3-export", "STEP", "exchange/test/export.step", SinglePartExchangeGraph("test", reference))

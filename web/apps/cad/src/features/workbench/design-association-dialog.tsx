@@ -70,8 +70,8 @@ export function DesignAssociationDialog({root,owner,path,initialParameterId,acti
  const preview=useFeaturePreview(root.document.id,root.document.versionId,command,undefined,onPreview);
  useEffect(()=>{callbacks.current.onPreviewView?.(preview.result?.replacementView);return()=>callbacks.current.onPreviewView?.()},[preview.result]);
  const cancelPick=()=>{if(!picking)return false;if(picking==='source'&&editing&&reconnecting){setReconnecting(false);setSourceKey(undefined)}setPicking(undefined);return true};
- const apply=async(keepOpen=false)=>{if(!command||!preview.previewId||busy)return;setBusy(true);setError(undefined);setPicking(undefined);try{
-  const v=await api.command(root.document.id,{...command,previewId:preview.previewId});if(!alive.current)return;
+ const apply=async(keepOpen=false)=>{if(!command||!preview.ready||busy)return;setBusy(true);setError(undefined);setPicking(undefined);try{
+  const v=await api.command(root.document.id,{...command,previewId:(await preview.ensure()).previewId});if(!alive.current)return;
   await onApply(v);if(!alive.current)return;
   if(keepOpen){setBaseline(v.document.versionId);setSourceKey(undefined);setEditing(undefined);setMaintenance(undefined);setReconnecting(false);setInputId('');setName('');setMode('FOLLOW_WORKSPACE_WITH_ACCEPT');callbacks.current.onPreview();}
   else onClose();
@@ -84,8 +84,8 @@ export function DesignAssociationDialog({root,owner,path,initialParameterId,acti
  onLocate({...identity,kind:'publication',id:p.publication.id,publicationId:p.publication.id,publication:p.publication,highlightTarget});
  };
  const locateLocal=()=>{if(!targetId||!path)return;const identity={documentId:owner.document.id,versionId:owner.document.versionId,instancePath:path,occurrencePath:path.canonical,id:targetId,entityId:targetId};onLocate(kind==='SKETCH_EXTERNAL_GEOMETRY'?{...identity,kind:'sketch'}:kind==='PARAMETER'?{...identity,kind:'parameter'}:type==='AXIS'?{...identity,kind:'axis',axis:'DATUM'}:{...identity,kind:'plane',plane:'CUSTOM'})};
- return <CommandDialog id="design-associations" open title="引用设计信息与关联管理" size="M" placement="right" onClose={onClose} onConfirm={()=>void apply()} confirmLoading={busy} confirmDisabled={!canEdit||!valid||!command||preview.pending||!preview.previewId||!!preview.error} onCancelPick={cancelPick}
-  secondaryActions={<><Button disabled={!canEdit||!valid||!command||busy||preview.pending||!preview.previewId||!!preview.error||!!editing} onClick={()=>void apply(true)}>应用并继续引用</Button><Button size="small" loading={plan.isFetching} onClick={()=>void plan.refetch()}>检查更新</Button></>} commandStatus={<CommandStatus pending={preview.pending} error={error||preview.error||(catalog.error?engineeringProblem(catalog.error):undefined)||(!valid?'模型已更新，请重新打开':undefined)} onRetry={preview.retry}/>}>
+ return <CommandDialog id="design-associations" open title="引用设计信息与关联管理" size="M" placement="right" onClose={onClose} onConfirm={()=>void apply()} confirmLoading={busy} confirmDisabled={!canEdit||!valid||!command||!preview.ready||!!preview.error} onCancelPick={cancelPick}
+  secondaryActions={<><Button disabled={!canEdit||!valid||!command||busy||!preview.ready||!!preview.error||!!editing} onClick={()=>void apply(true)}>应用并继续引用</Button><Button size="small" loading={plan.isFetching} onClick={()=>void plan.refetch()}>检查更新</Button></>} commandStatus={<CommandStatus pending={preview.pending} error={error||preview.error||(catalog.error?engineeringProblem(catalog.error):undefined)||(!valid?'模型已更新，请重新打开':undefined)} onRetry={preview.retry}/>}>
   {!path?<p>请在产品中激活接收设计信息的零件。</p>:<>
    <CommandField label="接收零件" width="expression"><span>{path.display}</span></CommandField>
    {!maintenance&&<><FeaturePickField label="发布接口" value={source?.displayPath??(editing&&!reconnecting?editing.local?'本地输入':`${editing.sourceInstancePath.display} / 已接受接口`:undefined)} active={picking==='source'} selected={!!source||!!editing&&!reconnecting} onActivate={()=>setPicking('source')} onCancel={cancelPick} onClear={source?()=>{setSourceKey(undefined);if(editing)setReconnecting(true)}:undefined} onLocate={source?()=>locate(source):undefined}/>

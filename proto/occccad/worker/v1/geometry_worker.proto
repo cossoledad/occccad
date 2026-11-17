@@ -445,7 +445,8 @@ message EvaluatePartRequest {
 message PartBaseStage {
     ArtifactReference naming = 1;
     string geometry_id = 2;
-    double volume = 3; // mm^3, from that same authoritative stage summary
+    reserved 3; // Derived mass properties are queried explicitly.
+    string validation_policy = 5; // qualified validation of this immutable BREP
     ArtifactReference root_history = 4; // import transition block declared by naming
 }
 
@@ -1239,7 +1240,8 @@ message EvaluatePartResponse {
     Mesh preview_mesh = 4; // Only transient preview responses may contain this.
     BoundingBox bbox = 5;
     TopologySummary topology = 6;
-    double volume = 7;
+    reserved 7; // No automatically computed or persisted mass properties.
+    string validation_policy = 18;
     bool cache_hit = 8;
     string occt_version = 9;
     reserved 10;

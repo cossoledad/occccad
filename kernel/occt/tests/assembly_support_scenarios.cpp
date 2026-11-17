@@ -165,9 +165,9 @@ TEST(AssemblyExactSupport, ImportedNamingFreezesAnalyticParametersAndStableSourc
             if (e.geometry_type == "SPHERE") {
                 analytic = true;
                 ASSERT_TRUE(e.radius_mm); EXPECT_DOUBLE_EQ(*e.radius_mm, 6);
-                ASSERT_TRUE(e.measure_si);
-                EXPECT_NEAR(*e.measure_si, 4*std::acos(-1.0)*36*1e-6, 1e-14);
-                EXPECT_EQ(e.measure_dimension, "AREA");
+                EXPECT_FALSE(e.measure_si);
+                const auto& properties=kernel.getTopologyProperties(result.geometry_id,"FACE",output.local_id).faces.front().properties;
+                for(const auto& p:properties)if(p.name=="area")EXPECT_NEAR(p.number_value,4*std::acos(-1.0)*36,1e-8);
                 EXPECT_DOUBLE_EQ(e.origin.x, 10); EXPECT_DOUBLE_EQ(e.origin.y, 20); EXPECT_DOUBLE_EQ(e.origin.z, 30);
                 ASSERT_TRUE(e.material_side); EXPECT_EQ(*e.material_side, 1);
             }

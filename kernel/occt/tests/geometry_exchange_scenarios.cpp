@@ -2,6 +2,8 @@
 #include <internal/immutable_prefix.hpp>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <internal/occt_kernel.hpp>
+#include <internal/mass_properties.hpp>
+#include <internal/solid_material.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -250,6 +252,9 @@ TEST(GeometryExchange, ReusesTopologyAnalysisForEveryElementOfTheSameBody) {
 
     EXPECT_EQ(&first, &second);
     EXPECT_EQ(first.faces.size(), 6U);
+    bool hit=false;const auto& selected=kernel.getTopologyProperties(id,"FACE",4,&hit);
+    EXPECT_TRUE(hit);ASSERT_EQ(selected.faces.size(),1U);EXPECT_EQ(selected.faces.front().local_id,4U);
+    EXPECT_TRUE(selected.edges.empty());EXPECT_TRUE(selected.vertices.empty());
 }
 
 TEST(GeometryExchange, ProfilePadSupportsCircularOuterLoopAndHole) {
@@ -1772,7 +1777,7 @@ TEST(GeometryExchange, FrozenImportStageRestoresEvidenceAndKeepsColdHistory) {
     const auto seed=imported_box_seed(source,bytes);
     const auto root=source.evaluateProfilePadsWithHistory({},bytes,&seed);
     PartRuntimeOptions runtime;
-    runtime.base_stage=PartBaseStage{root.geometry_id,source.getVolume(root.geometry_id),root.feature_results.front()};
+    runtime.base_stage=PartBaseStage{root.geometry_id,true,root.feature_results.front()};
     PartRuntimeStats stats;runtime.stats=&stats;
     ProfilePadSpec pocket;pocket.feature_id="pocket";pocket.body_id=seed.body_id;pocket.profile_feature_id="profile";
     pocket.input_feature_id=seed.feature_id;pocket.body_operation="REMOVE";pocket.pad_length=6;
@@ -1795,12 +1800,13 @@ TEST(GeometryExchange, FrozenImportStageRestoresEvidenceAndKeepsColdHistory) {
     runtime.base_stage->geometry_id=root.geometry_id;
     runtime.base_stage->root.semantic_outputs.front().semantic_ref.source_ids={"different-allocation"};
     EXPECT_THROW(fresh.evaluateProfilePadsWithHistory({pocket},bytes,&seed,runtime),std::invalid_argument);
-    runtime.base_stage->volume=9000;
+    runtime.base_stage->root=root.feature_results.front();
+    runtime.base_stage->validated=false;
     EXPECT_THROW(fresh.evaluateProfilePadsWithHistory({pocket},bytes,&seed,runtime),std::invalid_argument);
     EXPECT_NEAR(fresh.getVolume(root.geometry_id),4000,1e-7) << "rejected source evidence must not poison resident mass facts";
 }
 
-TEST(GeometryExchange, MultiSolidMaterialUsesAuthoritativeResultIntegral) {
+TEST(GeometryExchange, MultiSolidMaterialPredicatesDoNotIntegrateMass) {
     for(double offset:{5.,20.})for(const auto& op:{std::string("ADD"),std::string("REMOVE")}) {
         SCOPED_TRACE(std::to_string(offset)+op);
         OcctKernel kernel;
@@ -1836,6 +1842,62 @@ TEST(GeometryExchange, BorrowedBrepSurvivesEvictionAndKernelLifetime) {
     EXPECT_EQ(*borrowed,original);OcctKernel restored;EXPECT_NEAR(restored.getVolume(restored.loadBrepr(*borrowed)),6000,1e-8);
 }
 
+TEST(GeometryExchange, DerivedPropertiesAreDemandOnlyAndPrivateCopiesReuseGeometryFacts) {
+    OcctKernel kernel;
+    const auto base=kernel.createBox(20,20,20);const auto bytes=kernel.serializeBrepr(base);
+    const auto seed=imported_box_seed(kernel,bytes);
+    const auto root=kernel.evaluateProfilePadsWithHistory({},bytes,&seed);
+    ProfilePadSpec fillet;fillet.feature_id="fillet";fillet.body_id=seed.body_id;
+    fillet.input_feature_id=seed.feature_id;fillet.generator="FILLET";fillet.pad_length=1;
+    for(const auto& output:root.feature_results.back().semantic_outputs)
+        if(output.topology_type==PersistentTopologyType::edge&&output.evidence.geometry_type=="LINE"&&std::abs(output.evidence.direction.z)>.9){
+            fillet.selections.push_back({output.semantic_ref.feature_id,output.semantic_ref.output_slot,output.semantic_ref.source_ids});break;
+        }
+    ASSERT_EQ(fillet.selections.size(),1U);
+    PartRuntimeStats stats;PartRuntimeOptions options;options.stats=&stats;
+    options.base_stage=PartBaseStage{root.geometry_id,true,root.feature_results.front()};
+    const auto integrations=detail::volume_integration_calls();
+    const auto result=kernel.evaluateProfilePadsWithHistory({fillet},bytes,&seed,options);
+    kernel.validateResult(result.geometry_id);
+    EXPECT_EQ(detail::volume_integration_calls(),integrations);
+    EXPECT_EQ(stats.volume_integrations,0U);
+    EXPECT_GT(stats.face_evidence_reused,0U);
+    EXPECT_LT(stats.face_evidence_computed,kernel.getTopologySummary(result.geometry_id).face_count);
+    for(const auto& output:result.feature_results.back().semantic_outputs){
+        EXPECT_FALSE(output.evidence.measure_si.has_value());EXPECT_TRUE(output.evidence.measure_dimension.empty());
+        EXPECT_EQ(output.evidence.centroid.x,0);EXPECT_EQ(output.evidence.centroid.y,0);EXPECT_EQ(output.evidence.centroid.z,0);
+    }
+    const auto first=kernel.tessellate(result.geometry_id,.02,.12);
+    EXPECT_EQ(first.timings.reused_faces,0U);
+    fillet.pad_length=.8;
+    const auto changed=kernel.evaluateProfilePadsWithHistory({fillet},bytes,&seed,options);
+    const auto incremental=kernel.tessellate(changed.geometry_id,.02,.12);
+    EXPECT_GT(incremental.timings.reused_faces,0U)<<"cold first result backfills unchanged input packets";
+    EXPECT_GT(incremental.timings.computed_faces,0U);
+    EXPECT_EQ(kernel.serializeBrepr(base),bytes)<<"meshing and failed attempts cannot mutate the input";
+    kernel.clear_runtime_cache();
+    EXPECT_EQ(make_glb(incremental),make_glb(kernel.tessellate(changed.geometry_id,.02,.12)));
+    EXPECT_EQ(detail::volume_integration_calls(),integrations);
+    EXPECT_GT(kernel.getVolume(changed.geometry_id),0);
+    EXPECT_EQ(detail::volume_integration_calls(),integrations+1)<<"explicit measurement is the sole volume integration";
+}
+
+TEST(GeometryExchange, MaterialWitnessRejectsEmptyAndInvertedSolidsWithoutMass) {
+    const auto before=detail::volume_integration_calls();
+    BRep_Builder builder;TopoDS_Compound empty;builder.MakeCompound(empty);
+    EXPECT_FALSE(detail::has_solid_material(empty));
+    const auto box=BRepPrimAPI_MakeBox(10,20,.0001).Shape();
+    EXPECT_TRUE(detail::has_solid_material(box));
+    EXPECT_THROW(detail::has_solid_material(box.Reversed()),std::runtime_error);
+    EXPECT_THROW(detail::has_solid_material(box,[]{return true;}),std::runtime_error);
+    EXPECT_EQ(detail::volume_integration_calls(),before);
+    builder.Add(empty,box);gp_Trsf translation;translation.SetTranslation(gp_Vec(20,0,0));
+    BRepBuilderAPI_Transform moved(box,translation,Standard_True);builder.Add(empty,moved.Shape().Reversed());
+    std::ostringstream encoded;BRepTools::Write(empty,encoded,Standard_False,Standard_False,TopTools_FormatVersion_CURRENT);
+    const auto text=encoded.str();OcctKernel kernel;const auto id=kernel.loadBrepr(std::vector<uint8_t>(text.begin(),text.end()));
+    EXPECT_THROW(kernel.validateResult(id),std::runtime_error)<<"each solid member has its own material orientation";
+}
+
 TEST(GeometryExchange, MeshReusePreservesColdResultAndIsolatesSource) {
     OcctKernel kernel;
     const auto base=kernel.createBox(20,20,20);
@@ -1845,6 +1907,10 @@ TEST(GeometryExchange, MeshReusePreservesColdResultAndIsolatesSource) {
     EXPECT_EQ(kernel.loadBrepr(bytes),base);
     const auto warm=kernel.tessellate(base,.02,.12);
     EXPECT_EQ(warm.timings.reused_faces,6U);EXPECT_EQ(make_glb(first),make_glb(warm));
+    kernel.unload(base);EXPECT_FALSE(kernel.is_loaded(base));
+    EXPECT_EQ(kernel.loadBrepr(bytes),base);
+    EXPECT_EQ(kernel.tessellate(base,.02,.12).timings.reused_faces,6U)<<"frozen-root mesh packets do not retain BREP handles";
+
     ProfilePadSpec cut;cut.feature_id="incremental-cut";cut.body_id=seed.body_id;cut.profile_feature_id="profile";
     cut.input_feature_id=seed.feature_id;cut.body_operation="REMOVE";cut.pad_length=5;
     cut.regions={rectangular_region("hole",5,5,10,10)};
@@ -3036,8 +3102,8 @@ TEST(GeometryExchange, LoftRectangleToCircleUsesActualSplitHistory) {
         EXPECT_EQ(history.semantic_outputs.size(), topology.face_count + topology.edge_count + topology.vertex_count);
         bool start = false, end = false, circle_side = false;
         for (const auto& output : history.semantic_outputs) {
-            if (output.semantic_ref.output_slot == "LOFT_START_CAP") { start = true; EXPECT_NEAR(output.evidence.measure_si.value_or(-1), 400e-6, 1e-8); }
-            if (output.semantic_ref.output_slot == "LOFT_END_CAP") { end = true; EXPECT_NEAR(output.evidence.measure_si.value_or(-1), 3.14159265358979323846 * 100e-6, 1e-8); }
+            if (output.semantic_ref.output_slot == "LOFT_START_CAP") { start = true; EXPECT_FALSE(output.evidence.measure_si); const auto& info=kernel.getTopologyProperties(result.geometry_id,"FACE",output.local_id); bool found=false;for(const auto& p:info.faces.front().properties)if(p.name=="area"){found=true;EXPECT_NEAR(p.number_value,400,1e-2);}EXPECT_TRUE(found); }
+            if (output.semantic_ref.output_slot == "LOFT_END_CAP") { end = true; EXPECT_FALSE(output.evidence.measure_si); const auto& info=kernel.getTopologyProperties(result.geometry_id,"FACE",output.local_id); bool found=false;for(const auto& p:info.faces.front().properties)if(p.name=="area"){found=true;EXPECT_NEAR(p.number_value,3.14159265358979323846*100,1e-2);}EXPECT_TRUE(found); }
         }
         for (const auto& generated : history.topology_history.lineage) {
             for (const auto& source : generated.sources)
@@ -3836,6 +3902,25 @@ TEST(GeometryExchange, BooleanCellAssemblyRemovesInternalBoundariesAndKeepsEmpty
 }
 
 namespace occccad::kernel {
+namespace {
+Vec3 queried_centroid(OcctKernel& kernel,const GeometryId& geometry,const SemanticTopologyOutput& output) {
+    if(output.topology_type==PersistentTopologyType::vertex)return output.evidence.origin;
+    if(output.topology_type==PersistentTopologyType::edge) {
+        const auto bytes=kernel.serializeBrepr(geometry);std::istringstream encoded(std::string(bytes.begin(),bytes.end()));
+        TopoDS_Shape shape;BRep_Builder builder;BRepTools::Read(shape,encoded,builder);
+        TopTools_IndexedMapOfShape edges;TopExp::MapShapes(shape,TopAbs_EDGE,edges);
+        BRepAdaptor_Curve curve(TopoDS::Edge(edges(static_cast<int>(output.local_id))));
+        const auto p=curve.Value((curve.FirstParameter()+curve.LastParameter())*.5);
+        return {p.X(),p.Y(),p.Z()};
+    }
+    const auto& info=kernel.getTopologyProperties(geometry,output.topology_type==PersistentTopologyType::face?"FACE":"EDGE",output.local_id);
+    const auto face=std::find_if(info.faces.begin(),info.faces.end(),[&](const auto& value){return value.local_id==output.local_id;});
+    if(face==info.faces.end())throw std::runtime_error("missing requested face");
+    const auto& properties=face->properties;
+    for(const auto& property:properties)if(property.name=="centroid"||property.name=="snapCenter")return property.vector_value;
+    throw std::runtime_error("missing explicitly requested centroid");
+}
+}
 TEST(GeometryExchange, ShellSeparatesGeneratedInteriorFromRetainedOuterTopology) {
     for (bool round : {false, true}) {
         SCOPED_TRACE(round);
@@ -3874,7 +3959,7 @@ TEST(GeometryExchange, ShellSeparatesGeneratedInteriorFromRetainedOuterTopology)
         int innerFaces = 0, outerEdges = 0;
         for (const auto& out : result.feature_results.back().semantic_outputs) {
             const auto& e = out.evidence;
-            const auto& p = e.centroid;
+            const auto p = queried_centroid(kernel,result.geometry_id,out);
             if (out.topology_type == PersistentTopologyType::face) {
                 const bool inner = round ? (e.radius_mm && std::abs(*e.radius_mm - 9) < 1e-6) ||
                                                std::abs(p.z - 1) < 1e-6
@@ -4243,6 +4328,8 @@ TEST(GeometryExchange, BlindEngineeringHoleToolsReplicateFromWarmCheckpoints) {
 namespace occccad::kernel { namespace {
 TEST(GeometryExchange, DraftAdditiveRangesCopyNetMaterialAndOwnAngleFaces) {
     for (const bool reversed : {false,true}) for (const int generator : {0,1,2}) {
+        SCOPED_TRACE(reversed);
+        SCOPED_TRACE(generator);
         OcctKernel kernel;
         ProfilePadSpec base; base.feature_id="base";base.body_id="body";base.profile_feature_id="base-sketch";
         base.regions={rectangular_region("stock",-23,-16,20,18)};base.pad_length=4;
@@ -4295,7 +4382,7 @@ TEST(GeometryExchange, DraftAdditiveRangesCopyNetMaterialAndOwnAngleFaces) {
                 ProfilePadSpec local;local.feature_id=modifier;local.body_id="body";local.input_feature_id=chain.back().feature_id;
                 local.generator=modifier;local.pad_length=modifier=="CHAMFER"?.15:.08;
                 for(const auto& o:stage.feature_results.back().semantic_outputs)
-                    if(o.topology_type==PersistentTopologyType::edge && o.evidence.geometry_type=="LINE" && o.evidence.centroid.z>4.1) {
+                    if(o.topology_type==PersistentTopologyType::edge && o.evidence.geometry_type=="LINE" && queried_centroid(kernel,stage.geometry_id,o).z>4.1) {
                         local.selections={{o.semantic_ref.feature_id,o.semantic_ref.output_slot,o.semantic_ref.source_ids}};break;
                     }
                 ASSERT_EQ(local.selections.size(),1U)<<modifier;chain.push_back(local);stage=kernel.evaluateProfilePadsWithHistory(chain);
@@ -4500,7 +4587,7 @@ TEST(GeometryExchange, FiniteRemovalRangesPreserveInnerFilletsAndWarmNaming) {
         const auto cavity=kernel.evaluateProfilePadsWithHistory({base,cut});
         ProfilePadSpec round;round.feature_id="round";round.body_id="body";round.input_feature_id="cut";round.generator="FILLET";round.pad_length=.5;
         for(const auto& out:cavity.feature_results.back().semantic_outputs)
-            if(out.topology_type==PersistentTopologyType::edge && out.evidence.geometry_type=="CIRCLE" && std::abs(out.evidence.centroid.z-6)<1e-7)
+            if(out.topology_type==PersistentTopologyType::edge && out.evidence.geometry_type=="CIRCLE" && std::abs(out.evidence.origin.z-6)<1e-7)
                 round.selections.push_back({out.semantic_ref.feature_id,out.semantic_ref.output_slot,out.semantic_ref.source_ids});
         ASSERT_FALSE(round.selections.empty());
         PartRuntimeStats stats;PartRuntimeOptions runtime;runtime.stats=&stats;runtime.stage_keys={family+"/base",family+"/cut",family+"/round"};
@@ -4539,7 +4626,7 @@ TEST(GeometryExchange, RemovalRangeRejectsAddedMaterialDespiteLowerTotalVolume) 
     const auto seed=kernel.evaluateProfilePadsWithHistory({base,cut});
     ProfilePadSpec draft;draft.feature_id="draft";draft.body_id="body";draft.generator="DRAFT";draft.neutral_normal={0,0,1};draft.revolve_angle=3*pi/180;
     for(const auto& out:seed.feature_results.back().semantic_outputs)
-        if(out.topology_type==PersistentTopologyType::face && out.evidence.geometry_type=="PLANE"&&out.evidence.centroid.x>19.9&&std::abs(out.evidence.direction.x)>.9)
+        if(out.topology_type==PersistentTopologyType::face && out.evidence.geometry_type=="PLANE"&&out.evidence.origin.x>19.9&&std::abs(out.evidence.direction.x)>.9)
             draft.selections.push_back({out.semantic_ref.feature_id,out.semantic_ref.output_slot,out.semantic_ref.source_ids});
     ASSERT_EQ(draft.selections.size(),1U);int rejected=0;
     for(bool reverse:{false,true}) {

@@ -207,7 +207,7 @@ func TestReadOnlyEngineeringRefreshThroughRouter(t *testing.T) {
 		t.Fatal("Broken exclusion lost", r.Excluded)
 	}
 	replacement := findP7TopologyPick(t, f.service, part, "FACE", func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
-		return properties.GeometryType == "PLANE" && math.Abs(selection.CreationEvidence.Centroid[2]-6) < 1e-6
+		return properties.GeometryType == "PLANE" && math.Abs(queriedTopologyCenter(t, properties)[2]-6) < 1e-6
 	})
 	ref := func(id string) *workspace.AssemblyGeometryRef {
 		return &workspace.AssemblyGeometryRef{InstanceID: id, Kind: "FACE", PersistentSelection: &replacement.Selection, SourceVersionID: replacement.SourceVersionID}

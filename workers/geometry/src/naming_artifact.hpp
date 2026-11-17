@@ -84,7 +84,7 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
     };
     auto wire_ev = [&](const v1::SelectionEvidence& value) {
         v1::NamingEvidence packed;
-        *packed.mutable_centroid() = value.centroid();
+        if(value.has_centroid()) *packed.mutable_centroid() = value.centroid();
         if (value.has_measure_si())
             packed.set_measure_si(value.measure_si());
         packed.set_measure_dimension(value.measure_dimension());

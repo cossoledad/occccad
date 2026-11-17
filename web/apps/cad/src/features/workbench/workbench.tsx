@@ -720,16 +720,6 @@ export function Workbench() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, documentID, view?.document.versionId]);
   const selectedNamingIssue = selectionNamingIssue(store.selection, editingView, view);
-	// A deliberate Part face selection is a modeling intent. Prepare only that
-	// immutable support; hover/document opening never starts exact geometry work.
-	const selectedFace=store.selection?.kind==='face'?store.selection:undefined;
-	useEffect(()=>{
-	  if(isMockMode||store.activeSketchID||!selectedFace?.geometryKey||editingView?.document.type!=='PART'||selectedFace.documentId!==editingView.document.id||selectedFace.versionId!==editingView.document.versionId)return;
-	  const abort=new AbortController();
-	  const owner=editingView.document.id,geometryKey=selectedFace.geometryKey;
-	  const timer=setTimeout(()=>{void api.getTopologyProperties(owner,geometryKey,'FACE',selectedFace.topologyId,selectedFace.versionId,abort.signal,true).catch(()=>{});},200);
-	  return()=>{clearTimeout(timer);abort.abort()};
-	},[editingView?.document.id,editingView?.document.versionId,store.activeSketchID,selectedFace?.documentId,selectedFace?.geometryKey,selectedFace?.topologyId,selectedFace?.versionId]);
   const repairableImport = editingView?.part?.features.find((feature) => feature.type === "IMPORT_BODY" && !feature.importDefinitionId);
   const activeNamingIssue = Object.values(editingView?.artifacts??{}).find(a=>a.topology.faces>0 && a.naming && !a.naming.canBind)?.naming;
   const discardNewSketch = () => {

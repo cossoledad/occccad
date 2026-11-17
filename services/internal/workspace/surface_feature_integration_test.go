@@ -70,7 +70,7 @@ func TestSurfaceEngineeringAssociationsPreviewHistoryAndColdRebuild(t *testing.T
 	d.Parameters.Distance = 3
 	v, offset := surfaceCreate(t, f, d)
 	a := v.Artifacts[offset.Result.GeometryKey]
-	if a.Volume != 0 {
+	if a.ValidationPolicy != geometryValidationPolicy {
 		t.Fatal("sheet acquired material volume")
 	}
 	// The selected extension boundary keeps the exact source-result identity.

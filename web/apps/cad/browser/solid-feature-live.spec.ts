@@ -1,3 +1,4 @@
+import {measuredArtifactVolume} from "./measurement-oracle";
 import {searchTool as openCommand} from './command-helpers';
 import {confirmCommandName,quantityLabel,chooseExtent} from "./command-labels";
 import {treeNavigator} from "./tree-helpers";
@@ -173,7 +174,7 @@ test("viewport Boolean tools toggle, auto preview, commit and reopen",async({pag
  const committed=await current(page,seed.id);expect(committed.document.versionId).not.toBe(seed.version);
  expect(committed.part.bodies.find((b:{id:string})=>b.id===seed.tool).consumed).toBe(true);
  const body=committed.part.bodies.find((b:{id:string})=>b.id===seed.base);
- expect(committed.artifacts[body.geometryKey].volume).toBeCloseTo(3750,5);
+ expect((await measuredArtifactVolume(page,committed.artifacts[body.geometryKey]))).toBeCloseTo(3750,5);
  const feature=committed.part.features.at(-1);
  await treeNavigator(page)(feature.name);
  await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
@@ -186,7 +187,7 @@ test("viewport Boolean tools toggle, auto preview, commit and reopen",async({pag
  await edit.getByRole("button",{name:confirmCommandName}).click();await expect(edit).toHaveCount(0);
  const edited=await current(page,seed.id);
  expect(edited.part.bodies.find((b:{id:string})=>b.id===seed.tool).consumed).toBe(true);
- expect(edited.artifacts[edited.part.bodies.find((b:{id:string})=>b.id===seed.base).geometryKey].volume).toBeCloseTo(3750,5);
+ expect((await measuredArtifactVolume(page,edited.artifacts[edited.part.bodies.find((b:{id:string})=>b.id===seed.base).geometryKey]))).toBeCloseTo(3750,5);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();await expect(page.getByRole("tree").getByLabel("状态 已用于布尔")).toBeVisible();expect(errors).toEqual([]);
 });
 
@@ -220,7 +221,7 @@ test("preselected chamfer edge, automatic preview, input-stage edit and toggle",
  await clickWorld(page,[0,-10,10]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await ready(page,dialog);
  await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const committed=await current(page,seed.id);const body=committed.part.bodies.find((b:{id:string})=>b.id===seed.bodyId);
- expect(committed.artifacts[body.geometryKey].volume).toBeCloseTo(3990,5);
+ expect((await measuredArtifactVolume(page,committed.artifacts[body.geometryKey]))).toBeCloseTo(3990,5);
  const feature=committed.part.features.at(-1);const revealTree=treeNavigator(page);await revealTree(feature.name);
  await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
  const edit=page.getByRole("dialog",{name:"编辑 倒角",exact:true});await expect(edit).toBeVisible();
@@ -231,7 +232,7 @@ test("preselected chamfer edge, automatic preview, input-stage edit and toggle",
  await clickWorld(page,[10,0,10]);await expect(edit.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await ready(page,edit);
  await edit.getByRole("button",{name:confirmCommandName}).click();await expect(edit).toHaveCount(0);
  const edited=await current(page,seed.id);expect(edited.part.features.at(-1).selections[0].sourceFeatureId).toBeTruthy();
- expect(edited.artifacts[edited.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).geometryKey].volume).toBeCloseTo(3990,5);
+ expect((await measuredArtifactVolume(page,edited.artifacts[edited.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).geometryKey]))).toBeCloseTo(3990,5);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
 
@@ -265,7 +266,7 @@ test("rectangle to circle loft previews directly from viewport sections",async({
  expect(f.type).toBe("LOFT");expect(f.sections.map((s:{sketchId:string})=>s.sketchId)).toEqual([seed.bottom,seed.top]);
  expect(f.operation).toBe("ADD");expect(f.bodyId).toBe(seed.bodyId);expect(committed.part.bodies).toHaveLength(seed.bodyCount);
  const a=committed.artifacts[committed.part.bodies.find((b:{id:string})=>b.id===f.bodyId).geometryKey];
- expect(a.topology.solids).toBe(1);expect(a.volume).toBeGreaterThan(30*Math.PI*100);expect(a.volume).toBeLessThan(12000);
+ expect(a.topology.solids).toBe(1);expect((await measuredArtifactVolume(page,a))).toBeGreaterThan(30*Math.PI*100);expect((await measuredArtifactVolume(page,a))).toBeLessThan(12000);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
 
@@ -304,7 +305,7 @@ for(const fixture of [
  expect(feature.type).toBe("SHELL");expect(feature.length).toBe(.5);expect(feature.selections).toHaveLength(1);
  expect(feature.selections[0].selection.anchor.outputSlot).toContain("LOFT_END_CAP");
  const artifact=(view:any)=>view.artifacts[view.part.bodies.find((b:any)=>b.id===seed.bodyId).geometryKey];
- const volume=artifact(created).volume;expect(volume).toBeGreaterThan(0);expect(artifact(created).topology.solids).toBe(1);
+ const volume=(await measuredArtifactVolume(page,artifact(created)));expect(volume).toBeGreaterThan(0);expect(artifact(created).topology.solids).toBe(1);
  await treeNavigator(page)(feature.name);
  await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
  const edit=page.getByRole("dialog",{name:"编辑 抽壳",exact:true});await ready(page,edit);
@@ -312,13 +313,13 @@ for(const fixture of [
  await edit.getByLabel(quantityLabel('厚度','mm'),{exact:true}).fill("1");await ready(page,edit);
  expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);
  await edit.getByRole("button",{name:confirmCommandName}).click();await expect(edit).toHaveCount(0);
- const edited=await current(page,seed.id);expect(artifact(edited).volume).toBeGreaterThan(volume);
+ const edited=await current(page,seed.id);expect((await measuredArtifactVolume(page,artifact(edited)))).toBeGreaterThan(volume);
  await page.evaluate(async id=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import("/src/api.ts");await api.command(id,{type:"UNDO"});
  },seed.id);
  const undone=await current(page,seed.id);expect(undone.document.versionId).not.toBe(edited.document.versionId);
- expect(artifact(undone).volume).toBeCloseTo(volume,5);
+ expect((await measuredArtifactVolume(page,artifact(undone)))).toBeCloseTo(volume,5);
  await page.evaluate(async id=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import("/src/api.ts");await api.command(id,{type:"REDO"});
@@ -433,7 +434,7 @@ test("revolve picks an individual sketch line and previews parameter changes",as
  await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const committed=await current(page,seed.id),f=committed.part.features.at(-1);
  expect(f.type).toBe("REVOLVE");expect(f.axisEntityId).toBe(`SKETCH_LINE:${seed.sketchId}:${seed.axisId}`);
- expect(committed.artifacts[committed.part.bodies.find((b:{id:string})=>b.id===f.bodyId).geometryKey].volume).toBeCloseTo(100*Math.PI,5);
+ expect((await measuredArtifactVolume(page,committed.artifacts[committed.part.bodies.find((b:{id:string})=>b.id===f.bodyId).geometryKey]))).toBeCloseTo(100*Math.PI,5);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
 
@@ -462,7 +463,7 @@ test("chamfered box fillet and shell retain exact history, failed display and tr
   const bottom=await picks("EDGE",p=>p.geometryType==="LINE"&&Math.abs(p.properties.origin[2])<1e-7&&Math.abs(p.properties.direction[2])<1e-7);
   if(bottom.length!==8)throw new Error(`expected eight bottom edges, got ${bottom.length}`);
   await apply({type:"CREATE_MODIFY_FEATURE",feature:{type:"FILLET",bodyId,length:1,selections:bottom}});
-  const filletVolume=v.artifacts![v.part!.bodies.find(b=>b.id===bodyId)!.geometryKey!].volume;
+  const filletVolume=Number((await api.getTopologyProperties(v.document.id,(v.artifacts![v.part!.bodies.find(b=>b.id===bodyId)!.geometryKey!]).geometryKey!,"BODY",0,v.document.versionId)).properties.volume);
   await apply({type:"UNDO"});
   const node=(featureId:string):any=>{
    const find=(nodes:any[]):any=>{for(const n of nodes){if(n.entityId===featureId)return n;const found=find(n.children??[]);if(found)return found;}};
@@ -472,7 +473,7 @@ test("chamfered box fillet and shell retain exact history, failed display and tr
   const top=await picks("FACE",p=>p.persistentSelection.anchor.outputSlot.startsWith("END_CAP/"));
   await apply({type:"CREATE_MODIFY_FEATURE",feature:{type:"SHELL",bodyId,length:1,selections:top}});
   const shell=v.part!.features.at(-1)!,successfulRevision=v.document.versionId;
-  const shellVolume=v.artifacts![v.part!.bodies.find(b=>b.id===bodyId)!.geometryKey!].volume;
+  const shellVolume=Number((await api.getTopologyProperties(v.document.id,(v.artifacts![v.part!.bodies.find(b=>b.id===bodyId)!.geometryKey!]).geometryKey!,"BODY",0,v.document.versionId)).properties.volume);
   await apply({type:"EDIT_FEATURE",targetId:chamfer.id,expectedFeatureDigest:node(chamfer.id).definitionDigest,feature:{...chamfer,length:1000}});
   return {id,bodyId,chamferName:chamfer.name,shellName:shell.name,successfulRevision,filletVolume,shellVolume};
  });
@@ -497,7 +498,7 @@ test("chamfered box fillet and shell retain exact history, failed display and tr
  }
  await expect(page.locator(".cad-failed-body-notice")).toHaveCount(0);
  const recovered=await current(page,seed.id),readyBody=recovered.part.bodies.find((b:{id:string})=>b.id===seed.bodyId);
- expect(readyBody.displayFallback).toBeUndefined();expect(recovered.artifacts[readyBody.geometryKey].volume).toBeCloseTo(24000,5);
+ expect(readyBody.displayFallback).toBeUndefined();expect((await measuredArtifactVolume(page,recovered.artifacts[readyBody.geometryKey]))).toBeCloseTo(24000,5);
  expect(errors).toEqual([]);
 });
 
@@ -519,7 +520,7 @@ for (const featureType of ["FILLET","CHAMFER","SHELL","DRAFT"] as const) {
     const a=v.artifacts![v.part!.bodies.find(b=>b.id===bodyId)!.geometryKey!];
     for(let localId=1;localId<=Number(a.topology[kind==="EDGE"?"edges":"faces"]);localId++){
      const p=await api.getTopologyProperties(id,a.geometryKey,kind,localId,v.document.versionId),s=p.persistentSelection;
-     if(s?.anchor.featureId===featureId&&s.anchor.outputSlot.startsWith(slot)&&s.anchor.outputSlot!==excludeSlot&&(!front||(s.creationEvidence.centroid?.[1]??0)<-19))return{selection:s,sourceVersionId:v.document.versionId};
+     if(s?.anchor.featureId===featureId&&s.anchor.outputSlot.startsWith(slot)&&s.anchor.outputSlot!==excludeSlot&&(!front||((p.properties.snapCenter??p.properties.centroid) as number[])[1]<-19))return{selection:s,sourceVersionId:v.document.versionId};
     }
     throw new Error("required stable topology not found");
    };
@@ -616,9 +617,9 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
   await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
   const created=await current(page,seed.id),feature=created.part.features.at(-1),selection=feature.profileSelection;
   expect(selection.mode).toBe("REGIONS");expect(selection.regionIds).toHaveLength(1);
-  const volume=(v:any,body:string)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===body).geometryKey].volume;
+  const volume=async (v:any,body:string)=>(await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===body).geometryKey]));
   const factor=generator==="REVOLVE"?30*Math.PI:5;
-  expect(volume(created,feature.bodyId)).toBeCloseTo(21*Math.PI*factor,5);
+  expect((await volume(created,feature.bodyId))).toBeCloseTo(21*Math.PI*factor,5);
   const expanded=await page.evaluate(async({seed,generator,firstRegion})=>{
    // @ts-ignore production Vite module
    const {restApi:api}=await import("/src/api.ts");
@@ -630,8 +631,8 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
    return {v,second};
   },{seed,generator,firstRegion:selection.regionIds[0]});
   expect(expanded.v.part.features.find((f:any)=>f.id===feature.id).profileSelection).toEqual(selection);
-  expect(volume(expanded.v,feature.bodyId)).toBeCloseTo(volume(created,feature.bodyId),5);
-  expect(volume(expanded.v,expanded.second.bodyId!)).toBeCloseTo(16*Math.PI*factor,5);
+  expect((await volume(expanded.v,feature.bodyId))).toBeCloseTo((await volume(created,feature.bodyId)),5);
+  expect((await volume(expanded.v,expanded.second.bodyId!))).toBeCloseTo(16*Math.PI*factor,5);
   await page.reload();await expect(page.locator("canvas")).toBeVisible();
   const editFeature=async()=>{
    await openCommand(page,"适合窗口");
@@ -658,7 +659,7 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
   await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
   const repaired=await current(page,seed.id),result=repaired.part.features.find((f:any)=>f.id===feature.id);
   expect(result.id).toBe(feature.id);expect(result.bodyId).toBe(feature.bodyId);expect(result.name).toBe(feature.name);expect(result.order).toBe(feature.order);
-  expect(result.evaluationStatus).toBeFalsy();expect(volume(repaired,feature.bodyId)).toBeCloseTo(9*Math.PI*factor,5);
+  expect(result.evaluationStatus).toBeFalsy();expect((await volume(repaired,feature.bodyId))).toBeCloseTo(9*Math.PI*factor,5);
   if(generator==="LINEAR_EXTRUDE"){
    await page.evaluate(async({id,bodyId})=>{
     // @ts-ignore production Vite module
@@ -672,7 +673,7 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
    const reversed=cut.getByRole("switch",{name:"反向",exact:true});if(await reversed.isChecked())await reversed.click();
    await ready(page,cut);await cut.getByRole("button",{name:confirmCommandName}).click();await expect(cut).toHaveCount(0);
    const cutView=await current(page,seed.id);expect(cutView.part.features.at(-1).profileSelection).toEqual(result.profileSelection);
-   expect(cutView.part.features.at(-1).operation).toBe("REMOVE");expect(volume(cutView,feature.bodyId)).toBeCloseTo(27*Math.PI,5);
+   expect(cutView.part.features.at(-1).operation).toBe("REMOVE");expect((await volume(cutView,feature.bodyId))).toBeCloseTo(27*Math.PI,5);
   }
   await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
  });
@@ -811,7 +812,7 @@ test("closed sketch after boundary replacement offers explicit region repair and
  const repaired=await current(page,seed.id),feature=repaired.part.features.find((f:any)=>f.id===seed.feature.id);
  expect(feature).toMatchObject({id:seed.feature.id,bodyId:seed.feature.bodyId,name:seed.feature.name,order:seed.feature.order});
  expect(feature.evaluationStatus).toBeFalsy();expect(feature.profileSelection.regionIds).toEqual(seed.regionIds);
- expect(repaired.artifacts[repaired.part.bodies.find((b:any)=>b.id===feature.bodyId).geometryKey].volume).toBeCloseTo(8000,5);
+ expect((await measuredArtifactVolume(page,repaired.artifacts[repaired.part.bodies.find((b:any)=>b.id===feature.bodyId).geometryKey]))).toBeCloseTo(8000,5);
  await expect(page.getByRole("button",{name:"修复轮廓区域",exact:true})).toHaveCount(0);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
@@ -852,8 +853,8 @@ test("to-plane extent picks datum and upstream face, cancels and repairs a lost 
  await ready(page,dialog);await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const created=await current(page,seed.id),feature=created.part.features.at(-1);
  expect(feature.extent).toBe("TO_PLANE");expect(feature.terminationPlane.sourceFeatureId).toBe(seed.tip.id);expect(feature.terminationPlane.selection.anchor.featureId).toBe(seed.base.id);
- const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;
- expect(volume(created)).toBeCloseTo(1000,5);
+ const volume=async (v:any)=>(await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey]));
+ expect((await volume(created))).toBeCloseTo(1000,5);
  const failed=await page.evaluate(async seed=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(seed.id);
@@ -870,14 +871,14 @@ test("to-plane extent picks datum and upstream face, cancels and repairs a lost 
  await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const repaired=await current(page,seed.id),result=repaired.part.features.find((f:any)=>f.id===feature.id);
  expect(result).toMatchObject({id:feature.id,name:feature.name,bodyId:feature.bodyId,order:feature.order,profileSelection:feature.profileSelection});
- expect(result.terminationPlane.sourceVersionId).toBe(failed.document.versionId);expect(result.terminationPlane.sourceFeatureId).toBe(seed.tip.id);expect(result.evaluationStatus).toBeFalsy();expect(volume(repaired)).toBeCloseTo(2000,5);
+ expect(result.terminationPlane.sourceVersionId).toBe(failed.document.versionId);expect(result.terminationPlane.sourceFeatureId).toBe(seed.tip.id);expect(result.evaluationStatus).toBeFalsy();expect((await volume(repaired))).toBeCloseTo(2000,5);
  await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===feature.id).evaluationStatus).toBe("FAILED")).toPass();
- await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect(volume(await current(page,seed.id))).toBeCloseTo(2000,5)).toPass();
+ await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await volume(await current(page,seed.id)))).toBeCloseTo(2000,5)).toPass();
  await page.reload();await expect(page.locator("canvas")).toBeVisible();await revealTree(feature.name);await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
  dialog=page.getByRole("dialog",{name:"编辑 拉伸",exact:true});await ready(page,dialog);
  await dialog.getByRole("button",{name:"选择终止平面",exact:true}).click();await datumPick();await ready(page,dialog);
  await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
- const inclined=await current(page,seed.id);expect(volume(inclined)).toBeCloseTo(1200,5);expect(inclined.part.features.find((f:any)=>f.id===feature.id).terminationPlaneId).toBe(seed.datum.id);
+ const inclined=await current(page,seed.id);expect((await volume(inclined))).toBeCloseTo(1200,5);expect(inclined.part.features.find((f:any)=>f.id===feature.id).terminationPlaneId).toBe(seed.datum.id);
  expect(errors).toEqual([]);
 });
 
@@ -903,7 +904,7 @@ test("to-plane cut selects a hole region and reverse datum termination",async({p
  await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("to-plane-reverse-cut-hole.png")});
  await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const v=await current(page,seed.id),feature=v.part.features.at(-1);expect(feature).toMatchObject({extent:"TO_PLANE",operation:"REMOVE",reversed:true,terminationPlaneId:seed.end.id});
- expect(v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume).toBeCloseTo(12000-120*Math.PI,5);
+ expect((await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey]))).toBeCloseTo(12000-120*Math.PI,5);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
 
@@ -930,8 +931,8 @@ test("Hole picks one explicit point, edits, repairs and keeps mouth chamfer edit
  dialog=await open();await pickHolePoint(page,dialog,[-5,0,20]);await dialog.getByLabel(quantityLabel('直径','mm'),{exact:true}).fill("6");await dialog.getByLabel(quantityLabel('深度','mm'),{exact:true}).fill("8");await ready(page,dialog);
  await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const created=await current(page,seed.id),hole=created.part.features.at(-1);
- const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;
- expect(created.part.features).toHaveLength(seed.featureCount+1);expect(hole).toMatchObject({type:"HOLE",operation:"REMOVE",diameter:6,depth:8,holePoint:{sketchId:seed.sketch,reference:{target:"ENTITY",entityId:"p",subElement:"POINT"}}});expect(hole.profile).toBeUndefined();expect(volume(created)).toBeCloseTo(24000-72*Math.PI,5);
+ const volume=async (v:any)=>(await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey]));
+ expect(created.part.features).toHaveLength(seed.featureCount+1);expect(hole).toMatchObject({type:"HOLE",operation:"REMOVE",diameter:6,depth:8,holePoint:{sketchId:seed.sketch,reference:{target:"ENTITY",entityId:"p",subElement:"POINT"}}});expect(hole.profile).toBeUndefined();expect((await volume(created))).toBeCloseTo(24000-72*Math.PI,5);
  const edit=async()=>{await revealTree(hole.name);await page.getByRole("treeitem").filter({hasText:hole.name}).first().dblclick();const d=page.getByRole("dialog",{name:"编辑 孔",exact:true});await expect(d).toBeVisible();return d;};
  dialog=await edit();await ready(page,dialog);await dialog.getByLabel(quantityLabel('直径','mm'),{exact:true}).fill("8");await dialog.getByLabel(quantityLabel('深度','mm'),{exact:true}).fill("5");await ready(page,dialog);
  await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);
@@ -940,7 +941,7 @@ test("Hole picks one explicit point, edits, repairs and keeps mouth chamfer edit
  const reversed=dialog.getByRole("switch",{name:"反向",exact:true});await reversed.click();await expect(page.locator(".cad-operation-notification")).toContainText(/没有与目标实体相交/);await expect(dialog.getByRole("button",{name:confirmCommandName})).toBeDisabled();await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
  expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);await reversed.click();await ready(page,dialog);
  await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
- const through=await current(page,seed.id);expect(volume(through)).toBeCloseTo(24000-180*Math.PI,5);expect(through.part.features.find((f:any)=>f.id===hole.id)).toMatchObject({extent:"THROUGH_ALL",holePoint:{reference:{entityId:"q"}}});expect(through.part.parameters.filter((p:any)=>p.ownerFeatureId===hole.id).map((p:any)=>p.propertySlot)).toEqual(["diameter"]);
+ const through=await current(page,seed.id);expect((await volume(through))).toBeCloseTo(24000-180*Math.PI,5);expect(through.part.features.find((f:any)=>f.id===hole.id)).toMatchObject({extent:"THROUGH_ALL",holePoint:{reference:{entityId:"q"}}});expect(through.part.parameters.filter((p:any)=>p.ownerFeatureId===hole.id).map((p:any)=>p.propertySlot)).toEqual(["diameter"]);
  const failed=await page.evaluate(async seed=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import("/src/api.ts");return api.command(seed.id,{type:"EDIT_SKETCH",sketchId:seed.sketch,operations:[{type:"DELETE_ENTITIES",entityIds:["q"]}]});
@@ -954,7 +955,7 @@ test("Hole picks one explicit point, edits, repairs and keeps mouth chamfer edit
  await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(failed.document.versionId);
  await page.getByRole("button",{name:"修复孔位",exact:true}).click();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await pickHolePoint(page,dialog,[-5,0,20]);await ready(page,dialog);await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const repaired=await current(page,seed.id),restored=repaired.part.features.find((f:any)=>f.id===hole.id);expect(restored).toMatchObject({id:hole.id,name:hole.name,bodyId:hole.bodyId,order:hole.order,holePoint:{reference:{entityId:"p"}}});expect(restored.evaluationStatus).toBeFalsy();
- await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===hole.id).evaluationStatus).toBe("FAILED")).toPass();await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect(volume(await current(page,seed.id))).toBeCloseTo(24000-180*Math.PI,5)).toPass();
+ await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===hole.id).evaluationStatus).toBe("FAILED")).toPass();await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await volume(await current(page,seed.id)))).toBeCloseTo(24000-180*Math.PI,5)).toPass();
  await revealTree("");await openCommand(page,"倒角");const chamfer=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[-5+3*Math.SQRT1_2,3*Math.SQRT1_2,20]);await expect(chamfer.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await chamfer.getByRole("combobox").fill("0.5");await ready(page,chamfer);await chamfer.getByRole("button",{name:confirmCommandName}).click();await expect(chamfer).toHaveCount(0);
  const finished=await current(page,seed.id),child=finished.part.features.at(-1);expect(child.type).toBe("CHAMFER");expect(child.selections[0].selection.anchor.featureId).toBe(hole.id);
  dialog=await edit();await ready(page,dialog);await dialog.getByLabel(quantityLabel('直径','mm'),{exact:true}).fill("7");await ready(page,dialog);await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
@@ -977,17 +978,17 @@ test("Hole support reassignment and both through directions protect the opposite
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);
  await openCommand(page,"孔");let dialog=page.getByRole("dialog",{name:"创建 孔",exact:true});await pickHolePoint(page,dialog,[0,0,0]);await dialog.getByLabel(quantityLabel('直径','mm'),{exact:true}).fill("4");await dialog.getByText("单向贯穿",{exact:true}).click();await dialog.getByRole("switch",{name:"反向",exact:true}).click();await ready(page,dialog);
  await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);const created=await current(page,seed.id),hole=created.part.features.at(-1);
- const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;expect(volume(created)).toBeCloseTo(8000-80*Math.PI,5);
+ const volume=async (v:any)=>(await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey]));expect((await volume(created))).toBeCloseTo(8000-80*Math.PI,5);
  const revealTree=treeNavigator(page);await revealTree(seed.sketch.name!);await page.getByRole("treeitem",{name:new RegExp(`^(?:折叠|展开) ${seed.sketch.name}$`)}).click({button:"right"});await page.getByRole("menuitem",{name:"对象",exact:true}).hover();await page.getByRole("menuitem",{name:"更换草图支撑…",exact:true}).click();
  const support=page.getByRole("dialog",{name:"更换草图支撑",exact:true});await expect(support).toBeVisible();await revealTree(seed.plane.name);await page.getByRole("treeitem").filter({hasText:seed.plane.name}).last().click();await expect(support.getByRole("button",{name:confirmCommandName})).toBeEnabled();expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);
- await support.getByRole("button",{name:confirmCommandName}).click();await expect(support).toHaveCount(0);const moved=await current(page,seed.id);expect(volume(moved)).toBeCloseTo(8000-40*Math.PI,5);expect(moved.part.features.find((f:any)=>f.id===hole.id).holePoint).toEqual(hole.holePoint);
+ await support.getByRole("button",{name:confirmCommandName}).click();await expect(support).toHaveCount(0);const moved=await current(page,seed.id);expect((await volume(moved))).toBeCloseTo(8000-40*Math.PI,5);expect(moved.part.features.find((f:any)=>f.id===hole.id).holePoint).toEqual(hole.holePoint);
  await revealTree(hole.name);await page.getByRole("treeitem").filter({hasText:hole.name}).first().dblclick();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await ready(page,dialog);await dialog.getByRole("switch",{name:"反向",exact:true}).click();await ready(page,dialog);await page.screenshot({path:testInfo.outputPath("hole-reversed-half-through.png")});await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
- const reverse=await current(page,seed.id);expect(volume(reverse)).toBeCloseTo(8000-40*Math.PI,5);expect(reverse.part.bodies.find((b:any)=>b.id===seed.body).geometryKey).not.toBe(moved.part.bodies.find((b:any)=>b.id===seed.body).geometryKey);
+ const reverse=await current(page,seed.id);expect((await volume(reverse))).toBeCloseTo(8000-40*Math.PI,5);expect(reverse.part.bodies.find((b:any)=>b.id===seed.body).geometryKey).not.toBe(moved.part.bodies.find((b:any)=>b.id===seed.body).geometryKey);
  // The opposite half still accepts a full blind tool through the real API/Worker.
  const probe=await page.evaluate(async({seed,hole})=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import("/src/api.ts");return api.previewCommand(seed.id,{type:"CREATE_SOLID_FEATURE",feature:{...hole,id:"",extent:"BLIND",depth:3,reversed:false}});
- },{seed,hole});expect(probe.artifact.volume).toBeCloseTo(8000-52*Math.PI,5);expect((await current(page,seed.id)).document.versionId).toBe(reverse.document.versionId);
+ },{seed,hole});expect(probe.properties!.properties.volume).toBeCloseTo(8000-52*Math.PI,5);expect((await current(page,seed.id)).document.versionId).toBe(reverse.document.versionId);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();
 });
 
@@ -1007,7 +1008,7 @@ test("constrained feature move previews tree order, restores history and rejects
   if(!selection)throw Error("outer edge unavailable");
   v=await api.command(id,{type:"CREATE_MODIFY_FEATURE",feature:{type:"FILLET",bodyId:base.bodyId,length:1,selections:[{selection,sourceVersionId:v.document.versionId}]}});const fillet=v.part!.features.at(-1)!;
   v=await api.command(id,{type:"CREATE_SOLID_FEATURE",feature:{type:"HOLE",bodyId:base.bodyId,operation:"REMOVE",extent:"BLIND",diameter:4,depth:5,reversed:true,holePoint:{sketchId:location,reference:{target:"ENTITY",entityId:"center",subElement:"POINT"}}}});const hole=v.part!.features.at(-1)!;
-  return {id,base,fillet,hole,version:v.document.versionId,ids:v.part!.features.map(f=>f.id),volume:v.artifacts[v.part!.bodies.find(b=>b.id===base.bodyId)!.geometryKey!].volume};
+  return {id,base,fillet,hole,version:v.document.versionId,ids:v.part!.features.map(f=>f.id),volume:Number((await api.getTopologyProperties(v.document.id,(v.artifacts[v.part!.bodies.find(b=>b.id===base.bodyId)!.geometryKey!]).geometryKey!,"BODY",0,v.document.versionId)).properties.volume)};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  const revealTree=treeNavigator(page);
@@ -1018,12 +1019,12 @@ test("constrained feature move previews tree order, restores history and rejects
  await d.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  d=await open(seed.hole.name!);await anchor(d,seed.fillet.name!);await confirm(d);
  const first=await current(page,seed.id),firstIds=first.part.features.map((f:any)=>f.id);expect(firstIds).toEqual([...seed.ids.slice(0,-2),seed.hole.id,seed.fillet.id]);
- expect(first.artifacts[first.part.bodies.find((b:any)=>b.id===seed.base.bodyId).geometryKey].volume).toBeCloseTo(seed.volume,5);
+ expect((await measuredArtifactVolume(page,first.artifacts[first.part.bodies.find((b:any)=>b.id===seed.base.bodyId).geometryKey]))).toBeCloseTo(seed.volume,5);
  await revealTree("");const bodyNode=page.getByRole("treeitem").filter({hasText:"Body.1 · 工作中"});if(await bodyNode.getByRole("button",{name:"展开",exact:true}).count())await bodyNode.getByRole("button",{name:"展开",exact:true}).click();await expect(async()=>{const labels=await page.locator(".specification-tree-label").allTextContents();expect(labels).toContain(seed.hole.name!);expect(labels).toContain(seed.fillet.name!);expect(labels.indexOf(seed.hole.name!)).toBeLessThan(labels.indexOf(seed.fillet.name!));}).toPass();
  const stage=await page.evaluate(async seed=>{
   // @ts-ignore production Vite module
-  const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(seed.id);return api.getFeatureInput(seed.id,{versionId:v.document.versionId,featureId:seed.hole.id,resultStage:true});
- },seed);expect(stage.artifact.volume).toBeCloseTo(8000-20*Math.PI,5);
+  const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(seed.id);return api.getFeatureInput(seed.id,{includeProperties:true,versionId:v.document.versionId,featureId:seed.hole.id,resultStage:true});
+ },seed);expect(stage.properties!.properties.volume).toBeCloseTo(8000-20*Math.PI,5);
  d=await open(seed.hole.name!);await anchor(d,seed.fillet.name!);await d.getByText("之后",{exact:true}).click();await confirm(d);
  for(const expected of [firstIds,seed.ids]){await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.map((f:any)=>f.id)).toEqual(expected)).toPass();}
  for(const expected of [firstIds,seed.ids]){await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.map((f:any)=>f.id)).toEqual(expected)).toPass();}
@@ -1049,7 +1050,7 @@ test("fillet keeps untouched opposite edge owned by extrusion during real pickin
   v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch,operations:[{type:"ADD_RECTANGLE",first:{x:-10,y:-10},second:{x:10,y:10}}]});
   v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:sketch,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});const base=v.part!.features.at(-1)!;
   const key=v.part!.bodies[0].geometryKey!;let selection;
-  for(let i=1;i<=Number(v.artifacts[key].topology.edges);i++){const p=await api.getTopologyProperties(id,key,"EDGE",i,v.document.versionId);if(p.persistentSelection?.creationEvidence?.centroid?.every((x:number,j:number)=>Math.abs(x-[10,10,10][j])<1e-7)){selection=p.persistentSelection;break;}}
+  for(let i=1;i<=Number(v.artifacts[key].topology.edges);i++){const p=await api.getTopologyProperties(id,key,"EDGE",i,v.document.versionId);if((p.properties.centroid as number[] | undefined)?.every((x:number,j:number)=>Math.abs(x-[10,10,10][j])<1e-7)){selection=p.persistentSelection;break;}}
   if(!selection)throw Error("round input missing");v=await api.command(id,{type:"CREATE_MODIFY_FEATURE",feature:{type:"FILLET",bodyId:base.bodyId,length:1,selections:[{selection,sourceVersionId:v.document.versionId}]}});
   return {id,base,fillet:v.part!.features.at(-1)!,version:v.document.versionId};
  });
@@ -1069,7 +1070,7 @@ test("insert fillet after an exact base stage before existing chamfer in one his
   v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch,operations:[{type:"ADD_RECTANGLE",first:{x:-10,y:-10},second:{x:10,y:10}}]});
   v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:sketch,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});const base=v.part!.features.at(-1)!;
   const key=v.part!.bodies[0].geometryKey!;let selection;
-  for(let i=1;i<=Number(v.artifacts[key].topology.edges);i++){const p=await api.getTopologyProperties(id,key,"EDGE",i,v.document.versionId);if(p.persistentSelection?.creationEvidence?.centroid?.every((x:number,j:number)=>Math.abs(x-[10,10,10][j])<1e-7)){selection=p.persistentSelection;break;}}
+  for(let i=1;i<=Number(v.artifacts[key].topology.edges);i++){const p=await api.getTopologyProperties(id,key,"EDGE",i,v.document.versionId);if((p.properties.centroid as number[] | undefined)?.every((x:number,j:number)=>Math.abs(x-[10,10,10][j])<1e-7)){selection=p.persistentSelection;break;}}
   if(!selection)throw Error("chamfer seed edge missing");v=await api.command(id,{type:"CREATE_MODIFY_FEATURE",feature:{type:"CHAMFER",bodyId:base.bodyId,length:1,selections:[{selection,sourceVersionId:v.document.versionId}]}});
   return {id,base,chamfer:v.part!.features.at(-1)!,version:v.document.versionId,features:v.part!.features,parameters:v.part!.parameters};
  });
@@ -1083,12 +1084,12 @@ test("insert fillet after an exact base stage before existing chamfer in one his
  },seed);expect(changed.document.versionId).not.toBe(seed.version);await expect(d).toHaveCount(0);await peer.close();
  const before=await current(page,seed.id);d=await open();await clickWorld(page,[10,-10,10]);await expect(d.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await d.getByRole("combobox").fill("1");await ready(page,d);await d.getByRole("button",{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
  const committed=await current(page,seed.id),inserted=committed.part.features[2];expect(inserted.type).toBe("FILLET");expect(committed.part.features.at(-1).id).toBe(seed.chamfer.id);expect(inserted.selections[0]).toMatchObject({sourceVersionId:before.document.versionId,sourceFeatureId:seed.base.id,selection:{anchor:{featureId:seed.base.id}}});expect(committed.part.features.map((f:any)=>f.order)).toEqual([1,2,3,4]);
- const a=committed.artifacts[committed.part.bodies[0].geometryKey];expect(a.volume).toBeCloseTo(7990-20*(1-Math.PI/4),5);
+ const a=committed.artifacts[committed.part.bodies[0].geometryKey];expect((await measuredArtifactVolume(page,a))).toBeCloseTo(7990-20*(1-Math.PI/4),5);
  await revealTree("");const bodyNode=page.getByRole("treeitem").filter({hasText:"Body.1 · 工作中"});if(await bodyNode.getByRole("button",{name:"展开",exact:true}).count())await bodyNode.getByRole("button",{name:"展开",exact:true}).click();await expect(async()=>{const labels=await page.locator(".specification-tree-label").allTextContents();expect(labels).toContain(inserted.name);expect(labels).toContain(seed.chamfer.name);expect(labels.indexOf(inserted.name)).toBeLessThan(labels.indexOf(seed.chamfer.name!));}).toPass({timeout:15_000});
  const stage=await page.evaluate(async({seed,inserted})=>{
   // @ts-ignore production Vite module
-  const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(seed.id);return api.getFeatureInput(seed.id,{versionId:v.document.versionId,featureId:inserted.id,resultStage:true});
- },{seed,inserted});expect(stage.artifact.volume).toBeCloseTo(8000-20*(1-Math.PI/4),5);
+  const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(seed.id);return api.getFeatureInput(seed.id,{includeProperties:true,versionId:v.document.versionId,featureId:inserted.id,resultStage:true});
+ },{seed,inserted});expect(stage.properties!.properties.volume).toBeCloseTo(8000-20*(1-Math.PI/4),5);
  await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>{const v=await current(page,seed.id);expect(v.part.features).toEqual(before.part.features);expect(v.part.parameters).toEqual(before.part.parameters);}).toPass({timeout:15_000});await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features[2].id).toBe(inserted.id)).toPass({timeout:15_000});
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect((await current(page,seed.id)).part.features.every((f:any)=>!f.evaluationStatus)).toBeTruthy();
  // ResultStage remains read-only; insertion is a separate authorized context.
@@ -1119,7 +1120,7 @@ test("merged loft side picks highlight the generating Feature rather than sectio
   const {useWorkbenchStore}=await import("/src/state/workbench-store.ts");return useWorkbenchStore.getState().selection;
  });
  const pick=async()=>{
-  await expect(async()=>{await clickWorld(page,seed.face.persistentSelection.creationEvidence.centroid);expect((await selected())?.topologyId).toBe(seed.face.localId);}).toPass({timeout:20_000});
+  await expect(async()=>{await clickWorld(page,seed.face.properties.snapCenter as [number,number,number]);expect((await selected())?.topologyId).toBe(seed.face.localId);}).toPass({timeout:20_000});
   await expect(row).toHaveClass(/selected-descendant/);
   const hit=await selected();expect(hit).toMatchObject({kind:"face",bodyId:seed.body.id,associatedFeatureIds:[seed.loft.id],sourceFeatureIds:[seed.loft.id]});expect(hit!.treeNodeId).toContain(`/feature:${seed.loft.id}`);
  };
@@ -1231,13 +1232,13 @@ test('unified patterns preserve mirrored cut tools and highlight each actual own
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,0,0]);const revealTree=treeNavigator(page);await openCommand(page,'镜像');const d=page.getByRole('dialog',{name:'创建镜像',exact:true});await expect(d.getByText('生成特征 / 切削工具',{exact:true})).toHaveCount(0);
  const pick=await page.evaluate(target=>{const e=(window as any).__cameraEngine,canvas=e.renderer.domElement,r=canvas.getBoundingClientRect();for(let y=35;y<r.height-30;y+=5)for(let x=35;x<r.width-30;x+=5){if(document.elementFromPoint(r.x+x,r.y+y)!==canvas)continue;const hit=e.hitTest(x,y);if(hit?.kind==='face'&&hit.associatedFeatureIds?.includes(target))return {x:r.x+x,y:r.y+y}}},seed.mirrors[1].id);expect(pick).toBeTruthy();await page.mouse.click(pick!.x,pick!.y);await expect(d.getByRole('group',{name:'种子',exact:true})).toContainText('Mirror.2');
  await expect(d.getByRole('button',{name:confirmCommandName})).toBeDisabled();await d.getByRole('button',{name:'选择镜像平面',exact:true}).click();await revealTree('YZ');await page.getByRole('treeitem').filter({has:page.getByText('YZ Plane',{exact:true})}).last().click();await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
- const saved=await current(page,seed.id),last=saved.part.features.at(-1),body=saved.part.bodies.find((b:any)=>b.id===last.bodyId),volume=saved.artifacts[body.geometryKey].volume;expect(last.operation).toBe('REMOVE');expect(last.pattern.sourceKind).toBe('GENERATOR_TOOL');expect(last.pattern.source.featureId).toBe(seed.mirrors[1].id);expect(volume).toBeCloseTo(18000-4*Math.PI*4*5,5);
+ const saved=await current(page,seed.id),last=saved.part.features.at(-1),body=saved.part.bodies.find((b:any)=>b.id===last.bodyId),volume=(await measuredArtifactVolume(page,saved.artifacts[body.geometryKey]));expect(last.operation).toBe('REMOVE');expect(last.pattern.sourceKind).toBe('GENERATOR_TOOL');expect(last.pattern.source.featureId).toBe(seed.mirrors[1].id);expect(volume).toBeCloseTo(18000-4*Math.PI*4*5,5);
  for(const f of [...seed.mirrors,last]){await revealTree(f.name);await page.locator(`[role=treeitem][data-tree-key$="feature:${f.id}"]`).click();await expect.poll(()=>page.evaluate(id=>{const e=(window as any).__cameraEngine;const binding=[...e.solidBindings.values()][0] as any;const entries=binding.artifact.visualization.featureAssociations.elements.filter((a:any)=>a.kind==='FACE'&&a.primary.includes(id));return {count:entries.length,owners:[...new Set(entries.flatMap((a:any)=>a.primary))],contours:e.selectedOverlays.filter((o:any)=>o.material?.isLineMaterial&&o.parent===binding.group).length,otherOverlays:e.selectedOverlays.filter((o:any)=>!o.material?.isLineMaterial).length}},f.id)).toMatchObject({owners:[f.id],contours:2,otherOverlays:0});}
  await page.screenshot({path:testInfo.outputPath('mirror-primary-contribution.png')});await revealTree('');await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.length).toBe(saved.part.features.length-1);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(last.id);
  await openCommand(page,'阵列');const array=page.getByRole('dialog',{name:'创建阵列',exact:true});await revealTree(seed.tool.name!);await page.locator(`[role=treeitem][data-tree-key$="pad:${seed.tool.id}"]`).click();await expect(array.getByRole('button',{name:confirmCommandName})).toBeDisabled();
  await array.getByRole('button',{name:'选择方向',exact:true}).click();await revealTree('X Axis');await page.getByRole('treeitem').filter({has:page.getByText('X Axis',{exact:true})}).last().click();await ready(page,array);
  await array.getByLabel('阵列方式').getByText('圆周',{exact:true}).click();await expect(array.getByRole('button',{name:confirmCommandName})).toBeDisabled();await array.getByRole('button',{name:'选择轴',exact:true}).click();await revealTree('Z Axis');await page.getByRole('treeitem').filter({has:page.getByText('Z Axis',{exact:true})}).last().click();await ready(page,array);const head=(await current(page,seed.id)).document.versionId;await array.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(head);
- await page.reload();await expect(page.locator('canvas')).toBeVisible();const reopened=await current(page,seed.id);expect(reopened.part.features.at(-1)).toEqual(last);expect(reopened.artifacts[reopened.part.bodies.find((b:any)=>b.id===last.bodyId).geometryKey].volume).toBeCloseTo(volume,8);expect(errors).toEqual([]);
+ await page.reload();await expect(page.locator('canvas')).toBeVisible();const reopened=await current(page,seed.id);expect(reopened.part.features.at(-1)).toEqual(last);expect((await measuredArtifactVolume(page,reopened.artifacts[reopened.part.bodies.find((b:any)=>b.id===last.bodyId).geometryKey]))).toBeCloseTo(volume,8);expect(errors).toEqual([]);
 });
 
 test('pattern seed collections use tree and viewport with named locatable references',async({page},testInfo)=>{
@@ -1253,7 +1254,7 @@ test('pattern seed collections use tree and viewport with named locatable refere
  await d.getByRole('button',{name:'选择镜像平面',exact:true}).click();await revealTree('XZ');await page.locator('[role=treeitem]').filter({has:page.getByText('XZ Plane',{exact:true})}).last().click();await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  await d.getByRole('button',{name:'选择种子 1',exact:true}).click();await d.getByRole('button',{name:'选择种子 1',exact:true}).click();await expect(d.getByRole('button',{name:'定位种子 2',exact:true})).toBeEnabled();
  await d.getByRole('button',{name:'移除种子 1',exact:true}).click();await expect(d.getByRole('button',{name:'定位种子 2',exact:true})).toHaveCount(0);await d.getByRole('button',{name:'选择种子',exact:true}).click();await treePick(seed.cuts[0]);await ready(page,d);
- await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const saved=await current(page,seed.id),mirror=saved.part.features.at(-1),b=saved.part.bodies.find((b:any)=>b.id===mirror.bodyId);expect([mirror.pattern.source.featureId,...mirror.pattern.additionalSources.map((s:any)=>s.source.featureId)].sort()).toEqual(seed.cuts.map(f=>f.id).sort());expect(saved.artifacts[b.geometryKey].volume).toBeCloseTo(50000-4*Math.PI*4*5,5);
+ await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const saved=await current(page,seed.id),mirror=saved.part.features.at(-1),b=saved.part.bodies.find((b:any)=>b.id===mirror.bodyId);expect([mirror.pattern.source.featureId,...mirror.pattern.additionalSources.map((s:any)=>s.source.featureId)].sort()).toEqual(seed.cuts.map(f=>f.id).sort());expect((await measuredArtifactVolume(page,saved.artifacts[b.geometryKey]))).toBeCloseTo(50000-4*Math.PI*4*5,5);
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(seed.cuts[1].id);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(mirror.id);await page.reload();await worldScreen(page,[0,0,0]);
  await openCommand(page,'阵列');const a=page.getByRole('dialog',{name:'创建阵列',exact:true});await treePick(seed.cuts[0]);const axis=a.locator('.feature-pick-field').filter({has:page.locator('label',{hasText:/^方向$/})});await expect(axis).toContainText('X 轴');await expect(axis.getByRole('button',{name:'定位方向',exact:true})).toBeEnabled();await axis.getByRole('button',{name:'定位方向',exact:true}).click();await axis.getByRole('button',{name:'移除方向',exact:true}).click();await expect(a.getByRole('button',{name:confirmCommandName})).toBeDisabled();await a.getByLabel('阵列方式').getByText('圆周',{exact:true}).click();await expect(a).toContainText('Z 轴');
  const pickReference=async(predicate:string)=>{const point=await page.evaluate(predicate=>{const e=(window as any).__cameraEngine,r=e.renderer.domElement.getBoundingClientRect();for(let y=20;y<r.height-20;y+=3)for(let x=20;x<r.width-20;x+=3){if(document.elementFromPoint(r.x+x,r.y+y)!==e.renderer.domElement)continue;const h=e.hitTest(x,y);if(predicate==='axis'?h?.kind==='axis'&&h.axis==='Z':h?.kind==='datum-point')return {x:r.x+x,y:r.y+y}}},predicate);expect(point).toBeTruthy();await page.mouse.click(point!.x,point!.y)};
@@ -1305,7 +1306,7 @@ test("Boolean result regions pick exact volumes, exclude, edit, cancel and reope
  await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const committed=await current(page,seed.id),feature=committed.part.features.at(-1),body=committed.part.bodies.find((b:{id:string})=>b.id===seed.base);
  expect(feature.booleanResult.mode).toBe('EXPLICIT');expect(feature.booleanResult.regions).toHaveLength(1);
- expect(committed.artifacts[body.geometryKey].volume).toBeCloseTo(1000,5);
+ expect((await measuredArtifactVolume(page,committed.artifacts[body.geometryKey]))).toBeCloseTo(1000,5);
  await treeNavigator(page)(feature.name);
  await page.getByRole('treeitem').filter({hasText:feature.name}).first().dblclick();dialog=page.getByRole('dialog',{name:'编辑布尔',exact:true});
  await expect(page.locator('[data-boolean-regions="2"]')).toBeVisible();
@@ -1364,7 +1365,7 @@ test("Boolean lost region reselects in viewport and late analysis cannot reopen 
  expect(feature).toMatchObject({id:seed.feature.id,name:seed.feature.name,bodyId:seed.base});
  expect(feature.booleanResult.regions).toHaveLength(1);
  expect(feature.evaluationStatus??'').not.toMatch(/FAILED|BLOCKED/);
- expect(repaired.artifacts[body.geometryKey].volume).toBeCloseTo(2500,5);
+ expect((await measuredArtifactVolume(page,repaired.artifacts[body.geometryKey]))).toBeCloseTo(2500,5);
  // Delay the genuine response, then cancel before it is delivered.
  let release!:()=>void,received!:()=>void;
  const held=new Promise<void>(resolve=>{release=resolve}),arrived=new Promise<void>(resolve=>{received=resolve});
@@ -1428,16 +1429,16 @@ test("engineering Hole counterbore and countersink create, edit expressions and 
   v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch,operations:[{type:"ADD_ENTITY",entity:{id:"p",kind:"POINT",role:"CONSTRUCTION",point:{x:-8,y:0}}},{type:"ADD_ENTITY",entity:{id:"q",kind:"POINT",role:"CONSTRUCTION",point:{x:8,y:0}}}]});return {id,body,version:v.document.versionId};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);
- const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;
+ const volume=async (v:any)=>(await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey]));
  const create=async(kind:string,x:number)=>{await openCommand(page,"孔");const d=page.getByRole("dialog",{name:"创建 孔",exact:true});await pickHolePoint(page,d,[x,0,20]);await d.getByText(kind,{exact:true}).click();await d.getByLabel(quantityLabel('直径','mm'),{exact:true}).fill("2 mm * 2");await d.getByLabel(quantityLabel('深度','mm'),{exact:true}).fill("8");await d.getByLabel(quantityLabel('沉孔直径','mm'),{exact:true}).fill("2 * 4 mm");return d;};
  let d=await create("圆柱沉孔",-8);await d.getByLabel(quantityLabel('沉孔深度','mm'),{exact:true}).fill("6 mm/2");await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("counterbore-preview.png")});await d.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
- d=await create("圆柱沉孔",-8);await d.getByLabel(quantityLabel('沉孔深度','mm'),{exact:true}).fill("6 mm/2");await ready(page,d);await d.getByRole("button",{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const bored=await current(page,seed.id),bore=bored.part.features.at(-1);expect(bore).toMatchObject({holeKind:"COUNTERBORE",diameter:4,recessDiameter:8,recessDepth:3});expect(volume(bored)).toBeCloseTo(24000-68*Math.PI,5);
+ d=await create("圆柱沉孔",-8);await d.getByLabel(quantityLabel('沉孔深度','mm'),{exact:true}).fill("6 mm/2");await ready(page,d);await d.getByRole("button",{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const bored=await current(page,seed.id),bore=bored.part.features.at(-1);expect(bore).toMatchObject({holeKind:"COUNTERBORE",diameter:4,recessDiameter:8,recessDepth:3});expect((await volume(bored))).toBeCloseTo(24000-68*Math.PI,5);
  d=await create("锥沉孔",8);await expect(d.getByLabel(quantityLabel('沉孔深度','mm'),{exact:true})).toHaveCount(0);await d.getByRole("combobox",{name:"锥面夹角（°）",exact:true}).fill("45 deg + 45 deg");await ready(page,d);await expect(d.locator(".command-field").filter({hasText:"锥段深度"})).toContainText("2 mm");await page.screenshot({path:testInfo.outputPath("countersink-preview.png")});await d.getByRole("button",{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
- const sunk=await current(page,seed.id),sink=sunk.part.features.at(-1);expect(sink).toMatchObject({holeKind:"COUNTERSINK",countersinkAngle:90});expect(volume(sunk)).toBeCloseTo(24000-Math.PI*(68+32+32/3),5);
+ const sunk=await current(page,seed.id),sink=sunk.part.features.at(-1);expect(sink).toMatchObject({holeKind:"COUNTERSINK",countersinkAngle:90});expect((await volume(sunk))).toBeCloseTo(24000-Math.PI*(68+32+32/3),5);
  const revealTree=treeNavigator(page);const edit=async(name:string)=>{await revealTree(name);await page.getByRole("treeitem").filter({hasText:name}).first().dblclick();const d=page.getByRole("dialog",{name:"编辑 孔",exact:true});await expect(d).toBeVisible();return d;};
  d=await edit(sink.name);await ready(page,d);await expect(d.getByRole("combobox",{name:"锥面夹角（°）",exact:true})).toHaveValue("45 deg + 45 deg");await d.getByLabel(quantityLabel('沉孔直径','mm'),{exact:true}).fill("3");await d.getByLabel(quantityLabel('沉孔直径','mm'),{exact:true}).press("Tab");await expect(d.getByRole("button",{name:confirmCommandName})).toBeDisabled();await expect(page.locator(".cad-operation-notification")).toContainText("大于");expect((await current(page,seed.id)).document.versionId).toBe(sunk.document.versionId);await d.getByRole("button",{name:/取\s*消/}).click();
  d=await edit(bore.name);await ready(page,d);await d.getByLabel(quantityLabel('沉孔深度','mm'),{exact:true}).fill("4 mm");await ready(page,d);await d.getByRole("button",{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const edited=await current(page,seed.id);expect(edited.part.features.find((f:any)=>f.id===bore.id)).toMatchObject({id:bore.id,recessDepth:4});
- await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===bore.id).recessDepth).toBe(3)).toPass();await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===bore.id).recessDepth).toBe(4)).toPass();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(volume(await current(page,seed.id))).toBeCloseTo(volume(edited),6);
+ await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===bore.id).recessDepth).toBe(3)).toPass();await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===bore.id).recessDepth).toBe(4)).toPass();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect((await volume(await current(page,seed.id)))).toBeCloseTo((await volume(edited)),6);
  await revealTree("");await openCommand(page,"倒角");let chamferDialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});
  await clickWorld(page,[-8+4*Math.SQRT1_2,4*Math.SQRT1_2,20]);await expect(chamferDialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await chamferDialog.getByRole("combobox").fill("0.2");await ready(page,chamferDialog);await chamferDialog.getByRole("button",{name:confirmCommandName}).click();await expect(chamferDialog).toHaveCount(0);
  const chamfer=(await current(page,seed.id)).part.features.at(-1);d=await edit(bore.name);await ready(page,d);await d.getByText("锥沉孔",{exact:true}).click();await d.getByRole("combobox",{name:"锥面夹角（°）",exact:true}).fill("90");await ready(page,d);await expect(page.locator(".cad-operation-notification")).toContainText(`下游需要修复：${chamfer.name}`);await page.screenshot({path:testInfo.outputPath("hole-type-switch-repair-warning.png")});await d.getByRole("button",{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
@@ -1459,8 +1460,8 @@ for(const [holeKind,mode] of [['SIMPLE','CIRCULAR'],['COUNTERBORE','LINEAR'],['C
  },holeKind);
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await page.getByRole('button',{name:'顶视图',exact:true}).click();await worldScreen(page,[0,0,20]);
  const revealTree=treeNavigator(page),tree=(f:{id:string})=>page.locator(`[role=treeitem][data-tree-key$="feature:${f.id}"]`);
- const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey]?.volume ?? NaN;
- const initial=await current(page,seed.id),unit=(128000-volume(initial))/2;
+ const volume=async (v:any)=>(await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey])) ?? NaN;
+ const initial=await current(page,seed.id),unit=(128000-(await volume(initial)))/2;
  await openCommand(page,mode==='MIRROR'?'镜像':'阵列');let d=page.getByRole('dialog',{name:mode==='MIRROR'?'创建镜像':'创建阵列',exact:true});
  await revealTree(seed.holes[0].name!);await tree(seed.holes[0]).click();await expect(d.getByRole('group',{name:'种子',exact:true})).toContainText(seed.holes[0].name!);
  if(mode==='MIRROR'){
@@ -1472,7 +1473,7 @@ for(const [holeKind,mode] of [['SIMPLE','CIRCULAR'],['COUNTERBORE','LINEAR'],['C
   if(mode==='CIRCULAR')await d.getByLabel('阵列方式').getByText('圆周',{exact:true}).click();else await d.getByRole('combobox',{name:'间距 / 跨度 (mm)',exact:true}).fill('12');
  }
  await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath(`${holeKind}-${mode}-preview.png`)});await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
- let saved=await current(page,seed.id);const pattern=saved.part.features.at(-1);expect(pattern).toMatchObject({type:'SOLID_PATTERN',operation:'REMOVE',pattern:{sourceKind:'GENERATOR_TOOL',source:{featureId:seed.holes[0].id}}});expect(volume(saved)).toBeCloseTo(128000-4*unit,5);
+ let saved=await current(page,seed.id);const pattern=saved.part.features.at(-1);expect(pattern).toMatchObject({type:'SOLID_PATTERN',operation:'REMOVE',pattern:{sourceKind:'GENERATOR_TOOL',source:{featureId:seed.holes[0].id}}});expect((await volume(saved))).toBeCloseTo(128000-4*unit,5);
  if(mode==='LINEAR'){
   // A downstream mouth chamfer is actually picked, invalidated by count, and explicitly repaired.
   await revealTree('');await openCommand(page,'倒角');d=page.getByRole('dialog',{name:'创建 倒角',exact:true});await clickWorld(page,[12+2*Math.SQRT1_2,8+2*Math.SQRT1_2,20]);await expect(d.getByRole('group',{name:'边集',exact:true})).toContainText('1 项');await d.getByRole('combobox',{name:quantityLabel('距离','mm'),exact:true}).fill('0.1');await ready(page,d);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const child=(await current(page,seed.id)).part.features.at(-1);
@@ -1483,9 +1484,9 @@ for(const [holeKind,mode] of [['SIMPLE','CIRCULAR'],['COUNTERBORE','LINEAR'],['C
  }
  if(mode==='MIRROR'){
   // Copy only the first mirror's newly generated tools, preserving the subtractive sign.
-  await revealTree('');await openCommand(page,'镜像');d=page.getByRole('dialog',{name:'创建镜像',exact:true});await revealTree(pattern.name);await tree(pattern).click();await d.getByRole('button',{name:'选择镜像平面',exact:true}).click();await revealTree('XZ');await page.getByRole('treeitem').filter({has:page.getByText('XZ Plane',{exact:true})}).last().click();await ready(page,d);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);saved=await current(page,seed.id);expect(volume(saved)).toBeCloseTo(128000-6*unit,5);
+  await revealTree('');await openCommand(page,'镜像');d=page.getByRole('dialog',{name:'创建镜像',exact:true});await revealTree(pattern.name);await tree(pattern).click();await d.getByRole('button',{name:'选择镜像平面',exact:true}).click();await revealTree('XZ');await page.getByRole('treeitem').filter({has:page.getByText('XZ Plane',{exact:true})}).last().click();await ready(page,d);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);saved=await current(page,seed.id);expect((await volume(saved))).toBeCloseTo(128000-6*unit,5);
  }
- const final=await current(page,seed.id),last=final.part.features.at(-1);await revealTree('');await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).document.versionId).not.toBe(final.document.versionId);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>volume(await current(page,seed.id))).toBeCloseTo(volume(final),6);await page.reload();await expect(page.locator('canvas')).toBeVisible();const reopened=await current(page,seed.id);expect(reopened.part.features.at(-1)).toEqual(last);expect(volume(reopened)).toBeCloseTo(volume(final),6);expect(errors).toEqual([]);
+ const final=await current(page,seed.id),last=final.part.features.at(-1);await revealTree('');await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).document.versionId).not.toBe(final.document.versionId);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await volume(await current(page,seed.id)))).toBeCloseTo((await volume(final)),6);await page.reload();await expect(page.locator('canvas')).toBeVisible();const reopened=await current(page,seed.id);expect(reopened.part.features.at(-1)).toEqual(last);expect((await volume(reopened))).toBeCloseTo((await volume(final)),6);expect(errors).toEqual([]);
 });
 
 async function enterLiveSketch(page:Page,seed:{id:string;sketch:string}){
@@ -1524,7 +1525,7 @@ test('sketch drawing stays pointer based and categories separate solid generatio
  const saved=await sketchView(page,seed.id);expect(saved.s.constraints.filter((c:any)=>['LENGTH','ANGLE','HORIZONTAL_DISTANCE','VERTICAL_DISTANCE','RADIUS'].includes(c.kind))).toHaveLength(0);
  await page.keyboard.press('Escape');await page.getByRole('button',{name:'退出草图',exact:true}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.activeSketchID)).toBeUndefined();
  for(const label of ['建模','测量','参数与接口','视图'])await expect(page.getByRole('tab',{name:label,exact:true})).toBeVisible();await openCommand(page,'拉伸');const dialog=page.getByRole('dialog',{name:'创建 拉伸',exact:true});await ready(page,dialog);await dialog.getByLabel(quantityLabel('长度','mm'),{exact:true}).fill('2 deg');await dialog.getByLabel(quantityLabel('长度','mm'),{exact:true}).press('Tab');await expect(page.locator('.cad-operation-notification')).toHaveCount(1);await expect(dialog.getByRole('alert')).toHaveCount(0);await expect(dialog.getByRole('button',{name:confirmCommandName})).toBeDisabled();await dialog.getByLabel(quantityLabel('长度','mm'),{exact:true}).fill('thickness');await ready(page,dialog);await expect(page.locator('.cad-operation-notification')).toHaveCount(0);await expect(dialog.getByRole('switch',{name:'显示尺寸手柄',exact:true})).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(saved.v.document.versionId);await page.screenshot({path:testInfo.outputPath('simple-sketch-extrusion.png')});await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
- const final=await current(page,seed.id);expect(final.part.features.at(-1).length).toBe(4);expect(final.artifacts[final.part.bodies[0].geometryKey].volume).toBeGreaterThan(3000);expect(errors).toEqual([]);
+ const final=await current(page,seed.id);expect(final.part.features.at(-1).length).toBe(4);expect((await measuredArtifactVolume(page,final.artifacts[final.part.bodies[0].geometryKey]))).toBeGreaterThan(3000);expect(errors).toEqual([]);
 });
 
 test('linked sketch offset creates with an expression, edits and detaches through the actual tree',async({page},testInfo)=>{
@@ -1567,7 +1568,7 @@ test('associated next termination edits signed offsets, cancels and commits one 
  const configure=async()=>{await treeNavigator(page)(seed.feature.name!);await page.getByRole('treeitem').filter({hasText:seed.feature.name!}).first().dblclick();const d=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,d);await chooseExtent(d,'下一面');await expect(d.getByLabel(quantityLabel('长度','mm'),{exact:true})).toHaveCount(0);await d.getByText('更多参数',{exact:true}).click();await d.getByLabel(quantityLabel('起始偏移','mm'),{exact:true}).fill('1 cm / 5');await d.getByLabel(quantityLabel('终止偏移','mm'),{exact:true}).fill('-3 mm');await ready(page,d);return d;};
  let d=await configure();expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await d.getByRole('button',{name:/取\s*消/}).click();await expect(d).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
  d=await configure();await page.screenshot({path:testInfo.outputPath('next-termination-offsets.png')});await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
- let final=await current(page,seed.id),feature=final.part.features.find((f:any)=>f.id===seed.feature.id);expect(feature).toMatchObject({extent:'TO_NEXT',startOffset:2,endOffset:-3});expect(final.artifacts[final.part.bodies[0].geometryKey].volume).toBeCloseTo(7940,5);
+ let final=await current(page,seed.id),feature=final.part.features.find((f:any)=>f.id===seed.feature.id);expect(feature).toMatchObject({extent:'TO_NEXT',startOffset:2,endOffset:-3});expect((await measuredArtifactVolume(page,final.artifacts[final.part.bodies[0].geometryKey]))).toBeCloseTo(7940,5);
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.find((f:any)=>f.id===seed.feature.id).extent??'FINITE').toBe('FINITE');await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.find((f:any)=>f.id===seed.feature.id).extent).toBe('TO_NEXT');
  await page.reload();await expect(page.locator('canvas')).toBeVisible();expect(errors).toEqual([]);
 });
@@ -1584,7 +1585,7 @@ test('surface termination picks an upstream cylinder and edits its directed end 
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,0,0]);await treeNavigator(page)(seed.feature.name!);await page.getByRole('treeitem').filter({hasText:seed.feature.name!}).first().dblclick();const d=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,d);
  await chooseExtent(d,'长度');await ready(page,d);await chooseExtent(d,'曲面');await expect(d.getByRole('button',{name:confirmCommandName})).toBeDisabled();
  await expect(async()=>{await clickWorld(page,[12,0,10]);await expect(d.getByText('已选择上游实体曲面',{exact:true})).toBeVisible({timeout:1000});}).toPass({timeout:20000});await d.getByLabel(quantityLabel('终止偏移','mm'),{exact:true}).fill('2 mm');await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await page.screenshot({path:testInfo.outputPath('cylindrical-termination-pick.png')});
- await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const final=await current(page,seed.id),feature=final.part.features.find((f:any)=>f.id===seed.feature.id),volume=176-2*(2*Math.sqrt(96)+100*Math.asin(.2));expect(feature).toMatchObject({extent:'TO_SURFACE',endOffset:2});expect(feature.terminationSurface.selection.anchor.featureId).toBe(seed.source.id);expect(final.artifacts[final.part.bodies.find((b:any)=>b.id===feature.bodyId).geometryKey].volume).toBeCloseTo(volume,5);expect(errors).toEqual([]);
+ await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const final=await current(page,seed.id),feature=final.part.features.find((f:any)=>f.id===seed.feature.id),volume=176-2*(2*Math.sqrt(96)+100*Math.asin(.2));expect(feature).toMatchObject({extent:'TO_SURFACE',endOffset:2});expect(feature.terminationSurface.selection.anchor.featureId).toBe(seed.source.id);expect((await measuredArtifactVolume(page,final.artifacts[final.part.bodies.find((b:any)=>b.id===feature.bodyId).geometryKey]))).toBeCloseTo(volume,5);expect(errors).toEqual([]);
 });
 
 test('thin extrusion selects an open chain in the viewport and preserves its quantity history',async({page},testInfo)=>{
@@ -1598,15 +1599,15 @@ test('thin extrusion selects an open chain in the viewport and preserves its qua
   await clickWorld(page,[0,-10,0]);await clickWorld(page,[10,0,0]);await expect(d.getByRole('group',{name:'薄壁线链',exact:true})).toContainText('2 项');await ready(page,d);return d;
  };
  let d=await configure();expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await d.getByRole('button',{name:/取\s*消/}).click();await expect(d).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
- d=await configure();await page.screenshot({path:testInfo.outputPath('thin-open-chain-preview.png')});await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);let v=await current(page,seed.id);const feature=v.part.features.at(-1),body=feature.bodyId;expect(feature.thinWall).toMatchObject({input:'CHAINS',mode:'SYMMETRIC',thickness:2});expect(new Set(feature.thinWall.entityIds)).toEqual(new Set(['a','b']));const volume=(view:any)=>view.artifacts[view.part.bodies.find((b:any)=>b.id===body).geometryKey].volume;expect(volume(v)).toBeCloseTo(400,5);
- await treeNavigator(page)(feature.name!);await page.getByRole('treeitem').filter({hasText:feature.name!}).first().dblclick();d=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,d);await expect(d.getByLabel(quantityLabel('薄壁厚度','mm'),{exact:true})).toHaveValue('1 cm / 5');await d.getByLabel(quantityLabel('薄壁厚度','mm'),{exact:true}).fill('3 mm');await ready(page,d);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);await expect.poll(async()=>volume(await current(page,seed.id))).toBeCloseTo(600,5);
- await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>volume(await current(page,seed.id))).toBeCloseTo(400,5);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>volume(await current(page,seed.id))).toBeCloseTo(600,5);await page.reload();await expect(page.locator('canvas')).toBeVisible();expect(errors).toEqual([]);
+ d=await configure();await page.screenshot({path:testInfo.outputPath('thin-open-chain-preview.png')});await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);let v=await current(page,seed.id);const feature=v.part.features.at(-1),body=feature.bodyId;expect(feature.thinWall).toMatchObject({input:'CHAINS',mode:'SYMMETRIC',thickness:2});expect(new Set(feature.thinWall.entityIds)).toEqual(new Set(['a','b']));const volume=async (view:any)=>(await measuredArtifactVolume(page,view.artifacts[view.part.bodies.find((b:any)=>b.id===body).geometryKey]));expect((await volume(v))).toBeCloseTo(400,5);
+ await treeNavigator(page)(feature.name!);await page.getByRole('treeitem').filter({hasText:feature.name!}).first().dblclick();d=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,d);await expect(d.getByLabel(quantityLabel('薄壁厚度','mm'),{exact:true})).toHaveValue('1 cm / 5');await d.getByLabel(quantityLabel('薄壁厚度','mm'),{exact:true}).fill('3 mm');await ready(page,d);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);await expect.poll(async()=>(await volume(await current(page,seed.id)))).toBeCloseTo(600,5);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await volume(await current(page,seed.id)))).toBeCloseTo(400,5);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await volume(await current(page,seed.id)))).toBeCloseTo(600,5);await page.reload();await expect(page.locator('canvas')).toBeVisible();expect(errors).toEqual([]);
 });
 
 test('an unfinished sketch exposes independent verified regions for viewport extrusion',async({page},testInfo)=>{
  await login(page);const seed=await page.evaluate(async()=>{const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Partial profile viewport workflow');const id=v.document.id;v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketch=v.part!.features.at(-1)!.id;v=await api.command(id,{type:'EDIT_SKETCH',sketchId:sketch,operations:[{type:'ADD_ENTITY',entity:{id:'outer',kind:'CIRCLE',role:'PROFILE',center:{x:-15,y:15},radius:7}},{type:'ADD_ENTITY',entity:{id:'hole',kind:'CIRCLE',role:'PROFILE',center:{x:-15,y:15},radius:3}},{type:'ADD_ENTITY',entity:{id:'unfinished',kind:'LINE',role:'PROFILE',start:{x:10,y:5},end:{x:25,y:15}}}]});return {id,sketch,head:v.document.versionId}});
  const initial=await current(page,seed.id);expect(initial.sketchAnalyses[seed.sketch].status).toBe('OPEN');expect(initial.sketchAnalyses[seed.sketch].geometryVerified).toBe(true);
- await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await openCommand(page,'拉伸');const dialog=page.getByRole('dialog',{name:'创建 拉伸',exact:true});await clickWorld(page,[-10,15,0]);await dialog.getByLabel(quantityLabel('长度','mm'),{exact:true}).fill('5 mm');await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await page.screenshot({path:testInfo.outputPath('unfinished-sketch-selected-region.png')});await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);const final=await current(page,seed.id);expect(final.part.features.at(-1).profileSelection.regionIds).toHaveLength(1);expect(final.artifacts[final.part.bodies[0].geometryKey].volume).toBeCloseTo(5*Math.PI*(49-9),5);
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await openCommand(page,'拉伸');const dialog=page.getByRole('dialog',{name:'创建 拉伸',exact:true});await clickWorld(page,[-10,15,0]);await dialog.getByLabel(quantityLabel('长度','mm'),{exact:true}).fill('5 mm');await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await page.screenshot({path:testInfo.outputPath('unfinished-sketch-selected-region.png')});await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);const final=await current(page,seed.id);expect(final.part.features.at(-1).profileSelection.regionIds).toHaveLength(1);expect((await measuredArtifactVolume(page,final.artifacts[final.part.bodies[0].geometryKey]))).toBeCloseTo(5*Math.PI*(49-9),5);
 });
 
 test('a solid draft creates and edits its input sketch then resumes against the latest revision',async({page},testInfo)=>{
@@ -1618,10 +1619,10 @@ test('a solid draft creates and edits its input sketch then resumes against the 
  const created=await sketchView(page,seed.id),sketch=created.v.part.features.find((f:any)=>f.sketch).id;await worldScreen(page,[0,0,0]);await expect.poll(()=>page.evaluate(()=>((window as any).__cameraEngine)?.activeSketchID)).toBe(sketch);await treeNavigator(page)('');await page.getByRole('button',{name:'正对草图平面',exact:true}).click();await worldScreen(page,[0,0,0]);
  await openSketchCommand(page,'矩形');await clickReadySketchWorld(page,[0,0,0]);const corner=await worldScreen(page,[40,30,0]);await page.mouse.move(corner.x,corner.y);await page.mouse.click(corner.x,corner.y);await expect.poll(async()=>(await sketchView(page,seed.id)).s.entities.length).toBe(4);await settleLiveSketch(page);
  await page.getByRole('button',{name:'退出草图',exact:true}).click();await expect(d).toBeVisible();await expect(d.getByLabel(quantityLabel('长度','mm'),{exact:true})).toHaveValue('3 mm * 2');await ready(page,d);await page.screenshot({path:testInfo.outputPath('nested-input-resumed.png')});await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
- const accepted=await current(page,seed.id),feature=accepted.part.features.at(-1);const rectangleLines=accepted.part.features.find((f:any)=>f.sketch).sketch.entities;const xs=rectangleLines.flatMap((e:any)=>[e.start.x,e.end.x]),ys=rectangleLines.flatMap((e:any)=>[e.start.y,e.end.y]),area=(Math.max(...xs)-Math.min(...xs))*(Math.max(...ys)-Math.min(...ys));expect(area).toBeGreaterThan(1100);expect(accepted.artifacts[accepted.part.bodies[0].geometryKey].volume).toBeCloseTo(6*area,5);
+ const accepted=await current(page,seed.id),feature=accepted.part.features.at(-1);const rectangleLines=accepted.part.features.find((f:any)=>f.sketch).sketch.entities;const xs=rectangleLines.flatMap((e:any)=>[e.start.x,e.end.x]),ys=rectangleLines.flatMap((e:any)=>[e.start.y,e.end.y]),area=(Math.max(...xs)-Math.min(...xs))*(Math.max(...ys)-Math.min(...ys));expect(area).toBeGreaterThan(1100);expect((await measuredArtifactVolume(page,accepted.artifacts[accepted.part.bodies[0].geometryKey]))).toBeCloseTo(6*area,5);
  await treeNavigator(page)(feature.name);await page.getByRole('treeitem').filter({hasText:feature.name}).first().dblclick();d=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,d);await d.getByLabel(quantityLabel('长度','mm'),{exact:true}).fill('10 mm');await d.getByRole('button',{name:'编辑输入草图',exact:true}).click();await expect(d).toHaveCount(0);await treeNavigator(page)('');await page.getByRole('button',{name:'正对草图平面',exact:true}).click();await worldScreen(page,[0,0,0]);
  await openSketchCommand(page,'圆');await clickReadySketchWorld(page,[15,15,0]);const radius=await worldScreen(page,[17,15,0]);await page.mouse.move(radius.x,radius.y);await page.mouse.click(radius.x,radius.y);await expect.poll(async()=>(await sketchView(page,seed.id)).s.entities.length).toBe(5);await settleLiveSketch(page);const changed=(await current(page,seed.id)).document.versionId;
- await page.getByRole('button',{name:'退出草图',exact:true}).click();await expect(d).toBeVisible();await expect(d.getByLabel(quantityLabel('长度','mm'),{exact:true})).toHaveValue('10 mm');await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(changed);await d.getByRole('button',{name:/取\s*消/}).click();const cancelled=await current(page,seed.id);expect(cancelled.part.features.at(-1).length).toBe(6);expect(cancelled.part.features.find((f:any)=>f.sketch).sketch.entities).toHaveLength(5);expect(cancelled.artifacts[cancelled.part.bodies[0].geometryKey].volume).toBeCloseTo(6*(area-Math.PI*cancelled.part.features.find((f:any)=>f.sketch).sketch.entities.find((e:any)=>e.kind==='CIRCLE').radius**2),5);expect(errors).toEqual([]);
+ await page.getByRole('button',{name:'退出草图',exact:true}).click();await expect(d).toBeVisible();await expect(d.getByLabel(quantityLabel('长度','mm'),{exact:true})).toHaveValue('10 mm');await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(changed);await d.getByRole('button',{name:/取\s*消/}).click();const cancelled=await current(page,seed.id);expect(cancelled.part.features.at(-1).length).toBe(6);expect(cancelled.part.features.find((f:any)=>f.sketch).sketch.entities).toHaveLength(5);expect((await measuredArtifactVolume(page,cancelled.artifacts[cancelled.part.bodies[0].geometryKey]))).toBeCloseTo(6*(area-Math.PI*cancelled.part.features.find((f:any)=>f.sketch).sketch.entities.find((e:any)=>e.kind==='CIRCLE').radius**2),5);expect(errors).toEqual([]);
 });
 
 test('an existing first generator creates a replacement input before itself and resumes its draft',async({page},testInfo)=>{
@@ -1639,7 +1640,7 @@ test('an existing first generator creates a replacement input before itself and 
  await worldScreen(page,[0,0,0]);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine?.activeSketchID)).toBe(sketch.id);await treeNavigator(page)('');await page.getByRole('button',{name:'正对草图平面',exact:true}).click();await worldScreen(page,[0,0,0]);await settleLiveSketch(page);
  await openSketchCommand(page,'圆');await clickReadySketchWorld(page,[0,0,0]);const edge=await worldScreen(page,[5,0,0]);await page.mouse.move(edge.x,edge.y);await page.mouse.click(edge.x,edge.y);await expect.poll(async()=>(await current(page,seed.id)).part.features.find((f:any)=>f.id===sketch.id).sketch.entities.length).toBe(1);await settleLiveSketch(page);
  await page.getByRole('button',{name:'退出草图',exact:true}).click();await expect(dialog).toBeVisible();await expect(dialog.getByLabel(quantityLabel('长度','mm'),{exact:true})).toHaveValue('15 mm * 2');await ready(page,dialog);await page.screenshot({path:testInfo.outputPath('existing-generator-replacement-input.png')});await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
- const final=await current(page,seed.id),feature=final.part.features.find((f:any)=>f.id===seed.feature.id);expect(feature.profile).toBe(sketch.id);expect(final.artifacts[final.part.bodies[0].geometryKey].volume).toBeCloseTo(30*Math.PI*final.part.features.find((f:any)=>f.id===sketch.id).sketch.entities[0].radius**2,5);
+ const final=await current(page,seed.id),feature=final.part.features.find((f:any)=>f.id===seed.feature.id);expect(feature.profile).toBe(sketch.id);expect((await measuredArtifactVolume(page,final.artifacts[final.part.bodies[0].geometryKey]))).toBeCloseTo(30*Math.PI*final.part.features.find((f:any)=>f.id===sketch.id).sketch.entities[0].radius**2,5);
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.find((f:any)=>f.id===seed.feature.id).profile).toBe(seed.original);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.find((f:any)=>f.id===seed.feature.id).profile).toBe(sketch.id);expect(errors).toEqual([]);
 });
 
@@ -1655,14 +1656,14 @@ test('historical revolve uses the insertion prefix and preserves the downstream 
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,0,5]);await treeNavigator(page)(seed.source.name!);await page.getByRole('treeitem').filter({hasText:seed.source.name!}).first().click({button:'right'});await page.getByRole('menuitem',{name:'对象',exact:true}).hover();await page.getByRole('menuitem',{name:/^在此步骤后插入/}).hover();await page.getByRole('menuitem',{name:'旋转',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'创建 旋转',exact:true});await expect(dialog).toBeVisible();await dialog.getByText('切除',{exact:true}).click();await dialog.getByRole('button',{name:'选择旋转轴',exact:true}).click();await clickWorld(page,[0,0,5]);await ready(page,dialog);
  await expect.poll(()=>page.evaluate(tail=>!(window as any).__cameraEngine?.view?.part?.features.some((f:any)=>f.id===tail),seed.tail)).toBe(true);await page.screenshot({path:testInfo.outputPath('historical-revolve-prefix.png')});await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
- const final=await current(page,seed.id),inserted=final.part.features.find((f:any)=>f.type==='REVOLVE');expect(inserted.profile).toBe(seed.source.id);expect(final.part.features.at(-1).id).toBe(seed.tail);expect(final.artifacts[final.part.bodies[0].geometryKey].volume).toBeCloseTo(8000-120*Math.PI,5);expect(errors).toEqual([]);
+ const final=await current(page,seed.id),inserted=final.part.features.find((f:any)=>f.type==='REVOLVE');expect(inserted.profile).toBe(seed.source.id);expect(final.part.features.at(-1).id).toBe(seed.tail);expect((await measuredArtifactVolume(page,final.artifacts[final.part.bodies[0].geometryKey]))).toBeCloseTo(8000-120*Math.PI,5);expect(errors).toEqual([]);
 });
 
 test('Part dependency graph locates a missing region and opens the same feature for explicit repair',async({page},testInfo)=>{
  await login(page);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  const seed=await page.evaluate(async()=>{const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Dependency guided repair');const id=v.document.id;v=await api.command(id,{type:'CREATE_PARAMETER',name:'width',value:25,unit:'mm'});v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketch=v.part!.features.at(-1)!.id;const circle=(id:string,x:number,radius:number)=>({type:'ADD_ENTITY',entity:{id,kind:'CIRCLE',role:'PROFILE',center:{x,y:20},radius}});v=await api.command(id,{type:'EDIT_SKETCH',sketchId:sketch,operations:[circle('original',0,10)]});v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId:sketch,generator:'LINEAR_EXTRUDE',operation:'ADD',length:5,parameterExpressions:{length:'width / 5'},profileSelection:{mode:'REGIONS',regionIds:v.sketchAnalyses![sketch].regionIds}});const feature=v.part!.features.at(-1)!;v=await api.command(id,{type:'EDIT_SKETCH',sketchId:sketch,operations:[circle('replacement',25,4),{type:'DELETE_ENTITIES',entityIds:['original']}]});return {id,feature,sketch,head:v.document.versionId}});
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,20,0]);const response=page.waitForResponse(r=>r.url().endsWith('/part-dependencies'));await openCommand(page,'零件依赖');const graph=await (await response).json();expect(graph.digest).toBeTruthy();const d=page.getByRole('dialog',{name:/零件依赖 ·/});await expect(d.getByLabel('零件依赖关系图')).toBeVisible();await expect(d.getByLabel('所选对象的输入关系')).toContainText('引用缺失');await d.getByRole('button',{name:'定位对象',exact:true}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await page.screenshot({path:testInfo.outputPath('part-dependency-missing-region.png')});const comparisonResponse=page.waitForResponse(r=>r.url().endsWith('/feature-repair-context'));await d.getByRole('button',{name:'健康历史对照',exact:true}).click();await expect(d).toHaveCount(0);const comparison=await (await comparisonResponse).json(),history=page.getByRole('dialog',{name:`历史对照 · ${seed.feature.name}`,exact:true});await expect(history).toBeVisible();expect(comparison.snapshot.feature.profileSelection).toEqual(seed.feature.profileSelection);expect(comparison.snapshot.artifacts[0].naming.canBind).toBe(false);expect(Object.keys(comparison.snapshot.artifacts[0].representations)).toEqual(['VISUAL']);await worldScreen(page,[0,20,0]);await expect.poll(()=>page.evaluate(()=>!!(window as any).__cameraEngine.commandPreview)).toBe(true);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await history.getByRole('switch',{name:'显示历史几何',exact:true}).uncheck();await expect.poll(()=>page.evaluate(()=>!!(window as any).__cameraEngine.repairComparisonActive)).toBe(false);await history.getByRole('switch',{name:'显示历史几何',exact:true}).check();await expect.poll(()=>page.evaluate(()=>!!(window as any).__cameraEngine.commandPreview)).toBe(true);await page.screenshot({path:testInfo.outputPath('healthy-feature-comparison.png')});await history.getByRole('button',{name:'使用当前输入修复',exact:true}).click();await expect(history).toHaveCount(0);
- const edit=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await expect(page.locator(".cad-operation-notification")).toBeVisible();await edit.getByRole('button',{name:'选择区域 1',exact:true}).click();await openCommand(page,'适合窗口');await clickWorld(page,[25,20,0]);await ready(page,edit);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await edit.getByRole('button',{name:confirmCommandName}).click();await expect(edit).toHaveCount(0);const repaired=await current(page,seed.id);expect(repaired.part.features.at(-1).id).toBe(seed.feature.id);expect(repaired.artifacts[repaired.part.bodies[0].geometryKey].volume).toBeCloseTo(80*Math.PI,5);
+ const edit=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await expect(page.locator(".cad-operation-notification")).toBeVisible();await edit.getByRole('button',{name:'选择区域 1',exact:true}).click();await openCommand(page,'适合窗口');await clickWorld(page,[25,20,0]);await ready(page,edit);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await edit.getByRole('button',{name:confirmCommandName}).click();await expect(edit).toHaveCount(0);const repaired=await current(page,seed.id);expect(repaired.part.features.at(-1).id).toBe(seed.feature.id);expect((await measuredArtifactVolume(page,repaired.artifacts[repaired.part.bodies[0].geometryKey]))).toBeCloseTo(80*Math.PI,5);
  await openCommand(page,'零件依赖');await expect(d.getByLabel('零件依赖关系图')).toBeVisible();await expect(d.getByLabel('所选对象的输入关系')).toContainText('可用');await d.getByRole('button',{name:'关闭',exact:true}).click();await expect(d).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(repaired.document.versionId);expect(errors).toEqual([]);
 });
 
@@ -1834,7 +1835,7 @@ test('split circles retain a closed profile after viewport and tree segment dele
  const closed=(await sketchView(page,seed.id)).s;expect(closed.entities).toHaveLength(2);expect(closed.entities.some((e:any)=>e.id===seed.arcId||e.id==='large')).toBe(false);expect(closed.constraints).toHaveLength(2);assertSketchJunctions(closed,seed.hits,2);await page.screenshot({path:testInfo.outputPath('surviving-arcs-have-explicit-closed-junctions.png')});
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await sketchView(page,seed.id)).s.entities.length).toBe(3);await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await sketchView(page,seed.id)).s).toEqual(seed.original);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await sketchView(page,seed.id)).s.entities.length).toBe(3);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await sketchView(page,seed.id)).s).toEqual(closed);
  await page.getByRole('button',{name:'退出草图',exact:true}).click();await revealTree('Sketch.1');await page.getByRole('treeitem').filter({has:page.getByText('Sketch.1',{exact:true})}).last().click();await openCommand(page,'拉伸');const dialog=page.getByRole('dialog',{name:'创建 拉伸',exact:true});await dialog.getByLabel(quantityLabel('长度','mm'),{exact:true}).fill('2 mm');await ready(page,dialog);const head=(await current(page,seed.id)).document.versionId;await page.screenshot({path:testInfo.outputPath('closed-profile-extrusion-preview.png')});await dialog.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(head);
- await openCommand(page,'拉伸');await dialog.getByLabel(quantityLabel('长度','mm'),{exact:true}).fill('2 mm');await ready(page,dialog);await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);const final=await current(page,seed.id);const feature=final.part.features.at(-1);expect(feature.evaluationStatus??'').not.toMatch(/FAILED|BLOCKED/);expect(Object.values(final.artifacts).some((a:any)=>a.volume>0)).toBe(true);
+ await openCommand(page,'拉伸');await dialog.getByLabel(quantityLabel('长度','mm'),{exact:true}).fill('2 mm');await ready(page,dialog);await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);const final=await current(page,seed.id);const feature=final.part.features.at(-1);expect(feature.evaluationStatus??'').not.toMatch(/FAILED|BLOCKED/);expect(Object.values(final.artifacts).some((a:any)=>a.topology.solids>0&&a.validationPolicy==='occccad.geometry.brep-valid.v1')).toBe(true);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();const reopened=await current(page,seed.id);expect(reopened.part.features.at(-1).id).toBe(feature.id);expect(reopened.sketchAnalyses[seed.sketch].status).toBe('CLOSED');expect((await sketchView(page,seed.id)).s).toEqual(closed);expect(errors).toEqual([]);
 });
 
@@ -1851,14 +1852,14 @@ for(const mode of ['LINEAR','CIRCULAR','MIRROR'] as const)test(`draft additive r
   const boss=v.part!.features.at(-1)!,body=boss.bodyId!,key=v.part!.bodies.find(b=>b.id===body)!.geometryKey!;let selection;
   for(let local=1;local<=Number(v.artifacts[key].topology.faces);local++){
    const p=await api.getTopologyProperties(id,key,'FACE',local,v.document.versionId);
-   if(p.persistentSelection?.anchor.featureId===boss.id&&p.persistentSelection?.creationEvidence?.centroid?.[0]>10.9){selection=p.persistentSelection;break;}
+   if(p.persistentSelection?.anchor.featureId===boss.id&&(p.properties.snapCenter as number[])?.[0]>10.9){selection=p.persistentSelection;break;}
   }
   if(!selection)throw Error('boss side missing');
   v=await api.command(id,{type:'CREATE_MODIFY_FEATURE',feature:{type:'DRAFT',bodyId:body,angle:3,neutralPlaneId:'datum-xy',selections:[{selection,sourceVersionId:v.document.versionId,sourceFeatureId:boss.id}]}});
   const draft=v.part!.features.at(-1)!,result=v.part!.bodies.find(b=>b.id===body)!.geometryKey!;let anglePoint:number[]|undefined;
-  for(let local=1;local<=Number(v.artifacts[result].topology.faces);local++){const p=await api.getTopologyProperties(id,result,'FACE',local,v.document.versionId);if(p.persistentSelection?.anchor.featureId===draft.id&&p.persistentSelection.anchor.outputSlot.startsWith('DRAFTED_FROM/')){anglePoint=p.persistentSelection.creationEvidence.centroid;break;}}
+  for(let local=1;local<=Number(v.artifacts[result].topology.faces);local++){const p=await api.getTopologyProperties(id,result,'FACE',local,v.document.versionId);if(p.persistentSelection?.anchor.featureId===draft.id&&p.persistentSelection.anchor.outputSlot.startsWith('DRAFTED_FROM/')){anglePoint=p.properties.snapCenter as number[];break;}}
   if(!anglePoint)throw Error('draft angle face missing');
-  return {id,boss,draft,anglePoint,body,version:v.document.versionId,volume:v.artifacts[v.part!.bodies.find(b=>b.id===body)!.geometryKey!].volume};
+  return {id,boss,draft,anglePoint,body,version:v.document.versionId,volume:Number((await api.getTopologyProperties(v.document.id,(v.artifacts[v.part!.bodies.find(b=>b.id===body)!.geometryKey!]).geometryKey!,"BODY",0,v.document.versionId)).properties.volume)};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();
  const angle=seed.anglePoint;
@@ -1876,12 +1877,12 @@ for(const mode of ['LINEAR','CIRCULAR','MIRROR'] as const)test(`draft additive r
  let d=await configure();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await d.getByRole('button',{name:/取\s*消/}).click();await expect(d).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  await revealTree('');d=await configure();await page.screenshot({path:testInfo.outputPath(`${mode}-draft-range-preview.png`)});await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
  let saved=await current(page,seed.id);const pattern=saved.part.features.at(-1);expect(pattern.pattern).toMatchObject({sourceKind:'FEATURE_DELTA',startFeatureId:seed.boss.id,source:{featureId:seed.draft.id}});
- const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;
- expect(volume(saved)).toBeCloseTo(2*seed.volume-43*34*4,5);
+ const volume=async (v:any)=>(await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey]));
+ expect((await volume(saved))).toBeCloseTo(2*seed.volume-43*34*4,5);
  // Real input-stage responses intentionally arrive after the fast no-op preview.
  await page.route('**/api/documents/**/feature-input',async route=>{await new Promise(resolve=>setTimeout(resolve,800));await route.continue();});
  await revealTree(pattern.name);await tree(pattern.id).dblclick();d=page.getByRole('dialog',{name:mode==='MIRROR'?'编辑镜像':'编辑阵列',exact:true});await ready(page,d);await expect(d.getByRole('group',{name:'种子',exact:true})).toContainText(seed.draft.name!);await d.getByRole('button',{name:/取\s*消/}).click();await expect(d).toHaveCount(0);await page.unrouteAll({behavior:'wait'});
- await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>volume(await current(page,seed.id))).toBeCloseTo(seed.volume,5);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await volume(await current(page,seed.id)))).toBeCloseTo(seed.volume,5);
  await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(pattern.id);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();saved=await current(page,seed.id);expect(saved.part.features.at(-1).pattern).toEqual(pattern.pattern);expect(errors).toEqual([]);
 });
@@ -1906,7 +1907,7 @@ test('Sweep creates from profile and viewport path, cancels and restores history
  await openCommand(page,'扫掠');await clickWorld(page,[0,0,0]);await d.getByRole('button',{name:'选择路径草图',exact:true}).click();await clickWorld(page,[10,0,0]);await expect(d.getByRole('button',{name:'选择路径曲线',exact:true})).toHaveAttribute('aria-pressed','true');await clickWorld(page,[10,0,0]);await clickWorld(page,[20,10,0]);await ready(page,d);
  await page.screenshot({path:info.outputPath('sweep-miter-preview.png')});await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
  const committed=await current(page,seed.id),feature=committed.part.features.at(-1);expect(feature.type).toBe('SWEEP');expect(feature.sweep.path.entityIds.sort()).toEqual(['a','b']);expect(feature.sweep.path.direction.entityId).toBe('a');
- expect(committed.artifacts[committed.part.bodies.find((b:any)=>b.id===feature.bodyId).geometryKey].volume).toBeCloseTo(160*Math.PI,5);
+ expect((await measuredArtifactVolume(page,committed.artifacts[committed.part.bodies.find((b:any)=>b.id===feature.bodyId).geometryKey]))).toBeCloseTo(160*Math.PI,5);
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.some((f:any)=>f.id===feature.id)).toBe(false);
  await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(feature.id);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();await treeNavigator(page)(feature.name);await page.getByRole('treeitem').filter({hasText:feature.name}).first().dblclick();const edit=page.getByRole('dialog',{name:'编辑 扫掠',exact:true});await ready(page,edit);await edit.getByRole('button',{name:/取\s*消/}).click();expect(errors).toEqual([]);
@@ -1927,7 +1928,7 @@ test('engineering hole group picks two points and preserves drill and annotation
  await d.getByRole('textbox',{name:'螺纹规格标记',exact:true}).fill('M3x0.5');await d.getByRole('combobox',{name:quantityLabel('公称螺纹直径','mm'),exact:true}).fill('3');await d.getByRole('combobox',{name:quantityLabel('螺距','mm'),exact:true}).fill('0.5');await d.getByRole('combobox',{name:quantityLabel('螺纹标注深度','mm'),exact:true}).fill('4');
  const pick=d.getByRole('button',{name:'选择定位点',exact:true});if(await pick.getAttribute('aria-pressed')!=='true')await pick.click();await clickWorld(page,[-10,0,20]);await clickWorld(page,[10,0,20]);await ready(page,d);
  expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await expect(d.getByRole('switch',{name:'螺纹工程标注',exact:true})).toBeChecked();await expect(d.getByText(/仅保存工程标注/)).toHaveCount(0);await page.screenshot({path:info.outputPath('engineering-hole-group-preview.png')});
- await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const v=await current(page,seed.id),f=v.part.features.at(-1);expect(f.holePoints).toHaveLength(2);expect(f.drillTipAngle).toBeCloseTo(120,10);expect(f.thread).toMatchObject({mode:'ANNOTATION',designation:'M3x0.5',pitch:0.5,depth:4});expect(v.artifacts[v.part.bodies.find((b:any)=>b.id===f.bodyId).geometryKey].volume).toBeCloseTo(48000-2*(5*Math.PI+Math.PI/Math.tan(Math.PI/3)/3),5);
+ await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const v=await current(page,seed.id),f=v.part.features.at(-1);expect(f.holePoints).toHaveLength(2);expect(f.drillTipAngle).toBeCloseTo(120,10);expect(f.thread).toMatchObject({mode:'ANNOTATION',designation:'M3x0.5',pitch:0.5,depth:4});expect((await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===f.bodyId).geometryKey]))).toBeCloseTo(48000-2*(5*Math.PI+Math.PI/Math.tan(Math.PI/3)/3),5);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();await treeNavigator(page)(f.name);await page.getByRole('treeitem').filter({hasText:f.name}).first().dblclick();const edit=page.getByRole('dialog',{name:'编辑 孔',exact:true});await ready(page,edit);await expect(edit.getByRole('switch',{name:'多点孔组',exact:true})).toBeChecked();await expect(edit.getByRole('combobox',{name:quantityLabel('螺距','mm'),exact:true})).toHaveValue('0.5');await edit.getByRole('button',{name:/取\s*消/}).click();expect(errors).toEqual([]);
 });
 
@@ -1945,7 +1946,7 @@ test('Loft G2 picks stable cylindrical supports and edits influence without comm
  for(const s of [seed.lower,seed.upper]){await treeNavigator(page)(s.name!);await page.getByRole('treeitem').filter({hasText:s.name!}).first().click();}
  const setCondition=async(label:string,point:number[])=>{await d.getByRole('combobox',{name:`${label}条件`,exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('匹配曲率 G2',{exact:true}).click();await clickWorld(page,point);};
  await setCondition('起端',[10,0,5]);await setCondition('末端',[5,0,35]);await ready(page,d);await page.screenshot({path:info.outputPath('loft-g2-preview.png')});expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
- await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const v=await current(page,seed.id),f=v.part.features.at(-1);expect(f.loftStart).toMatchObject({condition:'G2',magnitude:1});expect(f.loftStart.supports).toHaveLength(1);expect(f.loftEnd.supports).toHaveLength(1);expect(v.artifacts[v.part.bodies.find((b:any)=>b.id===f.bodyId).geometryKey].volume).toBeCloseTo(20*Math.PI*(50+25*181/462),5);
+ await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const v=await current(page,seed.id),f=v.part.features.at(-1);expect(f.loftStart).toMatchObject({condition:'G2',magnitude:1});expect(f.loftStart.supports).toHaveLength(1);expect(f.loftEnd.supports).toHaveLength(1);expect((await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===f.bodyId).geometryKey]))).toBeCloseTo(20*Math.PI*(50+25*181/462),5);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();await treeNavigator(page)(f.name);await page.getByRole('treeitem').filter({hasText:f.name}).first().dblclick();const edit=page.getByRole('dialog',{name:'编辑 放样',exact:true});await ready(page,edit);await expect(edit.locator('[data-state="RESOLVED"]')).toHaveCount(2);await edit.getByRole('combobox',{name:'起端影响系数',exact:true}).fill('0.8');await ready(page,edit);await edit.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(v.document.versionId);expect(errors).toEqual([]);
 });
 
@@ -1959,9 +1960,46 @@ test('pattern member reexecution chooses recipe and repairs a failed slot',async
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await openCommand(page,'阵列');const d=page.getByRole('dialog',{name:'创建阵列',exact:true});await treeNavigator(page)(seed.source.name!);await page.locator(`[role=treeitem][data-tree-key$="pad:${seed.source.id}"]`).click();
  await d.getByLabel('数量',{exact:true}).fill('3');const spacing=d.getByRole('combobox',{name:'间距 / 跨度 (mm)',exact:true});await spacing.fill('pi');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');await expect(spacing).toHaveValue('pitch');await d.getByRole('button',{name:'设置种子 1',exact:true}).click();await d.getByRole('combobox',{name:'种子 1 求值方式',exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('成员位置重执行',{exact:true}).click();await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);await page.screenshot({path:info.outputPath('pattern-reexecution-preview.png')});await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
- const v=await current(page,seed.id),f=v.part.features.at(-1);expect(f.pattern.sourceKind).toBe('FEATURE_REEXECUTION');expect(v.part.parameters.find((p:any)=>p.ownerFeatureId===f.id&&p.propertySlot==='pattern:spacing').source.expression.sourceText).toBe('pitch');expect(v.artifacts[v.part.bodies.find((b:any)=>b.id===f.bodyId).geometryKey].volume).toBeCloseTo(6000-39*Math.PI,5);
+ const v=await current(page,seed.id),f=v.part.features.at(-1);expect(f.pattern.sourceKind).toBe('FEATURE_REEXECUTION');expect(v.part.parameters.find((p:any)=>p.ownerFeatureId===f.id&&p.propertySlot==='pattern:spacing').source.expression.sourceText).toBe('pitch');expect((await measuredArtifactVolume(page,v.artifacts[v.part.bodies.find((b:any)=>b.id===f.bodyId).geometryKey]))).toBeCloseTo(6000-39*Math.PI,5);
  await page.evaluate(async({id,fid})=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import('/src/api.ts');await api.command(id,{type:'SET_PARAMETER_VALUE',parameterId:`parameter:${fid}:pattern:spacing`,value:20,unit:'mm'});
- },{id:seed.id,fid:f.id});await page.reload();await expect(page.locator('canvas')).toBeVisible();await page.getByRole('button',{name:'修复阵列成员',exact:true}).click();const edit=page.getByRole('dialog',{name:'编辑阵列',exact:true});await edit.getByLabel('跳过槽位（从 0 开始）',{exact:true}).fill('2');await ready(page,edit);await edit.getByRole('button',{name:confirmCommandName}).click();await expect(edit).toHaveCount(0);const repaired=await current(page,seed.id);expect(repaired.part.features.at(-1).pattern.skippedSlots).toEqual([2]);expect(repaired.artifacts[repaired.part.bodies.find((b:any)=>b.id===f.bodyId).geometryKey].volume).toBeCloseTo(6000-26*Math.PI,5);expect(errors).toEqual([]);
+ },{id:seed.id,fid:f.id});await page.reload();await expect(page.locator('canvas')).toBeVisible();await page.getByRole('button',{name:'修复阵列成员',exact:true}).click();const edit=page.getByRole('dialog',{name:'编辑阵列',exact:true});await edit.getByLabel('跳过槽位（从 0 开始）',{exact:true}).fill('2');await ready(page,edit);await edit.getByRole('button',{name:confirmCommandName}).click();await expect(edit).toHaveCount(0);const repaired=await current(page,seed.id);expect(repaired.part.features.at(-1).pattern.skippedSlots).toEqual([2]);expect((await measuredArtifactVolume(page,repaired.artifacts[repaired.part.bodies.find((b:any)=>b.id===f.bodyId).geometryKey]))).toBeCloseTo(6000-26*Math.PI,5);expect(errors).toEqual([]);
+});
+
+test('confirmation joins a pending candidate without a second preview or Revision',async({page})=>{
+ await login(page);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production API
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Immediate confirmation acceptance'),id=v.document.id;
+  v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_RECTANGLE',first:{x:0,y:0},second:{x:20,y:10}}]});
+  return {id,sketchId,sketchName:v.part!.features.at(-1)!.name!,revision:v.document.versionId};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();
+ const priorHistory=(await (await page.request.get(`/api/documents/${seed.id}/history`)).json()).history.length;
+ // Hold an actual completed backend response at the client boundary. Geometry,
+ // candidate qualification and final command still use the production service.
+ await page.evaluate(async()=>{
+  // @ts-ignore production client
+  const {api}=await import('/src/api/client.ts');const original=api.previewCommand;
+  (window as any).__pendingCandidateCalls=0;
+  api.previewCommand=async(...args:Parameters<typeof original>)=>{
+   const command=args[1] as any,match=command.length===17||command.feature?.length===17;
+   if(match)(window as any).__pendingCandidateCalls++;
+   const result=await original(...args);
+   if(match){(window as any).__heldCandidate=result;await new Promise<void>(resolve=>{(window as any).__releaseCandidate=resolve});}
+   return result;
+  };
+ });
+ await openCommand(page,'拉伸');const d=page.getByRole('dialog',{name:'创建 拉伸',exact:true});
+ await treeNavigator(page)(seed.sketchName,`sketch:${seed.sketchId}`);await page.locator(`[role=treeitem][data-tree-key$="sketch:${seed.sketchId}"]`).click();
+ await d.getByLabel(quantityLabel('长度','mm'),{exact:true}).fill('17 mm');await d.getByLabel(quantityLabel('长度','mm'),{exact:true}).press('Tab');
+ await expect.poll(()=>page.evaluate(()=>!!(window as any).__heldCandidate)).toBeTruthy();
+ const confirm=d.getByRole('button',{name:confirmCommandName});await expect(confirm).toBeEnabled();await confirm.click();await expect(d.locator("button.ant-btn-loading")).toHaveCount(1);
+ await page.evaluate(()=>(window as any).__releaseCandidate());await expect(d).toHaveCount(0);
+ const result=await current(page,seed.id);expect(result.part.features.filter((f:any)=>f.type==='LINEAR_EXTRUDE')).toHaveLength(1);expect(result.part.features.at(-1).length).toBe(17);
+ expect(await page.evaluate(()=>(window as any).__pendingCandidateCalls)).toBe(1);expect(result.document.versionId).not.toBe(seed.revision);
+ const history=await page.request.get(`/api/documents/${seed.id}/history`);const entries=(await history.json()).history;expect(entries).toHaveLength(priorHistory+1);expect(entries.filter((entry:any)=>entry.versionId===result.document.versionId)).toHaveLength(1);
+ expect(await measuredArtifactVolume(page,result.artifacts[result.part.bodies[0].geometryKey])).toBeCloseTo(3400,6);expect(errors).toEqual([]);
 });

@@ -33,19 +33,27 @@ export function WorkbenchInspectorPanel({ documentID, canRestore, onRestore, ...
   const topology = useQuery({
     queryKey: selection ? queryKeys.topologyProperties(context.documentId, selection.geometryKey ?? "",
       selection.kind, selection.topologyId, selection.versionId) : ["topology-properties", "none"],
-    queryFn: () => api.getTopologyProperties(context.documentId, selection!.geometryKey!,
-      selection!.kind.toUpperCase() as "FACE" | "EDGE" | "VERTEX", selection!.topologyId, context.versionId),
+    queryFn: ({signal}) => api.getTopologyProperties(context.documentId, selection!.geometryKey!,
+      selection!.kind.toUpperCase() as "FACE" | "EDGE" | "VERTEX", selection!.topologyId, context.versionId,signal),
     enabled: tab === "properties" && Boolean(selection?.geometryKey), staleTime: 5 * 60_000,
   });
-  const error = tab === "query" ? undefined : tab === "history" ? history.error : topology.error ?? owner.error;
+  const selected=props.selection;
+  const bodyKey=selected&&['body','solid'].includes(selected.kind)?selected.geometryKey??props.view.part?.bodies.find(b=>b.id===selected.bodyId)?.geometryKey:undefined;
+  const bodyContext=topologyPropertyContext(selected,documentID);
+  const intrinsic=useQuery({
+    queryKey:["inspector-intrinsic",bodyContext.documentId,bodyContext.versionId,bodyKey],
+    queryFn:({signal})=>api.getTopologyProperties(bodyContext.documentId,bodyKey!,"BODY",0,bodyContext.versionId,signal),
+    enabled:tab==='properties'&&!!bodyKey,staleTime:5*60_000,
+  });
+  const error = tab === "query" ? undefined : tab === "history" ? history.error : topology.error ?? intrinsic.error ?? owner.error;
   return <>
     <Segmented block aria-label="检查器内容" value={tab==="query"?"properties":tab} onChange={(value) => setTab(value as "properties" | "history")}
       options={[{ label: "属性", value: "properties" }, { label: "历史", value: "history" }]} />
     <div className="inspector-overlay-content">
-      {error && <Alert type="error" showIcon title="无法读取信息" description={engineeringProblem(error)} action={<Button size="small" onClick={()=>void (tab==="history"?history.refetch():topology.error?topology.refetch():owner.refetch())}>重试</Button>}/>}
+      {error && <Alert type="error" showIcon title="无法读取信息" description={engineeringProblem(error)} action={<Button size="small" onClick={()=>void (tab==="history"?history.refetch():topology.error?topology.refetch():intrinsic.error?intrinsic.refetch():owner.refetch())}>重试</Button>}/>}
       {tab === "history" ? history.isPending ? <Spin size="small" />
         : <History entries={history.data ?? []} onRestore={onRestore} canRestore={canRestore} />
-        : <Properties {...props} ownerView={owner.data}  topology={topology.data} topologyLoading={topology.isFetching}
+        : <Properties {...props} ownerView={owner.data}  topology={topology.data} topologyLoading={topology.isFetching} intrinsic={intrinsic.data} intrinsicLoading={intrinsic.isFetching}
           readErrors={{owner:owner.error?.message,
             topology:selection&&!selection.geometryKey ? "当前对象没有可查询的几何制品" : topology.error?.message}} />}
 

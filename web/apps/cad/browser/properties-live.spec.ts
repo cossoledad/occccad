@@ -144,3 +144,36 @@ test('global options apply immediately and parameter headers stay outside the sc
  await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('参数');await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:/^参数$/})}).click();const d=page.getByRole('dialog',{name:'参数',exact:true});const list=d.getByRole('region',{name:'参数列表',exact:true});await expect(list.locator('.parameter-manager-row')).toHaveCount(42);
  await page.setViewportSize({width:1024,height:768});await page.evaluate(()=>document.documentElement.style.zoom='1.25');const before=await d.locator('form').boundingBox(),heading=await d.locator('.parameter-manager-header').boundingBox();const box=await list.boundingBox();expect(box).toBeTruthy();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,1600);await expect.poll(()=>list.evaluate(el=>el.scrollTop)).toBeGreaterThan(0);expect((await d.locator('form').boundingBox())!.y).toBeCloseTo(before!.y,1);expect((await d.locator('.parameter-manager-header').boundingBox())!.y).toBeCloseTo(heading!.y,1);await expect(d.getByRole('searchbox',{name:'搜索参数'})).toBeVisible();await page.screenshot({path:testInfo.outputPath('parameter-list-fixed-header.png')});await d.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
 });
+
+test('deferred properties do not compute on folded face or Body selection',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ const login=await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();await page.goto('/');
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production API
+  const {restApi:api}=await import('/src/api.ts');
+  // @ts-ignore production preferences
+  const {useUIPreferences}=await import('/src/state/ui-preferences.ts');
+  useUIPreferences.getState().setInspectorOpen(false);useUIPreferences.getState().setReferenceVisibility({planes:false,axes:false,coordinateSystems:false});
+  let v=await api.createDocument('PART','Demand-only property acceptance');const id=v.document.id;
+  v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_RECTANGLE',first:{x:-20,y:-15},second:{x:20,y:15}}]});
+  v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId,generator:'LINEAR_EXTRUDE',operation:'ADD',length:20});
+  const b=v.part!.bodies.find(b=>b.geometryKey)!;return {id,bodyId:b.id,bodyName:b.name,key:b.geometryKey!,revision:v.document.versionId};
+ });
+ const queries:string[]=[];page.on('request',r=>{if(r.url().includes(`/api/documents/${seed.id}/topology-properties`)||r.url().endsWith(`/api/documents/${seed.id}/measure`))queries.push(r.url())});
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();
+ const pickFace=async()=>{const p=await worldScreen(page,[0,0,20]);await page.mouse.click(p.x,p.y);await expect.poll(()=>page.evaluate(async()=>{
+  // @ts-ignore production selection store
+  const {useWorkbenchStore}=await import('/src/state/workbench-store.ts');return useWorkbenchStore.getState().selection?.kind;
+ })).toBe('face')};
+ await pickFace();await page.waitForTimeout(500);expect(queries).toEqual([]);
+ await treeNavigator(page)(seed.bodyName,`/body:${seed.bodyId}`);const body=page.locator(`[role=treeitem][data-tree-key$="/body:${seed.bodyId}"]`);await body.locator('.specification-tree-label').click();
+ await page.waitForTimeout(500);expect(queries).toEqual([]);
+ await page.getByRole('button',{name:'展开属性面板',exact:true}).click();await expect(page.locator('.inspector-overlay-content')).toContainText('体积 (mm³)');
+ expect(queries.some(url=>new URL(url).searchParams.get('kind')==='BODY')).toBeTruthy();
+ const opened=(await current(page,seed.id));expect(opened.artifacts[seed.key].volume).toBeUndefined();expect(opened.document.versionId).toBe(seed.revision);
+ await pickFace();await expect.poll(()=>queries.some(url=>new URL(url).searchParams.get('kind')==='FACE')).toBeTruthy();await expect(page.locator('.inspector-overlay-content')).toContainText('面积 (mm²)');
+ await page.getByRole('button',{name:'收起属性面板',exact:true}).click();const count=queries.length;
+ await body.locator('.specification-tree-label').click();await pickFace();await page.waitForTimeout(500);expect(queries).toHaveLength(count);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.revision);expect(errors).toEqual([]);
+});

@@ -67,16 +67,16 @@ func verifyFeatureAssociationFanLifecycle(t *testing.T, service *workspace.Servi
 	}
 	hub := circle(0, 0, 10, "ADD")
 	eccentric := circle(3, 2, 1, "REMOVE")
-	baseVolume := activeBodyArtifact(t, view).Volume
+	baseVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
 	sketch := view.Part.Features[len(view.Part.Features)-1]
 	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 8, Y: -2}, Second: &workspace.SketchPoint2{X: 20, Y: 2}}}})
 	apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch.ID, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 10})
 	blade := view.Part.Features[len(view.Part.Features)-1]
-	bladeVolume := activeBodyArtifact(t, view).Volume - baseVolume
+	bladeVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view)) - baseVolume
 	apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: hub.BodyID, Operation: "ADD", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "CIRCULAR", Distribution: "FULL_CIRCLE", Count: 4, Origin: [3]float64{}, Direction: [3]float64{0, 0, 1}}, Source: workspace.FeatureStageRef{BodyID: hub.BodyID, FeatureID: blade.ID}, SourceKind: "GENERATOR_TOOL", ResultMode: "COMBINE"}}})
 	pattern := view.Part.Features[len(view.Part.Features)-1]
-	if math.Abs(activeBodyArtifact(t, view).Volume-(baseVolume+4*bladeVolume)) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-(baseVolume+4*bladeVolume)) > 1e-5 {
 		t.Fatal("pattern copied hub/eccentric feature instead of blade tool")
 	}
 	loadVisual := func(a workspace.Artifact) (visual.Mesh, workspace.VisualizationManifest) {
@@ -245,7 +245,7 @@ func verifyFeatureAssociationFanLifecycle(t *testing.T, service *workspace.Servi
 	verify()
 	head := view.Document.VersionID
 	firstInput, err := service.GetFeatureInput(t.Context(), view.Document.ID, workspace.FeatureInputRequest{VersionID: head, FeatureID: hub.ID})
-	if err != nil || firstInput.SourceFeatureID != "" || firstInput.Artifact.Volume != 0 || firstInput.Artifact.DisplayStageFeatureID != "" {
+	if err != nil || firstInput.SourceFeatureID != "" || measuredArtifactVolume(t, firstInput.Artifact) != 0 || firstInput.Artifact.DisplayStageFeatureID != "" {
 		t.Fatal("first generator edit retained downstream Body", err)
 	}
 	input, err := service.GetFeatureInput(t.Context(), view.Document.ID, workspace.FeatureInputRequest{VersionID: head, FeatureID: fillet.ID})
@@ -256,7 +256,7 @@ func verifyFeatureAssociationFanLifecycle(t *testing.T, service *workspace.Servi
 	if err != nil || history.SourceFeatureID != blade.ID {
 		t.Fatal("historical blade stage", err)
 	}
-	if math.Abs(history.Artifact.Volume-(baseVolume+bladeVolume)) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, history.Artifact)-(baseVolume+bladeVolume)) > 1e-5 {
 		t.Fatal("historical result used downstream Body")
 	}
 	reread, err := service.GetDocument(t.Context(), view.Document.ID, p6Actor)
@@ -344,7 +344,9 @@ func geometryRuntimeTestService(t *testing.T, db *database.Pool) (*workspace.Ser
 	}
 	t.Cleanup(func() { client.Close() })
 	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	artifacts := artifact.NewService(db, local, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 	return service, artifacts, db, client, pool

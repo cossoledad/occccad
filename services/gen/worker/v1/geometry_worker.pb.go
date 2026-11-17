@@ -3840,13 +3840,13 @@ func (x *EvaluatePartRequest) GetNamingSource() *ArtifactReference {
 // Produced from an accepted immutable geometry artifact. The naming snapshot
 // must match the exact input BREP, owner, import allocation and naming policy.
 type PartBaseStage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Naming        *ArtifactReference     `protobuf:"bytes,1,opt,name=naming,proto3" json:"naming,omitempty"`
-	GeometryId    string                 `protobuf:"bytes,2,opt,name=geometry_id,json=geometryId,proto3" json:"geometry_id,omitempty"`
-	Volume        float64                `protobuf:"fixed64,3,opt,name=volume,proto3" json:"volume,omitempty"`                            // mm^3, from that same authoritative stage summary
-	RootHistory   *ArtifactReference     `protobuf:"bytes,4,opt,name=root_history,json=rootHistory,proto3" json:"root_history,omitempty"` // import transition block declared by naming
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Naming           *ArtifactReference     `protobuf:"bytes,1,opt,name=naming,proto3" json:"naming,omitempty"`
+	GeometryId       string                 `protobuf:"bytes,2,opt,name=geometry_id,json=geometryId,proto3" json:"geometry_id,omitempty"`
+	ValidationPolicy string                 `protobuf:"bytes,5,opt,name=validation_policy,json=validationPolicy,proto3" json:"validation_policy,omitempty"` // qualified validation of this immutable BREP
+	RootHistory      *ArtifactReference     `protobuf:"bytes,4,opt,name=root_history,json=rootHistory,proto3" json:"root_history,omitempty"`                // import transition block declared by naming
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PartBaseStage) Reset() {
@@ -3893,11 +3893,11 @@ func (x *PartBaseStage) GetGeometryId() string {
 	return ""
 }
 
-func (x *PartBaseStage) GetVolume() float64 {
+func (x *PartBaseStage) GetValidationPolicy() string {
 	if x != nil {
-		return x.Volume
+		return x.ValidationPolicy
 	}
-	return 0
+	return ""
 }
 
 func (x *PartBaseStage) GetRootHistory() *ArtifactReference {
@@ -11184,7 +11184,7 @@ type EvaluatePartResponse struct {
 	PreviewMesh        *Mesh                   `protobuf:"bytes,4,opt,name=preview_mesh,json=previewMesh,proto3" json:"preview_mesh,omitempty"` // Only transient preview responses may contain this.
 	Bbox               *BoundingBox            `protobuf:"bytes,5,opt,name=bbox,proto3" json:"bbox,omitempty"`
 	Topology           *TopologySummary        `protobuf:"bytes,6,opt,name=topology,proto3" json:"topology,omitempty"`
-	Volume             float64                 `protobuf:"fixed64,7,opt,name=volume,proto3" json:"volume,omitempty"`
+	ValidationPolicy   string                  `protobuf:"bytes,18,opt,name=validation_policy,json=validationPolicy,proto3" json:"validation_policy,omitempty"`
 	CacheHit           bool                    `protobuf:"varint,8,opt,name=cache_hit,json=cacheHit,proto3" json:"cache_hit,omitempty"`
 	OcctVersion        string                  `protobuf:"bytes,9,opt,name=occt_version,json=occtVersion,proto3" json:"occt_version,omitempty"`
 	BrepArtifact       *ArtifactReference      `protobuf:"bytes,11,opt,name=brep_artifact,json=brepArtifact,proto3" json:"brep_artifact,omitempty"`
@@ -11263,11 +11263,11 @@ func (x *EvaluatePartResponse) GetTopology() *TopologySummary {
 	return nil
 }
 
-func (x *EvaluatePartResponse) GetVolume() float64 {
+func (x *EvaluatePartResponse) GetValidationPolicy() string {
 	if x != nil {
-		return x.Volume
+		return x.ValidationPolicy
 	}
-	return 0
+	return ""
 }
 
 func (x *EvaluatePartResponse) GetCacheHit() bool {
@@ -16285,13 +16285,13 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x10geometry_feature\x18\x11 \x01(\v2&.occccad.worker.v1.GeometryFeatureSpecR\x0fgeometryFeature\x12?\n" +
 	"\n" +
 	"base_stage\x18\x12 \x01(\v2 .occccad.worker.v1.PartBaseStageR\tbaseStage\x12I\n" +
-	"\rnaming_source\x18\x13 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\fnamingSource\"\xcf\x01\n" +
+	"\rnaming_source\x18\x13 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\fnamingSource\"\xea\x01\n" +
 	"\rPartBaseStage\x12<\n" +
 	"\x06naming\x18\x01 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x06naming\x12\x1f\n" +
 	"\vgeometry_id\x18\x02 \x01(\tR\n" +
-	"geometryId\x12\x16\n" +
-	"\x06volume\x18\x03 \x01(\x01R\x06volume\x12G\n" +
-	"\froot_history\x18\x04 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\vrootHistory\"U\n" +
+	"geometryId\x12+\n" +
+	"\x11validation_policy\x18\x05 \x01(\tR\x10validationPolicy\x12G\n" +
+	"\froot_history\x18\x04 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\vrootHistoryJ\x04\b\x03\x10\x04\"U\n" +
 	"\x17GeometryResultReference\x12\x1d\n" +
 	"\n" +
 	"feature_id\x18\x01 \x01(\tR\tfeatureId\x12\x1b\n" +
@@ -17040,15 +17040,15 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\n" +
 	"pad_length\x18\x05 \x01(\x01R\tpadLength\x12\x14\n" +
 	"\x05units\x18\x06 \x01(\tR\x05units\x12\x14\n" +
-	"\x05plane\x18\a \x01(\tR\x05plane\"\xb2\x06\n" +
+	"\x05plane\x18\a \x01(\tR\x05plane\"\xcd\x06\n" +
 	"\x14EvaluatePartResponse\x12\x1f\n" +
 	"\vgeometry_id\x18\x01 \x01(\tR\n" +
 	"geometryId\x12!\n" +
 	"\fgeometry_key\x18\x02 \x01(\tR\vgeometryKey\x12:\n" +
 	"\fpreview_mesh\x18\x04 \x01(\v2\x17.occccad.worker.v1.MeshR\vpreviewMesh\x122\n" +
 	"\x04bbox\x18\x05 \x01(\v2\x1e.occccad.worker.v1.BoundingBoxR\x04bbox\x12>\n" +
-	"\btopology\x18\x06 \x01(\v2\".occccad.worker.v1.TopologySummaryR\btopology\x12\x16\n" +
-	"\x06volume\x18\a \x01(\x01R\x06volume\x12\x1b\n" +
+	"\btopology\x18\x06 \x01(\v2\".occccad.worker.v1.TopologySummaryR\btopology\x12+\n" +
+	"\x11validation_policy\x18\x12 \x01(\tR\x10validationPolicy\x12\x1b\n" +
 	"\tcache_hit\x18\b \x01(\bR\bcacheHit\x12!\n" +
 	"\focct_version\x18\t \x01(\tR\vocctVersion\x12I\n" +
 	"\rbrep_artifact\x18\v \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\fbrepArtifact\x12G\n" +
@@ -17057,7 +17057,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x13representation_kind\x18\x0e \x01(\tR\x12representationKind\x12%\n" +
 	"\x0etriangle_count\x18\x0f \x01(\x04R\rtriangleCount\x120\n" +
 	"\x14display_vertex_count\x18\x10 \x01(\x04R\x12displayVertexCount\x12H\n" +
-	"\rruntime_stats\x18\x11 \x01(\v2#.occccad.worker.v1.PartRuntimeStatsR\fruntimeStatsJ\x04\b\x03\x10\x04J\x04\b\n" +
+	"\rruntime_stats\x18\x11 \x01(\v2#.occccad.worker.v1.PartRuntimeStatsR\fruntimeStatsJ\x04\b\x03\x10\x04J\x04\b\a\x10\bJ\x04\b\n" +
 	"\x10\v\"\x97\x02\n" +
 	"\x04Mesh\x123\n" +
 	"\bvertices\x18\x01 \x03(\v2\x17.occccad.worker.v1.Vec3R\bvertices\x129\n" +

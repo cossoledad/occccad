@@ -109,7 +109,7 @@ func TestSplitCircleDeleteSegmentsKeepsExactClosedProfileThroughRouter(t *testin
 			want := 2 * (math.Pi*(r*r+R*R) - overlap)
 			volume := 0.0
 			for _, a := range v.Artifacts {
-				volume += a.Volume
+				volume += measuredArtifactVolume(t, a)
 			}
 			if math.Abs(volume-want) > 1e-5 {
 				t.Fatal("exact closed extrusion volume", volume, want)

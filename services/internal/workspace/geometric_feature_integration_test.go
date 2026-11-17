@@ -49,7 +49,7 @@ func TestGeometryFeaturePreviewCommitParameterHistoryAndColdRead(t *testing.T) {
 	view = f.command(CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &thick})
 	f.volume(view, 2000)
 	a := view.Artifacts[sheet.Result.GeometryKey]
-	if a.Result == nil || a.GeometryDomain != "SHEET_SET" || a.BodyID != "" || a.Volume != 0 {
+	if a.Result == nil || a.GeometryDomain != "SHEET_SET" || a.BodyID != "" || a.ValidationPolicy != geometryValidationPolicy {
 		t.Fatalf("surface artifact lost owner/domain: %+v", a)
 	}
 	manifest, _, err := f.service.topologyManifestForGeometryKey(f.ctx, sheet.Result.GeometryKey)
@@ -108,7 +108,7 @@ func TestGeometryFeaturePreviewCommitParameterHistoryAndColdRead(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			volume += a.Volume
+			volume += measuredArtifactVolume(t, a)
 		}
 	}
 	if math.Abs(volume-3000) > 1e-6 {
@@ -135,8 +135,8 @@ func TestGeometryFeaturePreviewCommitParameterHistoryAndColdRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if modifiedArtifact.Volume <= 0 || modifiedArtifact.Volume >= 3000 {
-		t.Fatal("original Body modifier did not consume thickened surface", modifiedArtifact.Volume)
+	if measuredArtifactVolume(t, modifiedArtifact) <= 0 || measuredArtifactVolume(t, modifiedArtifact) >= 3000 {
+		t.Fatal("original Body modifier did not consume thickened surface", measuredArtifactVolume(t, modifiedArtifact))
 	}
 	// A finite planar Sheet also supports a normal associative sketch. The
 	// earlier frozen source remains valid after the material modifier.
@@ -198,7 +198,7 @@ func TestGeometryFeatureSketchPointFrameAndSpatialSweepThroughRouter(t *testing.
 	v = f.command(CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &sweep})
 	volume := 0.0
 	for _, a := range v.Artifacts {
-		volume += a.Volume
+		volume += measuredArtifactVolume(t, a)
 	}
 	if volume <= 30*math.Pi {
 		t.Fatal("spatial spline did not produce material", volume)
@@ -211,7 +211,7 @@ func TestGeometryFeatureSketchPointFrameAndSpatialSweepThroughRouter(t *testing.
 	v = f.command(CommandRequest{Type: "EDIT_FEATURE", TargetID: curve.ID, Feature: &curve, ExpectedFeatureDigest: digest})
 	after := 0.0
 	for _, a := range v.Artifacts {
-		after += a.Volume
+		after += measuredArtifactVolume(t, a)
 	}
 	if after <= volume {
 		t.Fatal("spatial sweep did not follow its curve parameters", after, volume)
@@ -448,7 +448,7 @@ func TestGeometryCreationEvidenceUsesFrozenResult(t *testing.T) {
 	for i := range curve.Curve.Points {
 		point := &curve.Curve.Points[i]
 		for _, output := range manifest.Tips[body.ID].SemanticOutputs {
-			p := output.GetEvidence().GetCentroid()
+			p := output.GetEvidence().GetOrigin()
 			if topologyType(output.TopologyType) != modelcore.PersistentTopologyVertex || math.Abs(p.GetX()-point.Position[0])+math.Abs(p.GetY()-point.Position[1])+math.Abs(p.GetZ()-point.Position[2]) > 1e-8 {
 				continue
 			}

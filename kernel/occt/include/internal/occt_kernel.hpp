@@ -39,7 +39,7 @@ struct PartRuntimeStats {
 };
 struct PartBaseStage {
     GeometryId geometry_id;
-    double volume = 0;
+    bool validated = false;
     FeatureResult root;
 };
 struct PartRuntimeOptions {
@@ -102,6 +102,7 @@ public:
     const TopologyInfo& getTopology(const GeometryId& id) override;
     const TopologyInfo& getTopologyProperties(const GeometryId& id, const std::string& kind,
                                              uint64_t local_id, bool* cache_hit = nullptr);
+    void validateResult(const GeometryId& id);
     double getVolume(const GeometryId& id) override;
 
     TessellationResult tessellate(const GeometryId& id, double linear_deflection = visual_linear_deflection_mm,

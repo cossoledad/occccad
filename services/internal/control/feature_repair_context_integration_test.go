@@ -19,7 +19,7 @@ func TestHistoricalComparisonKeepsAcceptedOccurrenceAndCurrentHeads(t *testing.T
 		t.Fatal("accepted occurrence history", err, comparison)
 	}
 	snapshot := comparison.Snapshot
-	if snapshot.RootProductRevisionID == "" || snapshot.RootProductRevisionID == rootHead || snapshot.ContextVariantID == "" || math.Abs(snapshot.Artifacts[0].Volume-8000) > 1e-5 {
+	if snapshot.RootProductRevisionID == "" || snapshot.RootProductRevisionID == rootHead || snapshot.ContextVariantID == "" || math.Abs(measuredArtifactVolume(t, snapshot.Artifacts[0])-8000) > 1e-5 {
 		t.Fatal("history used defaults, another occurrence or unaccepted source Head", snapshot)
 	}
 	c.s.DiscardPreview(c.v.Document.ID, p6Actor, comparison.DisplayID)

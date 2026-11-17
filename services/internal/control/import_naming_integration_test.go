@@ -69,7 +69,7 @@ func verifyImportedNaming(t *testing.T, db database.DB, client *geometry.Client,
 			v := [3]float64{n[1]*u[2] - n[2]*u[1], n[2]*u[0] - n[0]*u[2], n[0]*u[1] - n[1]*u[0]}
 			var x, y float64
 			for i := 0; i < 3; i++ {
-				d := pick.Selection.CreationEvidence.Centroid[i] - support.Origin[i]
+				d := pick.Center[i] - support.Origin[i]
 				x += d * u[i]
 				y += d * v[i]
 			}
@@ -112,12 +112,12 @@ func verifyImportedNaming(t *testing.T, db database.DB, client *geometry.Client,
 					}
 				}
 			}
-			expected := activeBodyArtifact(t, base).Volume + 4
+			expected := measuredArtifactVolume(t, activeBodyArtifact(t, base)) + 4
 			if operation == "REMOVE" {
-				expected = activeBodyArtifact(t, base).Volume - 4
+				expected = measuredArtifactVolume(t, activeBodyArtifact(t, base)) - 4
 			}
-			if !activeBodyArtifact(t, part).Naming.CanBind || math.Abs(activeBodyArtifact(t, part).Volume-expected) > 1e-5 {
-				t.Fatalf("%s on %v: volume %g naming %+v", operation, normal, activeBodyArtifact(t, part).Volume, activeBodyArtifact(t, part).Naming)
+			if !activeBodyArtifact(t, part).Naming.CanBind || math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, part))-expected) > 1e-5 {
+				t.Fatalf("%s on %v: volume %g naming %+v", operation, normal, measuredArtifactVolume(t, activeBodyArtifact(t, part)), activeBodyArtifact(t, part).Naming)
 			}
 			resolution, err := service.ResolvePersistentSelection(t.Context(), part.Document.ID, workspace.ResolvePersistentSelectionRequest{Selection: pick.Selection, SourceVersionID: pick.SourceVersionID, TargetVersionID: part.Document.VersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 			if err != nil || resolution.Status != modelcore.SelectionResolved {
@@ -138,9 +138,9 @@ func verifyImportedNaming(t *testing.T, db database.DB, client *geometry.Client,
 	frame := splitSketch.Sketch.Support
 	var sx, sy float64
 	for i := 0; i < 3; i++ {
-		sx += (top.Selection.CreationEvidence.Centroid[i] - frame.Origin[i]) * frame.XDirection[i]
+		sx += (top.Center[i] - frame.Origin[i]) * frame.XDirection[i]
 	}
-	sy = (top.Selection.CreationEvidence.Centroid[0]-frame.Origin[0])*(-frame.XDirection[1]) + (top.Selection.CreationEvidence.Centroid[1]-frame.Origin[1])*frame.XDirection[0]
+	sy = (top.Center[0]-frame.Origin[0])*(-frame.XDirection[1]) + (top.Center[1]-frame.Origin[1])*frame.XDirection[0]
 	a, b := workspace.SketchPoint2{X: sx - 1, Y: sy - 11}, workspace.SketchPoint2{X: sx + 1, Y: sy + 11}
 	part = apply(part.Document.ID, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: splitSketch.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &a, Second: &b}}})
 	part = apply(part.Document.ID, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Generator: "LINEAR_EXTRUDE", SketchID: splitSketch.ID, Operation: "REMOVE", Length: 1, Reversed: true})

@@ -59,7 +59,7 @@ func TestLoftLinearBoundaryProjectionThroughRouter(t *testing.T) {
 	r.PreviewID = preview.PreviewID
 	apply(r)
 	pick := findP7TopologyPick(t, service, view, "EDGE", func(p workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-		return p.GeometryType == "LINE" && p.Properties["underlyingCurveType"] == "BSPLINE_CURVE" && math.Abs(s.CreationEvidence.Centroid[2]) < 1e-6
+		return p.GeometryType == "LINE" && p.Properties["underlyingCurveType"] == "BSPLINE_CURVE" && math.Abs(queriedTopologyCenter(t, p)[2]) < 1e-6
 	})
 	evidence := pick.Selection.CreationEvidence
 	if evidence.ParameterStart == nil || evidence.ParameterEnd == nil {

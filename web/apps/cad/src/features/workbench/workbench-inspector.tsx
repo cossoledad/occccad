@@ -12,7 +12,7 @@ import {engineeringInstanceName,engineeringConstraintName} from '../../cad/assem
 import {describeAssemblyReference} from '../../cad/assembly/assembly-reference-presentation';
 import {engineeringProblem} from '../../cad/command/operation-feedback';
 
-type PropertiesProps={view:DocumentView;ownerView?:DocumentView;selection:Selection;feature?:Feature;workbench:string;sketchPlane?:SketchPlane;activeTool:string;navigationProfile:string;diagnostics?:DocumentProperties;topology?:TopologyElementProperties;topologyLoading?:boolean;readErrors?:{owner?:string;diagnostics?:string;topology?:string};onEditParameter?:(id:string)=>void;onEditPublication?:(id:string,kind:'PART'|'PRODUCT')=>void};
+type PropertiesProps={intrinsic?:TopologyElementProperties;intrinsicLoading?:boolean;view:DocumentView;ownerView?:DocumentView;selection:Selection;feature?:Feature;workbench:string;sketchPlane?:SketchPlane;activeTool:string;navigationProfile:string;diagnostics?:DocumentProperties;topology?:TopologyElementProperties;topologyLoading?:boolean;readErrors?:{owner?:string;diagnostics?:string;topology?:string};onEditParameter?:(id:string)=>void;onEditPublication?:(id:string,kind:'PART'|'PRODUCT')=>void};
 export function Properties(p:PropertiesProps){
  const target=inspectorOwnerDocumentId(p.view,p.selection),candidate=target===p.view.document.id?p.view:p.ownerView;
  const definition=candidate?.document.id===target&&(!p.selection?.versionId||candidate.document.versionId===p.selection.versionId)?candidate:undefined;
@@ -42,6 +42,12 @@ export function Properties(p:PropertiesProps){
  }else if(s.kind==='body'){
   const body=view.part?.bodies.find(b=>b.id===s.bodyId),resolved=p.view.resolvedInstances?.find(i=>i.bodyId===s.bodyId&&i.documentId===s.documentId&&i.occurrencePath===(s.occurrencePath??''));
   add('name','实体',body?.name??resolved?.name??'引用实体暂不可用');add('path','所属位置',s.instancePath?.display??view.document.name);add('state','状态',body?.displayFallback?'计算失败，显示上次成功结果':body?.consumed?'已用于布尔运算':'参与输出');add('visible','显示',body?.visible===false?'隐藏':'可见');
+  if(p.intrinsicLoading)add('intrinsic-loading','几何属性',<Spin size="small"/>);
+  else if(p.intrinsic?.kind==='BODY'&&p.intrinsic.geometryKey===(s.geometryKey??body?.geometryKey)){
+    const values=p.intrinsic.properties;
+    if(typeof values.volume==='number')add('volume','体积 (mm³)',number(values.volume));
+    if(typeof values.area==='number')add('area','表面积 (mm²)',number(values.area));
+  }
  }else if(s.entityKind==='ASSEMBLY_GROUP_MEMBER_REFERENCE'){
   add('type','类型','固联组成员');add('owner','所属固联组',objectName(p.view,s.ownerEntityId,'固联组已丢失'));add('member','成员',objectName(p.view,s.entityId,'引用成员已丢失'));
  }else if(s.kind==='spatial-analysis'){

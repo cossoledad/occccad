@@ -125,16 +125,16 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, occurrence
     const input: Record<string, unknown> | undefined = valid && resultReady ? initial ? { type: "EDIT_FEATURE", targetId: initial.id, expectedFeatureDigest: digest, feature: definition, requestId: intent.current } : { type: "CREATE_BOOLEAN_FEATURE", bodyId: target, operation, tools, keepTools: keep, booleanResult:definition.booleanResult, requestId: intent.current } : undefined;
     const preview = useFeaturePreview(view.document.id, view.document.versionId, input, operation, (artifact,op)=>{if(resultMode==='ALL')onPreview(artifact,op);else onPreview();});
     const feedback=useFeatureDialogFeedback(error??analysisError??preview.failure??(!analysisPending&&analysis&&!retained.length?"至少保留一个结果区域":undefined),"布尔运算",undefined,preview.repairRequired,analysisError?()=>setAnalysisRetry(n=>n+1):preview.failure?preview.retry:undefined);
-    const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)
+    const apply = async () => { if (!input || !preview.ready || committing)
         return; setCommitting(true); try {
-        await onApply({ ...input, previewId: preview.previewId });
+        await onApply({ ...input, previewId: (await preview.ensure()).previewId });
         onClose();
     }
     catch (cause) {
         setError(cause);
         setCommitting(false);
     } };
-    return <CommandDialog id="boolean-feature" title={initial ? "编辑布尔" : "布尔运算"} open size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={loading||analysisPending||preview.pending}/>} onConfirm={apply} confirmDisabled={!input || !preview.previewId || preview.pending || committing} confirmLoading={committing}>
+    return <CommandDialog id="boolean-feature" title={initial ? "编辑布尔" : "布尔运算"} open size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={loading||analysisPending||preview.pending}/>} onConfirm={apply} confirmDisabled={!input || !preview.ready || committing} confirmLoading={committing}>
   <fieldset disabled={committing} onBlurCapture={feedback.onBlurCapture} className="instance-pattern-fields feature-input-fields">
    <FeaturePickField label="目标实体" value={target?roleName(view.part?.bodies.find(b => b.id === target)?.name??"实体已丢失",'target'):undefined} selected={!!target} active={role === "target"} onActivate={() => {setReplacingRegion(undefined);setReplacing(undefined);setRole("target")}} onClear={target?()=>setTarget(undefined):undefined}/>
    <CommandField  label={<>运算</>} width="content"><Segmented value={operation} options={[{ value: "ADD", label: "并集" }, { value: "REMOVE", label: "差集" }, { value: "INTERSECT", label: "交集" }]} onChange={value => { setOperation(value as Feature["operation"]); if (value === "INTERSECT")

@@ -91,7 +91,7 @@ func TestExplicitProfileRegionsThroughRouter(t *testing.T) {
 			}
 			volume := func(body string, area float64) {
 				t.Helper()
-				actual := artifact(body).Volume
+				actual := measuredArtifactVolume(t, artifact(body))
 				if math.Abs(actual-area*factor) > 1e-5 {
 					t.Fatalf("volume %g want %g", actual, area*factor)
 				}
@@ -101,8 +101,8 @@ func TestExplicitProfileRegionsThroughRouter(t *testing.T) {
 				base := create(nil)
 				apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: generator, BodyID: base.BodyID, Operation: "ADD", Length: 10, ProfileSelection: selected(annulus, other, island)})
 				apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: generator, BodyID: base.BodyID, Operation: "REMOVE", Length: 5, ProfileSelection: selected(annulus)})
-				if math.Abs(artifact(base.BodyID).Volume-160*math.Pi) > 1e-5 {
-					t.Fatal("cut ignored explicit profile", artifact(base.BodyID).Volume)
+				if math.Abs(measuredArtifactVolume(t, artifact(base.BodyID))-160*math.Pi) > 1e-5 {
+					t.Fatal("cut ignored explicit profile", measuredArtifactVolume(t, artifact(base.BodyID)))
 				}
 			}
 			volume(a.BodyID, 12*math.Pi)

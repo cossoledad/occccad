@@ -1,9 +1,11 @@
 package workspace
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 )
 
@@ -13,37 +15,50 @@ const visualizationExtension = "OCCCCAD_visualization"
 // vendor GLB extension. It remains valid without a triangle mesh, so an empty
 // Part or sketch-only Part is still a real visualization artifact.
 func glbWithVisualization(source []byte, visualization VisualizationManifest, association ...map[string]string) ([]byte, error) {
+	reader, err := glbWithVisualizationReader(bytes.NewReader(source), int64(len(source)), visualization, association...)
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(reader)
+}
+
+// Only JSON and newly owned auxiliary arrays are assembled. The immutable mesh
+// BIN prefix streams from the verified staging reader without another full copy.
+func glbWithVisualizationReader(source io.Reader, size int64, visualization VisualizationManifest, association ...map[string]string) (io.Reader, error) {
 	var document map[string]any
-	var binaryChunk []byte
-	if len(source) == 0 {
-		document = map[string]any{
-			"asset":  map[string]any{"version": "2.0", "generator": "occccad metadata service"},
-			"scene":  0,
-			"scenes": []any{map[string]any{"nodes": []any{}}},
-			"nodes":  []any{},
-		}
+	var binarySize int
+	var suffix []byte
+	if size == 0 {
+		document = map[string]any{"asset": map[string]any{"version": "2.0", "generator": "occccad metadata service"}, "scene": 0, "scenes": []any{map[string]any{"nodes": []any{}}}, "nodes": []any{}}
 	} else {
-		if len(source) < 20 || binary.LittleEndian.Uint32(source[0:4]) != 0x46546c67 || binary.LittleEndian.Uint32(source[4:8]) != 2 || uint64(binary.LittleEndian.Uint32(source[8:12])) != uint64(len(source)) {
+		var header [20]byte
+		if _, err := io.ReadFull(source, header[:]); err != nil {
+			return nil, fmt.Errorf("invalid GLB header: %w", err)
+		}
+		jsonSize := int64(binary.LittleEndian.Uint32(header[12:16]))
+		if binary.LittleEndian.Uint32(header[:4]) != 0x46546c67 || binary.LittleEndian.Uint32(header[4:8]) != 2 || int64(binary.LittleEndian.Uint32(header[8:12])) != size || binary.LittleEndian.Uint32(header[16:20]) != 0x4e4f534a || jsonSize%4 != 0 || jsonSize > size-20 {
 			return nil, fmt.Errorf("invalid GLB header")
 		}
-		offset := 12
-		for offset+8 <= len(source) {
-			length := int(binary.LittleEndian.Uint32(source[offset : offset+4]))
-			kind := binary.LittleEndian.Uint32(source[offset+4 : offset+8])
-			offset += 8
-			if length < 0 || length%4 != 0 || length > len(source)-offset {
-				return nil, fmt.Errorf("invalid GLB chunk length")
+		chunk := make([]byte, int(jsonSize))
+		if _, err := io.ReadFull(source, chunk); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(chunk, &document); err != nil {
+			return nil, fmt.Errorf("decode GLB JSON: %w", err)
+		}
+		if document == nil {
+			return nil, fmt.Errorf("missing GLB JSON object")
+		}
+		remaining := size - 20 - jsonSize
+		if remaining > 0 {
+			var chunk [8]byte
+			if _, err := io.ReadFull(source, chunk[:]); err != nil {
+				return nil, fmt.Errorf("invalid GLB binary header: %w", err)
 			}
-			chunk := source[offset : offset+length]
-			switch kind {
-			case 0x4e4f534a:
-				if err := json.Unmarshal(chunk, &document); err != nil {
-					return nil, fmt.Errorf("decode GLB JSON: %w", err)
-				}
-			case 0x004e4942:
-				binaryChunk = append([]byte(nil), chunk...)
+			binarySize = int(binary.LittleEndian.Uint32(chunk[:4]))
+			if binary.LittleEndian.Uint32(chunk[4:]) != 0x004e4942 || binarySize%4 != 0 || int64(binarySize) != remaining-8 {
+				return nil, fmt.Errorf("invalid GLB binary chunk")
 			}
-			offset += length
 		}
 	}
 	extensions, _ := document["extensions"].(map[string]any)
@@ -60,10 +75,10 @@ func glbWithVisualization(source []byte, visualization VisualizationManifest, as
 				return nil, fmt.Errorf("invalid visualization ownership range")
 			}
 			if field == "bufferStart" {
-				if n > float64(len(binaryChunk)) {
+				if n > float64(binarySize+len(suffix)) {
 					return nil, fmt.Errorf("invalid visualization binary suffix")
 				}
-				binaryChunk = binaryChunk[:int(n)]
+				binarySize = int(n)
 				continue
 			}
 			key := map[string]string{"accessorStart": "accessors", "bufferViewStart": "bufferViews", "meshStart": "meshes", "nodeStart": "nodes"}[field]
@@ -95,7 +110,7 @@ func glbWithVisualization(source []byte, visualization VisualizationManifest, as
 	metadata["schemaVersion"] = 2
 	views, _ := document["bufferViews"].([]any)
 	accessors, _ := document["accessors"].([]any)
-	metadata["bufferStart"] = len(binaryChunk)
+	metadata["bufferStart"] = binarySize + len(suffix)
 	metadata["accessorStart"] = len(accessors)
 	metadata["bufferViewStart"] = len(views)
 	meshes, _ := document["meshes"].([]any)
@@ -103,7 +118,7 @@ func glbWithVisualization(source []byte, visualization VisualizationManifest, as
 	metadata["meshStart"] = len(meshes)
 	metadata["nodeStart"] = len(nodes)
 	add := func(values []float64, components int, floating bool) int {
-		start := len(binaryChunk)
+		start := binarySize + len(suffix)
 		for _, value := range values {
 			var bits uint32
 			if floating {
@@ -113,10 +128,10 @@ func glbWithVisualization(source []byte, visualization VisualizationManifest, as
 			}
 			var bytes [4]byte
 			binary.LittleEndian.PutUint32(bytes[:], bits)
-			binaryChunk = append(binaryChunk, bytes[:]...)
+			suffix = append(suffix, bytes[:]...)
 		}
 		view := len(views)
-		views = append(views, map[string]any{"buffer": 0, "byteOffset": start, "byteLength": len(binaryChunk) - start})
+		views = append(views, map[string]any{"buffer": 0, "byteOffset": start, "byteLength": binarySize + len(suffix) - start})
 		component, kind := 5125, "SCALAR"
 		if floating {
 			component = 5126
@@ -190,7 +205,7 @@ func glbWithVisualization(source []byte, visualization VisualizationManifest, as
 
 	document["bufferViews"] = views
 	document["accessors"] = accessors
-	document["buffers"] = []any{map[string]any{"byteLength": len(binaryChunk)}}
+	document["buffers"] = []any{map[string]any{"byteLength": binarySize + len(suffix)}}
 	if extensions["OCCCCAD_cad"] == nil {
 		extensions["OCCCCAD_cad"] = map[string]any{"schemaVersion": 2, "units": "mm", "coordinateSpace": "PART_LOCAL"}
 	}
@@ -220,7 +235,7 @@ func glbWithVisualization(source []byte, visualization VisualizationManifest, as
 		used = append(used, visualizationExtension)
 	}
 	document["extensionsUsed"] = used
-	if len(binaryChunk) == 0 {
+	if binarySize+len(suffix) == 0 {
 		delete(document, "buffers")
 	}
 	for _, key := range []string{"meshes", "nodes", "accessors", "bufferViews"} {
@@ -238,30 +253,28 @@ func glbWithVisualization(source []byte, visualization VisualizationManifest, as
 	for len(jsonChunk)%4 != 0 {
 		jsonChunk = append(jsonChunk, ' ')
 	}
-	for len(binaryChunk)%4 != 0 {
-		binaryChunk = append(binaryChunk, 0)
+	for (binarySize+len(suffix))%4 != 0 {
+		suffix = append(suffix, 0)
 	}
 	total := 12 + 8 + len(jsonChunk)
-	if len(binaryChunk) > 0 {
-		total += 8 + len(binaryChunk)
+	if binarySize+len(suffix) > 0 {
+		total += 8 + binarySize + len(suffix)
 	}
 	if uint64(total) > math.MaxUint32 {
 		return nil, fmt.Errorf("GLB exceeds 32-bit container limit")
 	}
-	output := make([]byte, 12, total)
-	binary.LittleEndian.PutUint32(output[0:4], 0x46546c67)
-	binary.LittleEndian.PutUint32(output[4:8], 2)
-	binary.LittleEndian.PutUint32(output[8:12], uint32(total))
-	appendChunk := func(kind uint32, data []byte) {
-		header := make([]byte, 8)
-		binary.LittleEndian.PutUint32(header[0:4], uint32(len(data)))
-		binary.LittleEndian.PutUint32(header[4:8], kind)
-		output = append(output, header...)
-		output = append(output, data...)
+	prefix := make([]byte, 20+len(jsonChunk))
+	binary.LittleEndian.PutUint32(prefix[:4], 0x46546c67)
+	binary.LittleEndian.PutUint32(prefix[4:8], 2)
+	binary.LittleEndian.PutUint32(prefix[8:12], uint32(total))
+	binary.LittleEndian.PutUint32(prefix[12:16], uint32(len(jsonChunk)))
+	binary.LittleEndian.PutUint32(prefix[16:20], 0x4e4f534a)
+	copy(prefix[20:], jsonChunk)
+	if binarySize+len(suffix) == 0 {
+		return bytes.NewReader(prefix), nil
 	}
-	appendChunk(0x4e4f534a, jsonChunk)
-	if len(binaryChunk) > 0 {
-		appendChunk(0x004e4942, binaryChunk)
-	}
-	return output, nil
+	var chunkHeader [8]byte
+	binary.LittleEndian.PutUint32(chunkHeader[:4], uint32(binarySize+len(suffix)))
+	binary.LittleEndian.PutUint32(chunkHeader[4:], 0x004e4942)
+	return io.MultiReader(bytes.NewReader(prefix), bytes.NewReader(chunkHeader[:]), io.LimitReader(source, int64(binarySize)), bytes.NewReader(suffix)), nil
 }

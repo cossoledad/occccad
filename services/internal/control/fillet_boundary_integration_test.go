@@ -48,7 +48,9 @@ func TestBoundaryFilletLifecycleThroughRouter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	artifacts := artifact.NewService(db, store, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 
@@ -102,25 +104,25 @@ func TestBoundaryFilletLifecycleThroughRouter(t *testing.T) {
 	}
 	apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: base.BodyID, Length: 3, Selections: selected}})
 	fillet := view.Part.Features[len(view.Part.Features)-1]
-	initial := activeBodyArtifact(t, view).Volume
+	initial := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 	apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + fillet.ID + ":length", Value: 4, Unit: "mm"})
-	changed := activeBodyArtifact(t, view).Volume
+	changed := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 	if changed >= initial {
 		t.Fatal("radius did not remove material")
 	}
 	apply(workspace.CommandRequest{Type: "UNDO"})
-	if math.Abs(activeBodyArtifact(t, view).Volume-initial) > 1e-7 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-initial) > 1e-7 {
 		t.Fatal("undo")
 	}
 	apply(workspace.CommandRequest{Type: "REDO"})
-	if math.Abs(activeBodyArtifact(t, view).Volume-changed) > 1e-7 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-changed) > 1e-7 {
 		t.Fatal("redo")
 	}
 	apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + base.ID + ":length", Value: 2.5, Unit: "mm"})
-	if activeBodyArtifact(t, view).Volume <= changed {
+	if measuredArtifactVolume(t, activeBodyArtifact(t, view)) <= changed {
 		t.Fatal("upstream dimension did not propagate")
 	}
-	readyVolume := activeBodyArtifact(t, view).Volume
+	readyVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 	readyKey := activeBodyArtifact(t, view).GeometryKey
 	apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + fillet.ID + ":length", Value: 1000, Unit: "mm"})
 	for _, f := range view.Part.Features {
@@ -134,12 +136,12 @@ func TestBoundaryFilletLifecycleThroughRouter(t *testing.T) {
 		}
 	}
 	apply(workspace.CommandRequest{Type: "UNDO"})
-	if math.Abs(activeBodyArtifact(t, view).Volume-readyVolume) > 1e-7 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-readyVolume) > 1e-7 {
 		t.Fatal("failure recovery changed geometry")
 	}
 	cold := workspace.NewWithArtifacts(db, client, artifacts)
 	reopened, e := cold.GetDocument(t.Context(), view.Document.ID, p6Actor)
-	if e != nil || math.Abs(activeBodyArtifact(t, reopened).Volume-activeBodyArtifact(t, view).Volume) > 1e-7 {
+	if e != nil || math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, reopened))-measuredArtifactVolume(t, activeBodyArtifact(t, view))) > 1e-7 {
 		t.Fatal("cold read", e)
 	}
 }

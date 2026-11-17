@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {PreviewCandidate} from '../preview-candidate.ts';
+import {LatestPreviewQueue} from '../latest-preview-queue.ts';
+let calls=0,finish;
+const queue=new LatestPreviewQueue();
+const candidate=new PreviewCandidate(signal=>queue.submit(async()=>{calls++;return new Promise(resolve=>{finish=resolve})},signal));
+const immediate=candidate.start(); // confirmation before debounce
+assert.equal(calls,1);
+assert.equal(candidate.start(),immediate,'preview and confirmation join exactly one task');
+finish({previewId:'qualified',baseVersionId:'revision'});
+const result=await immediate;
+assert.equal((await candidate.start()).previewId,result.previewId,'completed confirmation promotes the same candidate');
+assert.equal(calls,1);
+const canceled=new PreviewCandidate(async()=>{calls++;});canceled.cancel();
+await assert.rejects(canceled.start(),e=>e.name==='AbortError');assert.equal(calls,1,'cancellation before start does not issue a request');
+let release;
+const old=new PreviewCandidate(signal=>queue.submit(async()=>new Promise(resolve=>{release=resolve}),signal));
+const pending=old.start(),rejected=assert.rejects(pending,e=>e.name==='AbortError');
+old.cancel();
+const latest=new PreviewCandidate(signal=>queue.submit(async()=>++calls,signal));
+const next=latest.start();release('stale');await rejected;assert.equal(await next,2,'superseded results cannot become the next candidate');
+console.log('Immediate, running and completed confirmation share one candidate; canceled candidates cannot publish.');

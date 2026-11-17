@@ -1,3 +1,4 @@
+#include <internal/solid_material.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Check.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -336,9 +337,7 @@ void validate_result(const GeometryFeatureBuild& b, const std::string& op) {
                 statuses += "/" + std::to_string(status);
             throw std::invalid_argument("THICKEN_SELF_INTERSECTION_OR_INVALID_SOLID" + statuses);
         }
-        GProp_GProps p;
-        BRepGProp::VolumeProperties(b.shape, p);
-        if (solids.empty() || !std::isfinite(p.Mass()) || p.Mass() <= 1e-9)
+        if (solids.empty() || !detail::has_solid_material(b.shape))
             throw std::invalid_argument("THICKEN_REQUIRES_VALID_SOLID");
         for (auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
             if (TopExp_Explorer(b.shape, type, TopAbs_SOLID).More())
@@ -348,13 +347,23 @@ void validate_result(const GeometryFeatureBuild& b, const std::string& op) {
     if (faces.empty() && edges.empty() && vertices.empty())
         throw std::invalid_argument("GEOMETRY_RESULT_EMPTY");
     if (op != "THICKEN" && op != "CLOSE_SURFACE" && (!faces.empty() || !edges.empty())) {
-        GProp_GProps measure;
-        if (!faces.empty())
-            BRepGProp::SurfaceProperties(b.shape, measure);
-        else
-            BRepGProp::LinearProperties(b.shape, measure);
-        if (!std::isfinite(measure.Mass()) || measure.Mass() <= tolerance * tolerance)
-            throw std::invalid_argument("GEOMETRY_RESULT_DEGENERATE");
+        bool regular=false;
+        if(!faces.empty()) {
+            for(const auto& face:faces)
+                if(detail::visit_face_interior(TopoDS::Face(face),[](const gp_Pnt&,const gp_Vec&){return true;})){regular=true;break;}
+        } else {
+            for(const auto& edge:edges) {
+                BRepAdaptor_Curve curve(TopoDS::Edge(edge));
+                if(!(curve.LastParameter()>curve.FirstParameter()))continue;
+                for(double fraction:{.5,.25,.75}) {
+                    gp_Pnt point;gp_Vec derivative;
+                    curve.D1(curve.FirstParameter()+(curve.LastParameter()-curve.FirstParameter())*fraction,point,derivative);
+                    if(std::isfinite(derivative.SquareMagnitude())&&derivative.SquareMagnitude()>1e-30){regular=true;break;}
+                }
+                if(regular)break;
+            }
+        }
+        if(!regular)throw std::invalid_argument("GEOMETRY_RESULT_DEGENERATE");
     }
     if (faces.size() + edges.size() + vertices.size() > 100000)
         throw std::invalid_argument("GEOMETRY_TOPOLOGY_BUDGET");

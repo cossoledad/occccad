@@ -18,11 +18,11 @@ export function FeatureMoveDialog({view,features,digests,orderDigest,onClose,onA
  const preview=useFeaturePreview(view.document.id,view.document.versionId,input,"ADD",onPreview);
  useFeatureDialogFeedback(error??preview.failure??(!valid?"模型已改变，请重新打开":undefined),"调整特征顺序",undefined,preview.repairRequired,()=>{setError(undefined);preview.retry()});
  const apply=async()=>{
-  if(!input||!preview.previewId||preview.pending||busy)return;
+  if(!input||!preview.ready||busy)return;
   setBusy(true);setError(undefined);
-  try{await onApply({...input,previewId:preview.previewId});onClose();}catch(cause){setError(cause);setBusy(false);}
+  try{await onApply({...input,previewId:(await preview.ensure()).previewId});onClose();}catch(cause){setError(cause);setBusy(false);}
  };
- return <CommandDialog id="feature-move" open title="调整特征顺序" size="S" onClose={onClose} onConfirm={apply} confirmLoading={busy} confirmDisabled={!input||!preview.previewId||preview.pending||busy}>
+ return <CommandDialog id="feature-move" open title="调整特征顺序" size="S" onClose={onClose} onConfirm={apply} confirmLoading={busy} confirmDisabled={!input||!preview.ready||busy}>
   <fieldset disabled={busy} style={{display:"grid",gap:12,margin:0,border:0,padding:0}}>
    <CommandField label="移动" width="selection">{features.length===1?<span>{feature.name}</span>:<details><summary>{feature.name} → {features.at(-1)!.name} · {features.length} 项</summary><ol>{features.map(f=><li key={f.id}>{f.name}{f.suppressed?'（已抑制）':''}</li>)}</ol></details>}</CommandField>
    <CommandField label="实体" width="selection"><span>{view.part!.bodies.find(b=>b.id===feature.bodyId)?.name}</span></CommandField>

@@ -109,8 +109,8 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 			if reused < 2 || executed != 1 || generators != 0 {
 				t.Fatal("append failed to reuse unconsumed Hole tool checkpoint", reused, executed, generators)
 			}
-			if math.Abs(hot.Artifact.Volume-(128000-3*unit)) > 1e-5 {
-				t.Fatal("linear volume", hot.Artifact.Volume)
+			if math.Abs(measuredArtifactVolume(t, hot.Artifact)-(128000-3*unit)) > 1e-5 {
+				t.Fatal("linear volume", measuredArtifactVolume(t, hot.Artifact))
 			}
 			for _, mode := range []string{"CIRCULAR", "MIRROR"} {
 				f := definition
@@ -129,8 +129,8 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 					count = 2
 				}
 				candidate := preview(request(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &f}))
-				if math.Abs(candidate.Artifact.Volume-(128000-count*unit)) > 1e-5 {
-					t.Fatal(mode, candidate.Artifact.Volume)
+				if math.Abs(measuredArtifactVolume(t, candidate.Artifact)-(128000-count*unit)) > 1e-5 {
+					t.Fatal(mode, measuredArtifactVolume(t, candidate.Artifact))
 				}
 			}
 			linearRequest.PreviewID = hot.PreviewID
@@ -152,7 +152,7 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 					}
 					if r.Selection != nil {
 						s := r.Selection.Selection
-						if s.Anchor.FeatureID == pattern.ID && strings.HasPrefix(s.Anchor.OutputSlot, fmt.Sprintf("MEMBER/%d/", slot)) && math.Abs(s.CreationEvidence.Centroid[2]-20) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE" {
+						if s.Anchor.FeatureID == pattern.ID && strings.HasPrefix(s.Anchor.OutputSlot, fmt.Sprintf("MEMBER/%d/", slot)) && math.Abs(s.CreationEvidence.Origin[2]-20) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE" {
 							return *r.Selection
 						}
 					}
@@ -161,7 +161,7 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 				return workspace.FeatureSelection{}
 			}
 			mouth := findP7TopologyPick(t, service, v, "EDGE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-				return s.Anchor.FeatureID == pattern.ID && strings.HasPrefix(s.Anchor.OutputSlot, "MEMBER/2/") && math.Abs(s.CreationEvidence.Centroid[2]-20) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE"
+				return s.Anchor.FeatureID == pattern.ID && strings.HasPrefix(s.Anchor.OutputSlot, "MEMBER/2/") && math.Abs(s.CreationEvidence.Origin[2]-20) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE"
 			})
 			apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: body, Length: .1, Selections: []workspace.FeatureSelection{{Selection: mouth.Selection, SourceVersionID: mouth.SourceVersionID, SourceFeatureID: pattern.ID}}}})
 			child := v.Part.Features[len(v.Part.Features)-1]
@@ -184,8 +184,8 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 				t.Helper()
 				r := editRequest(f)
 				p := preview(r)
-				if len(p.RepairRequired) != 1 || p.RepairRequired[0].FeatureID != child.ID || math.Abs(p.Artifact.Volume-expected) > 1e-5 {
-					t.Fatal("pattern-stage repair preview", p.RepairRequired, p.Artifact.Volume)
+				if len(p.RepairRequired) != 1 || p.RepairRequired[0].FeatureID != child.ID || math.Abs(measuredArtifactVolume(t, p.Artifact)-expected) > 1e-5 {
+					t.Fatal("pattern-stage repair preview", p.RepairRequired, measuredArtifactVolume(t, p.Artifact))
 				}
 				invalid := f
 				copyPattern := *f.Pattern
@@ -248,7 +248,7 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 			unit = engineeringHoleVolume(saved(hole.ID))
 			apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: location, Operations: []workspace.SketchOperation{{Type: "UPDATE_ENTITY_POINT", EntityID: "p", SubElement: "POINT", Point: &workspace.SketchPoint2{X: -10, Y: 8}}}})
 			stage, err := service.GetFeatureInput(t.Context(), v.Document.ID, workspace.FeatureInputRequest{VersionID: v.Document.VersionID, FeatureID: pattern.ID, ResultStage: true})
-			if err != nil || math.Abs(stage.Artifact.Volume-(128000-2*unit)) > 1e-5 || saved(child.ID).EvaluationStatus != "" {
+			if err != nil || math.Abs(measuredArtifactVolume(t, stage.Artifact)-(128000-2*unit)) > 1e-5 || saved(child.ID).EvaluationStatus != "" {
 				t.Fatal("Hole dimensions/point did not update members", err)
 			}
 			second = saved(second.ID)
@@ -259,13 +259,13 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 			p.Spacing = 25
 			p.AdditionalSources = []workspace.PatternSeed{{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: second.ID}, SourceKind: "AUTO"}}
 			multi.Pattern = &p
-			before := activeBodyArtifact(t, v).Volume
+			before := measuredArtifactVolume(t, activeBodyArtifact(t, v))
 			r := request(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &multi})
 			candidate := preview(r)
 			r.PreviewID = candidate.PreviewID
 			apply(r)
 			multi = v.Part.Features[len(v.Part.Features)-1]
-			if math.Abs(activeBodyArtifact(t, v).Volume-(before-unit-engineeringHoleVolume(second))) > 1e-5 {
+			if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, v))-(before-unit-engineeringHoleVolume(second))) > 1e-5 {
 				t.Fatal("multi-seed tool copied wrong material")
 			}
 			chain := definition
@@ -276,12 +276,12 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 			p.MirrorPlaneID = "datum-yz"
 			p.Source = workspace.FeatureStageRef{BodyID: body, FeatureID: multi.ID}
 			chain.Pattern = &p
-			before = activeBodyArtifact(t, v).Volume
+			before = measuredArtifactVolume(t, activeBodyArtifact(t, v))
 			r = request(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &chain})
 			candidate = preview(r)
 			r.PreviewID = candidate.PreviewID
 			apply(r)
-			if math.Abs(activeBodyArtifact(t, v).Volume-(before-unit-engineeringHoleVolume(second))) > 1e-5 {
+			if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, v))-(before-unit-engineeringHoleVolume(second))) > 1e-5 {
 				t.Fatal("chain copied seed zero or filled holes")
 			}
 			// Unsupported contracts reject atomically and never become BODY_STAGE.
@@ -435,12 +435,12 @@ func TestDirectionalThroughEngineeringHoleReplicationThroughRouter(t *testing.T)
 			const full = 84000. + 98*58*16
 			extra := func(f workspace.Feature) float64 { f.Depth = 0; return engineeringHoleVolume(f) }
 			E := extra(saved(hole.ID))
-			closeVolume(activeBodyArtifact(t, v).Volume, full-7*math.Pi-E)
+			closeVolume(measuredArtifactVolume(t, activeBodyArtifact(t, v)), full-7*math.Pi-E)
 			// Warm checkpoint was created without any pattern consumer, after the later boss.
 			definition := workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "ADD", Pattern: &workspace.FeaturePattern{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: hole.ID}, SourceKind: "AUTO", ResultMode: "COMBINE", PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 4, Spacing: math.Sqrt(180), Direction: [3]float64{12, 0, 6}, SkippedSlots: []int{2}}}}
 			linearRequest := request(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &definition})
 			hot := preview(linearRequest)
-			closeVolume(hot.Artifact.Volume, full-23*math.Pi-3*E)
+			closeVolume(measuredArtifactVolume(t, hot.Artifact), full-23*math.Pi-3*E)
 			var reused, executed, generators uint32
 			if hot.Runtime == nil {
 				t.Fatal("runtime evidence missing")
@@ -473,7 +473,7 @@ func TestDirectionalThroughEngineeringHoleReplicationThroughRouter(t *testing.T)
 					want = full - 17*math.Pi - 2*E
 				}
 				candidate := preview(request(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &f}))
-				closeVolume(candidate.Artifact.Volume, want)
+				closeVolume(measuredArtifactVolume(t, candidate.Artifact), want)
 				service.DiscardPreview(v.Document.ID, p6Actor, candidate.PreviewID)
 			}
 			linearRequest.PreviewID = hot.PreviewID
@@ -505,8 +505,8 @@ func TestDirectionalThroughEngineeringHoleReplicationThroughRouter(t *testing.T)
 			// A through exit is an actual tool/Body intersection edge, often
 			// adjacency-derived. Locate the test pick geometrically, then save
 			// only the authoritative PersistentSelection, never these coordinates.
-			mouth := findP7TopologyPick(t, service, v, "EDGE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-				return s.Anchor.FeatureID == pattern.ID && math.Abs(s.CreationEvidence.Centroid[0]-42) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(s.CreationEvidence.Centroid[2]-30) < 1e-6
+			mouth := findP7TopologyPick(t, service, v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+				return s.Anchor.FeatureID == pattern.ID && math.Abs(queriedTopologyCenter(t, queriedProperties)[0]-42) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(s.CreationEvidence.Origin[2]-30) < 1e-6
 			})
 			apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: body, Length: .1, Selections: []workspace.FeatureSelection{{Selection: mouth.Selection, SourceVersionID: mouth.SourceVersionID, SourceFeatureID: pattern.ID}}}})
 			child := v.Part.Features[len(v.Part.Features)-1]
@@ -524,7 +524,7 @@ func TestDirectionalThroughEngineeringHoleReplicationThroughRouter(t *testing.T)
 					}
 					if r.Selection != nil {
 						s := r.Selection.Selection
-						if s.Anchor.FeatureID == pattern.ID && math.Abs(s.CreationEvidence.Centroid[0]-(6+12*float64(slot))) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(s.CreationEvidence.Centroid[2]-30) < 1e-6 {
+						if s.Anchor.FeatureID == pattern.ID && math.Abs(s.CreationEvidence.Origin[0]-(6+12*float64(slot))) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(s.CreationEvidence.Origin[2]-30) < 1e-6 {
 							pick = r.Selection
 							break
 						}
@@ -556,7 +556,7 @@ func TestDirectionalThroughEngineeringHoleReplicationThroughRouter(t *testing.T)
 				}
 				r := editRequest(changed)
 				candidate := preview(r)
-				closeVolume(candidate.Artifact.Volume, want)
+				closeVolume(measuredArtifactVolume(t, candidate.Artifact), want)
 				if len(candidate.RepairRequired) != 1 || candidate.RepairRequired[0].FeatureID != child.ID {
 					t.Fatal("missing downstream repair preview", candidate.RepairRequired)
 				}
@@ -609,13 +609,13 @@ func TestDirectionalThroughEngineeringHoleReplicationThroughRouter(t *testing.T)
 				t.Fatal("upstream changes lost semantic members", changedHole, saved(child.ID))
 			}
 			E = extra(changedHole)
-			closeVolume(stage(pattern.ID).Volume, full-(20*1.2*1.2+3)*math.Pi-3*E)
+			closeVolume(measuredArtifactVolume(t, stage(pattern.ID)), full-(20*1.2*1.2+3)*math.Pi-3*E)
 			for _, param := range v.Part.Parameters {
 				if param.OwnerFeatureID == hole.ID && param.PropertySlot == "diameter" && (param.ParameterID != diameterID || param.Source.Expression == nil) {
 					t.Fatal("diameter parameter identity lost")
 				}
 			}
-			beforeCopies := activeBodyArtifact(t, v).Volume
+			beforeCopies := measuredArtifactVolume(t, activeBodyArtifact(t, v))
 			multi := definition
 			multi.ID = ""
 			mp := *definition.Pattern
@@ -628,15 +628,15 @@ func TestDirectionalThroughEngineeringHoleReplicationThroughRouter(t *testing.T)
 			apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &multi})
 			multi = saved(v.Part.Features[len(v.Part.Features)-1].ID)
 			cut := 20*1.2*1.2*math.Pi + E + 3*math.Pi
-			closeVolume(activeBodyArtifact(t, v).Volume, beforeCopies-cut)
+			closeVolume(measuredArtifactVolume(t, activeBodyArtifact(t, v)), beforeCopies-cut)
 			chain := workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "ADD", Pattern: &workspace.FeaturePattern{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: multi.ID}, SourceKind: "AUTO", ResultMode: "COMBINE", PatternDefinition: workspace.PatternDefinition{Kind: "MIRROR", Distribution: "FIXED_STEP", Count: 2, Direction: [3]float64{0, 1, 0}, MirrorPlaneID: "datum-xz"}}}
 			apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &chain})
 			chain = saved(v.Part.Features[len(v.Part.Features)-1].ID)
-			closeVolume(activeBodyArtifact(t, v).Volume, beforeCopies-2*cut)
+			closeVolume(measuredArtifactVolume(t, activeBodyArtifact(t, v)), beforeCopies-2*cut)
 			final := activeBodyArtifact(t, v)
 			apply(workspace.CommandRequest{Type: "UNDO"})
 			apply(workspace.CommandRequest{Type: "UNDO"})
-			closeVolume(activeBodyArtifact(t, v).Volume, beforeCopies)
+			closeVolume(measuredArtifactVolume(t, activeBodyArtifact(t, v)), beforeCopies)
 			apply(workspace.CommandRequest{Type: "REDO"})
 			apply(workspace.CommandRequest{Type: "REDO"})
 			if activeBodyArtifact(t, v).GeometryID != final.GeometryID {
@@ -644,7 +644,7 @@ func TestDirectionalThroughEngineeringHoleReplicationThroughRouter(t *testing.T)
 			}
 			off := true
 			apply(workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: chain.ID, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, chain.ID), Suppressed: &off})
-			closeVolume(activeBodyArtifact(t, v).Volume, beforeCopies-cut)
+			closeVolume(measuredArtifactVolume(t, activeBodyArtifact(t, v)), beforeCopies-cut)
 			off = false
 			apply(workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: chain.ID, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, chain.ID), Suppressed: &off})
 			if activeBodyArtifact(t, v).GeometryID != final.GeometryID {

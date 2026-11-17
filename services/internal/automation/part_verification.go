@@ -383,21 +383,21 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 				if body.GeometryKey == "" || s.db == nil {
 					return notVerified("GEOMETRY_EVIDENCE_MISSING", "Body has no authoritative evaluated geometry artifact")
 				}
-				var volume float64
+				var validation string
 				var unit, worker, evaluator string
 				var breps int
-				err := s.db.QueryRow(ctx, `SELECT volume,units,worker_id,evaluator_version,(SELECT count(*) FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id AND o.state='READY' WHERE r.geometry_key=a.geometry_key AND r.role='BREP') FROM occccad.geometry_artifacts a WHERE geometry_key=$1`, body.GeometryKey).Scan(&volume, &unit, &worker, &evaluator, &breps)
+				err := s.db.QueryRow(ctx, `SELECT validation_policy,units,worker_id,evaluator_version,(SELECT count(*) FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id AND o.state='READY' WHERE r.geometry_key=a.geometry_key AND r.role='BREP') FROM occccad.geometry_artifacts a WHERE geometry_key=$1`, body.GeometryKey).Scan(&validation, &unit, &worker, &evaluator, &breps)
 				if errors.Is(err, database.ErrNoRows) {
 					return notVerified("GEOMETRY_EVIDENCE_MISSING", "evaluated geometry artifact is unavailable")
 				}
 				if err != nil {
 					return notVerified("GEOMETRY_EVIDENCE_UNAVAILABLE", err.Error())
 				}
-				result.Observed["bodyId"], result.Observed["geometryKey"], result.Observed["volume"], result.Observed["units"], result.Observed["workerId"], result.Observed["evaluatorVersion"] = bodyID, body.GeometryKey, volume, unit, worker, evaluator
-				if !math.IsNaN(volume) && !math.IsInf(volume, 0) && volume > 0 && unit == "mm" && worker != "" && evaluator != "" && breps == 1 {
+				result.Observed["bodyId"], result.Observed["geometryKey"], result.Observed["validationPolicy"], result.Observed["units"], result.Observed["workerId"], result.Observed["evaluatorVersion"] = bodyID, body.GeometryKey, validation, unit, worker, evaluator
+				if validation == "occccad.geometry.brep-valid.v1" && unit == "mm" && worker != "" && evaluator != "" && breps == 1 {
 					return pass()
 				}
-				return fail("solid evaluation needs a positive finite volume and a ready authoritative B-Rep")
+				return fail("solid evaluation needs a validated nonempty solid and a ready authoritative B-Rep")
 			}
 		}
 		return fail("target Body does not exist")

@@ -131,7 +131,7 @@ func runIncrementalRuntimeProduction(t *testing.T, cacheDisabled bool) {
 		if a.Artifact.GeometryID != b.Artifact.GeometryID || string(representation(a, "NAMING")) != string(representation(b, "NAMING")) {
 			t.Fatal("cold/incremental exact shape or real Naming differs")
 		}
-		if math.Abs(a.Artifact.Volume-b.Artifact.Volume) > 1e-8 {
+		if math.Abs(measuredArtifactVolume(t, a.Artifact)-measuredArtifactVolume(t, b.Artifact)) > 1e-8 {
 			t.Fatal("volume differs")
 		}
 		if len(representation(a, "BREP")) == 0 || len(representation(b, "BREP")) == 0 {

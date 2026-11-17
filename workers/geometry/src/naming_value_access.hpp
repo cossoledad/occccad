@@ -109,7 +109,9 @@ inline void encode_evidence(const kernel::SelectionEvidence& source,v1::Selectio
     if(source.parameter_start)target->set_parameter_start(*source.parameter_start);
     if(source.parameter_end)target->set_parameter_end(*source.parameter_end);
     target->set_endpoint_role(source.endpoint_role);
-    encode_vec(source.centroid,target->mutable_centroid());encode_vec(source.origin,target->mutable_origin());encode_vec(source.direction,target->mutable_direction());
+    if(source.measure_si || source.centroid.x!=0 || source.centroid.y!=0 || source.centroid.z!=0)
+        encode_vec(source.centroid,target->mutable_centroid());
+    encode_vec(source.origin,target->mutable_origin());encode_vec(source.direction,target->mutable_direction());
     for(const auto& adjacent:source.adjacent)encode_ref(adjacent,target->add_adjacent());
     target->set_evidence_digest(source.evidence_digest);
 }

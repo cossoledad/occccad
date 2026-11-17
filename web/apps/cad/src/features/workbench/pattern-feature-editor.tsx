@@ -168,10 +168,10 @@ export function PatternFeatureEditor({ view, feature, digest, unit, occurrencePa
   } catch(cause){parameterError=fieldErrorText(cause);}
   const preview=useFeaturePreview(view.document.id,view.document.versionId,input,draft.operation,(artifact,operation)=>onPreview(artifact,operation,internal?feature.profile:draft.type==="SKETCH_PATTERN"?feature.id:undefined));
   const feedback=useFeatureDialogFeedback(error??preview.failure,"阵列",parameterError,preview.repairRequired,preview.failure?preview.retry:undefined);
-  const apply=async()=>{if(!input||!preview.previewId||preview.pending||busy){feedback.reportValidation();return;}setBusy(true);try{await onApply({...input,previewId:preview.previewId});onClose();}catch(cause){setError(cause);setBusy(false);}};
+  const apply=async()=>{if(!input||!preview.ready||busy){feedback.reportValidation();return;}setBusy(true);try{await onApply({...input,previewId:(await preview.ensure()).previewId});onClose();}catch(cause){setError(cause);setBusy(false);}};
   const removePattern=async(type:"DELETE_PATTERN"|"DETACH_PATTERN")=>{if(busy||!editingPattern)return;setBusy(true);try{await onApply({type:"EDIT_SKETCH",requestId:randomUUID(),sketchId:feature.profile,operations:[{type,patternId:editingPattern}]});onClose();}catch(cause){setError(cause);setBusy(false);}};
 
-  return <CommandDialog id="pattern-feature-editor" open title={`${(feature.id||editingPattern)?"编辑":"创建"}${mirror?"镜像":"阵列"}`} size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={!!binding||preview.pending}/>} onConfirm={apply} confirmLoading={busy} confirmDisabled={!preview.previewId||preview.pending||busy||!input}>
+  return <CommandDialog id="pattern-feature-editor" open title={`${(feature.id||editingPattern)?"编辑":"创建"}${mirror?"镜像":"阵列"}`} size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={!!binding||preview.pending}/>} onConfirm={apply} confirmLoading={busy} confirmDisabled={!preview.ready||busy||!input}>
 
     <fieldset disabled={busy} onBlurCapture={feedback.onBlurCapture} className="instance-pattern-fields feature-input-fields">
       {!mirror&&<CommandField label="方式" width="content"><Segmented aria-label="阵列方式" value={pattern.kind} options={[{value:'LINEAR',label:'线性'},{value:'CIRCULAR',label:'圆周'}]} onChange={kind=>{update({directionReference:undefined,centerReference:undefined,kind:kind as 'LINEAR'|'CIRCULAR',distribution:kind==='CIRCULAR'?'FULL_CIRCLE':'FIXED_STEP',axisEntityId:undefined});setRole(undefined)}}/></CommandField>}

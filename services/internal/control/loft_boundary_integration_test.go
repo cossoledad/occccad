@@ -76,7 +76,7 @@ func TestLoftBoundarySupportsThroughRouter(t *testing.T) {
 	}
 	f = view.Part.Features[len(view.Part.Features)-1]
 	want := 20 * math.Pi * (50 + 25*181./462)
-	if got := activeBodyArtifact(t, view).Volume; math.Abs(got-want) > 1e-5 {
+	if got := measuredArtifactVolume(t, activeBodyArtifact(t, view)); math.Abs(got-want) > 1e-5 {
 		t.Fatal("exact quintic loft volume", got, want)
 	}
 	inputs, e := service.GetFeatureInput(t.Context(), view.Document.ID, workspace.FeatureInputRequest{FeatureID: f.ID, VersionID: view.Document.VersionID})
@@ -84,11 +84,11 @@ func TestLoftBoundarySupportsThroughRouter(t *testing.T) {
 		t.Fatal("formal boundary inputs", inputs.LoftStartPicks, inputs.LoftEndPicks, e)
 	}
 	apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: influence, Value: .8, Unit: "1"})
-	if math.Abs(activeBodyArtifact(t, view).Volume-want) < 1e-3 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-want) < 1e-3 {
 		t.Fatal("magnitude did not change the loft")
 	}
 	apply(workspace.CommandRequest{Type: "UNDO"})
-	if math.Abs(activeBodyArtifact(t, view).Volume-want) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-want) > 1e-5 {
 		t.Fatal("magnitude undo")
 	}
 	apply(workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: endFeature, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, endFeature), Suppressed: boolPointer(true)})
@@ -100,7 +100,7 @@ func TestLoftBoundarySupportsThroughRouter(t *testing.T) {
 	f.LoftEnd = &boundary
 	f.LoftEnd.Supports = []workspace.FeatureSelection{spare}
 	apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: f.ID, Feature: &f, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, f.ID)})
-	if math.Abs(activeBodyArtifact(t, view).Volume-want) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-want) > 1e-5 {
 		t.Fatal("explicit repair")
 	}
 	final := activeBodyArtifact(t, view)

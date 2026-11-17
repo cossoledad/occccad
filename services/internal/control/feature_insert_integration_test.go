@@ -172,11 +172,11 @@ func TestInsertContextSketchAndFiniteExtrudeThroughRouter(t *testing.T) {
 				r := c.scoped(workspace.CommandRequest{Type: "CREATE_SKETCH", AfterFeatureID: c.base.ID, BodyID: c.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Plane: "XY"})
 				if face {
 					for local := uint64(1); local <= p6TopologyCount(t, input.Artifact.Topology, "faces"); local++ {
-						p, e := c.s.GetFeatureInput(ctx, c.v.Document.ID, workspace.FeatureInputRequest{ContextReadScope: c.scope(), VersionID: c.v.Document.VersionID, AfterFeatureID: c.base.ID, BodyID: c.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Kind: "FACE", LocalID: local})
+						p, e := c.s.GetFeatureInput(ctx, c.v.Document.ID, workspace.FeatureInputRequest{ContextReadScope: c.scope(), VersionID: c.v.Document.VersionID, AfterFeatureID: c.base.ID, BodyID: c.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Kind: "FACE", LocalID: local, IncludeProperties: true})
 						if e != nil {
 							t.Fatal(e)
 						}
-						if math.Abs(p.Selection.Selection.CreationEvidence.Centroid[2]-10) < 1e-7 {
+						if math.Abs(queriedTopologyCenter(t, *p.Properties)[2]-20) < 1e-7 {
 							r.TargetKind = "FACE"
 							r.TopologyID = local
 							break
@@ -285,8 +285,8 @@ func TestInsertContextSketchAndFiniteExtrudeThroughRouter(t *testing.T) {
 						prior = v
 					}
 				}
-				priorVolume := beforeRoot.Artifacts[prior.Part.Bodies[0].GeometryKey].Volume
-				finalVolume := c.root.Artifacts[body.GeometryKey].Volume
+				priorVolume := measuredArtifactVolume(t, beforeRoot.Artifacts[prior.Part.Bodies[0].GeometryKey])
+				finalVolume := measuredArtifactVolume(t, c.root.Artifacts[body.GeometryKey])
 				if math.Abs(math.Abs(finalVolume-priorVolume)-80) > 1e-5 || operation == "ADD" && finalVolume <= priorVolume || operation == "REMOVE" && finalVolume >= priorVolume {
 					t.Fatal("wrong context material delta", finalVolume, priorVolume)
 				}
@@ -380,8 +380,8 @@ func TestInsertContextDefaultPublicationFailureRejectsPreviewThroughRouter(t *te
 	c := newContextInsertionScene(t, 24)
 	c.apply(c.scoped(workspace.CommandRequest{Type: "DELETE_NODE", TargetKind: "FEATURE", TargetID: c.chamfer.ID}))
 	c.reload()
-	pick := findP7TopologyPick(t, c.s, c.v, "FACE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-		return p.CreationEvidence.GeometryType == "PLANE" && math.Abs(p.CreationEvidence.Centroid[2]-10) < 1e-7
+	pick := findP7TopologyPick(t, c.s, c.v, "FACE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.CreationEvidence.GeometryType == "PLANE" && math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-10) < 1e-7
 	})
 	c.apply(c.scoped(workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Default top face", PublicationType: "SURFACE", TargetKind: "FACE", GeometryKey: pick.GeometryKey, TopologyID: pick.LocalID}))
 	c.reload()
@@ -409,11 +409,11 @@ func (x *insertionScene) historicalSketch(after string, face bool, adopt bool) w
 	r := x.request(workspace.CommandRequest{Type: "CREATE_SKETCH", BodyID: x.base.BodyID, AfterFeatureID: after, VersionID: x.v.Document.VersionID, GeometryKey: input.Artifact.GeometryKey, Plane: "XY"})
 	if face {
 		for local := uint64(1); local <= p6TopologyCount(x.t, input.Artifact.Topology, "faces"); local++ {
-			pick, e := x.s.GetFeatureInput(x.t.Context(), x.v.Document.ID, workspace.FeatureInputRequest{VersionID: r.VersionID, AfterFeatureID: after, BodyID: x.base.BodyID, GeometryKey: r.GeometryKey, Kind: "FACE", LocalID: local})
+			pick, e := x.s.GetFeatureInput(x.t.Context(), x.v.Document.ID, workspace.FeatureInputRequest{VersionID: r.VersionID, AfterFeatureID: after, BodyID: x.base.BodyID, GeometryKey: r.GeometryKey, Kind: "FACE", LocalID: local, IncludeProperties: true})
 			if e != nil {
 				x.t.Fatal(e)
 			}
-			if math.Abs(pick.Selection.Selection.CreationEvidence.Centroid[2]-20) < 1e-8 {
+			if math.Abs(queriedTopologyCenter(x.t, *pick.Properties)[2]-20) < 1e-8 {
 				r.TargetKind = "FACE"
 				r.TopologyID = local
 				break
@@ -537,11 +537,11 @@ func TestInsertSketchAndFiniteExtrudeLifecycleThroughRouter(t *testing.T) {
 				}
 				final := activeBodyArtifact(t, x.v)
 				original := activeBodyArtifact(t, baseline)
-				if operation == "ADD" && !(final.Volume > original.Volume) || operation == "REMOVE" && !(final.Volume < original.Volume) {
+				if operation == "ADD" && !(measuredArtifactVolume(t, final) > measuredArtifactVolume(t, original)) || operation == "REMOVE" && !(measuredArtifactVolume(t, final) < measuredArtifactVolume(t, original)) {
 					t.Fatal("wrong material result")
 				}
-				if math.Abs(math.Abs(final.Volume-original.Volume)-80) > 1e-5 {
-					t.Fatal("wrong exact material volume", final.Volume, original.Volume)
+				if math.Abs(math.Abs(measuredArtifactVolume(t, final)-measuredArtifactVolume(t, original))-80) > 1e-5 {
+					t.Fatal("wrong exact material volume", measuredArtifactVolume(t, final), measuredArtifactVolume(t, original))
 				}
 				if final.Representations["BREP"].Digest != preview.Artifact.Representations["BREP"].Digest || final.Representations["NAMING"].Digest != preview.Artifact.Representations["NAMING"].Digest {
 					t.Fatal("commit differs from preview")
@@ -628,7 +628,9 @@ func TestInsertSketchGeneratorSourceAndRangeGuardsThroughRouter(t *testing.T) {
 	})
 	t.Run("recursive-datum-order", func(t *testing.T) {
 		x := newInsertionScene(t)
-		pick, _ := x.faceWhere(x.chamfer.ID, x.base.BodyID, x.base.BodyID, false, func(p workspace.FeatureSelection) bool { return p.Selection.CreationEvidence.GeometryType == "PLANE" })
+		pick, _ := x.faceWhere(x.chamfer.ID, x.base.BodyID, x.base.BodyID, false, func(p workspace.FeatureSelection, center [3]float64) bool {
+			return p.Selection.CreationEvidence.GeometryType == "PLANE"
+		})
 		x.apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, DatumDefinition: &workspace.DatumTransform{Source: workspace.DatumReference{Kind: "TOPOLOGY", FeatureID: x.chamfer.ID, Selection: &pick.Selection, SourceVersionID: pick.SourceVersionID}}})
 		first := x.v.Part.DatumPlanes[len(x.v.Part.DatumPlanes)-1]
 		x.apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, DatumDefinition: &workspace.DatumTransform{Source: workspace.DatumReference{Kind: "PLANE", EntityID: first.ID}}})
@@ -720,8 +722,8 @@ func newInsertionScene(t *testing.T) *insertionScene {
 	x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -10, Y: -10}, Second: &workspace.SketchPoint2{X: 10, Y: 10}}}})
 	x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 20})
 	x.base = x.v.Part.Features[len(x.v.Part.Features)-1]
-	p := findP7TopologyPick(t, s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-		return p.CreationEvidence.Centroid == [3]float64{10, 10, 10}
+	p := findP7TopologyPick(t, s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return topologyCentersNear(queriedTopologyCenter(t, queriedProperties), [3]float64{10, 10, 10})
 	})
 	x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: x.base.BodyID, Length: 1, Selections: []workspace.FeatureSelection{{Selection: p.Selection, SourceVersionID: p.SourceVersionID}}}})
 	x.chamfer = x.v.Part.Features[len(x.v.Part.Features)-1]
@@ -755,11 +757,11 @@ func (x *insertionScene) pick(after string, centroid [3]float64) (workspace.Feat
 	x.t.Helper()
 	input := x.input(after, x.base.BodyID)
 	for local := uint64(1); local <= p6TopologyCount(x.t, input.Artifact.Topology, "edges"); local++ {
-		r, e := x.s.GetFeatureInput(x.t.Context(), x.v.Document.ID, workspace.FeatureInputRequest{VersionID: x.v.Document.VersionID, AfterFeatureID: after, BodyID: x.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Kind: "EDGE", LocalID: local})
+		r, e := x.s.GetFeatureInput(x.t.Context(), x.v.Document.ID, workspace.FeatureInputRequest{VersionID: x.v.Document.VersionID, AfterFeatureID: after, BodyID: x.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Kind: "EDGE", LocalID: local, IncludeProperties: true})
 		if e != nil {
 			x.t.Fatal(e)
 		}
-		if r.Selection.Selection.CreationEvidence.Centroid == centroid {
+		if topologyCentersNear(queriedTopologyCenter(x.t, *r.Properties), centroid) {
 			return *r.Selection, input.Artifact.GeometryKey
 		}
 	}
@@ -796,7 +798,7 @@ func TestInsertModifierLifecycleThroughRouter(t *testing.T) {
 	tctx := t.Context()
 	head := x.v.Document.VersionID
 	input := x.input(x.base.ID, x.base.BodyID)
-	if input.SourceFeatureID != x.base.ID || math.Abs(input.Artifact.Volume-8000) > 1e-6 || input.Artifact.GeometryKey == activeBodyArtifact(t, x.v).GeometryKey {
+	if input.SourceFeatureID != x.base.ID || math.Abs(measuredArtifactVolume(t, input.Artifact)-8000) > 1e-6 || input.Artifact.GeometryKey == activeBodyArtifact(t, x.v).GeometryKey {
 		t.Fatal("not the exact base stage")
 	}
 	emptyRequest := workspace.FeatureInputRequest{VersionID: head, AfterFeatureID: x.v.Part.Features[0].ID, BodyID: x.base.BodyID}
@@ -912,11 +914,11 @@ func TestInsertModifierLifecycleThroughRouter(t *testing.T) {
 		}
 	}
 	final := activeBodyArtifact(t, x.v)
-	if math.Abs(final.Volume-(7990-20*(1-math.Pi/4))) > 1e-5 {
-		t.Fatal("incorrect final geometry", final.Volume)
+	if math.Abs(measuredArtifactVolume(t, final)-(7990-20*(1-math.Pi/4))) > 1e-5 {
+		t.Fatal("incorrect final geometry", measuredArtifactVolume(t, final))
 	}
 	stage, e := x.s.GetFeatureInput(tctx, x.v.Document.ID, workspace.FeatureInputRequest{VersionID: x.v.Document.VersionID, FeatureID: created.ID, ResultStage: true})
-	if e != nil || math.Abs(stage.Artifact.Volume-(8000-20*(1-math.Pi/4))) > 1e-5 {
+	if e != nil || math.Abs(measuredArtifactVolume(t, stage.Artifact)-(8000-20*(1-math.Pi/4))) > 1e-5 {
 		t.Fatal("incorrect intermediate stage", e)
 	}
 	retry, e := x.s.ApplyCommand(tctx, x.v.Document.ID, r)
@@ -1000,12 +1002,12 @@ func TestInsertModifierRejectsCrossBodyFailureThroughRouter(t *testing.T) {
 
 // The target Body and a plane's source Body are separate authorization scopes.
 func (x *insertionScene) face(after, target, source string, centroid [3]float64, reference bool) (workspace.FeatureSelection, string) {
-	return x.faceWhere(after, target, source, reference, func(p workspace.FeatureSelection) bool {
-		c := p.Selection.CreationEvidence.Centroid
+	return x.faceWhere(after, target, source, reference, func(p workspace.FeatureSelection, center [3]float64) bool {
+		c := center
 		return math.Abs(c[0]-centroid[0]) < 1e-7 && math.Abs(c[1]-centroid[1]) < 1e-7 && math.Abs(c[2]-centroid[2]) < 1e-7
 	})
 }
-func (x *insertionScene) faceWhere(after, target, source string, reference bool, match func(workspace.FeatureSelection) bool) (workspace.FeatureSelection, string) {
+func (x *insertionScene) faceWhere(after, target, source string, reference bool, match func(workspace.FeatureSelection, [3]float64) bool) (workspace.FeatureSelection, string) {
 	x.t.Helper()
 	r := workspace.FeatureInputRequest{VersionID: x.v.Document.VersionID, AfterFeatureID: after, BodyID: target}
 	if reference {
@@ -1017,13 +1019,14 @@ func (x *insertionScene) faceWhere(after, target, source string, reference bool,
 	}
 	r.GeometryKey = input.Artifact.GeometryKey
 	r.Kind = "FACE"
+	r.IncludeProperties = true
 	for local := uint64(1); local <= p6TopologyCount(x.t, input.Artifact.Topology, "faces"); local++ {
 		r.LocalID = local
 		p, e := x.s.GetFeatureInput(x.t.Context(), x.v.Document.ID, r)
 		if e != nil {
 			x.t.Fatal(e)
 		}
-		if match(*p.Selection) {
+		if match(*p.Selection, queriedTopologyCenter(x.t, *p.Properties)) {
 			return *p.Selection, input.Artifact.GeometryKey
 		}
 	}
@@ -1122,8 +1125,8 @@ func TestInsertFaceModifiersLifecycleThroughRouter(t *testing.T) {
 				t.Fatal("insertion not one history entry", e)
 			}
 			final := activeBodyArtifact(t, x.v)
-			if !(final.Volume > 0 && final.Volume < 8000) {
-				t.Fatal("no real material change", final.Volume)
+			if !(measuredArtifactVolume(t, final) > 0 && measuredArtifactVolume(t, final) < 8000) {
+				t.Fatal("no real material change", measuredArtifactVolume(t, final))
 			}
 			x.apply(workspace.CommandRequest{Type: "UNDO"})
 			if !reflect.DeepEqual(x.v.Part.Features, before) {
@@ -1160,7 +1163,7 @@ func TestInsertFaceModifiersLifecycleThroughRouter(t *testing.T) {
 				r.Feature.Selections[i].SourceVersionID = r.VersionID
 			}
 			x.apply(r)
-			if math.Abs(activeBodyArtifact(t, x.v).Volume-final.Volume) > 1e-6 {
+			if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, x.v))-measuredArtifactVolume(t, final)) > 1e-6 {
 				t.Fatal("direct/preview geometry mismatch")
 			}
 		})
@@ -1179,30 +1182,30 @@ func TestInsertDraftHistoricalNeutralPlaneThroughRouter(t *testing.T) {
 	x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 30, Y: -10}, Second: &workspace.SketchPoint2{X: 50, Y: 10}}}})
 	x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 10})
 	otherBase := x.v.Part.Features[len(x.v.Part.Features)-1]
-	edge := findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-		return p.SourceBodyID == other && p.CreationEvidence.Centroid == [3]float64{50, 10, 5}
+	edge := findP7TopologyPick(t, x.s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.SourceBodyID == other && topologyCentersNear(queriedTopologyCenter(t, queriedProperties), [3]float64{50, 10, 5})
 	})
 	x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: other, Length: .5, Selections: []workspace.FeatureSelection{{Selection: edge.Selection, SourceVersionID: edge.SourceVersionID}}}})
 	reference := x.v.Part.Features[len(x.v.Part.Features)-1]
 	x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: target})
-	p := findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-		return p.SourceBodyID == target && p.CreationEvidence.Centroid == [3]float64{-10, -10, 10}
+	p := findP7TopologyPick(t, x.s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.SourceBodyID == target && topologyCentersNear(queriedTopologyCenter(t, queriedProperties), [3]float64{-10, -10, 10})
 	})
 	x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: target, Length: .5, Selections: []workspace.FeatureSelection{{Selection: p.Selection, SourceVersionID: p.SourceVersionID}}}})
 	anchor := x.v.Part.Features[len(x.v.Part.Features)-1]
 	// Later reference-Body geometry must never be exposed as this earlier plane input.
 	x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: other})
-	edge = findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-		return p.SourceBodyID == other && p.CreationEvidence.Centroid == [3]float64{30, -10, 5}
+	edge = findP7TopologyPick(t, x.s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.SourceBodyID == other && topologyCentersNear(queriedTopologyCenter(t, queriedProperties), [3]float64{30, -10, 5})
 	})
 	x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: other, Length: .5, Selections: []workspace.FeatureSelection{{Selection: edge.Selection, SourceVersionID: edge.SourceVersionID}}}})
 	later := x.v.Part.Features[len(x.v.Part.Features)-1]
 	x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: target})
-	face, key := x.faceWhere(anchor.ID, target, target, false, func(p workspace.FeatureSelection) bool {
-		return p.Selection.CreationEvidence.GeometryType == "PLANE" && math.Abs(p.Selection.CreationEvidence.Centroid[0]+10) < 1e-7
+	face, key := x.faceWhere(anchor.ID, target, target, false, func(p workspace.FeatureSelection, center [3]float64) bool {
+		return p.Selection.CreationEvidence.GeometryType == "PLANE" && math.Abs(center[0]+10) < 1e-7
 	})
-	neutral, referenceKey := x.faceWhere(anchor.ID, target, other, true, func(p workspace.FeatureSelection) bool {
-		return math.Abs(p.Selection.CreationEvidence.Centroid[2]) < 1e-7
+	neutral, referenceKey := x.faceWhere(anchor.ID, target, other, true, func(p workspace.FeatureSelection, center [3]float64) bool {
+		return math.Abs(center[2]) < 1e-7
 	})
 	if neutral.SourceFeatureID != reference.ID || neutral.Selection.Anchor.FeatureID != otherBase.ID || neutral.SourceFeatureID == neutral.Selection.Anchor.FeatureID {
 		t.Fatal("semantic anchor used as source stage", neutral)
@@ -1281,8 +1284,8 @@ func TestInsertDraftHistoricalNeutralPlaneThroughRouter(t *testing.T) {
 
 func TestInsertDraftDatumOrderAndFaceModifierFailureThroughRouter(t *testing.T) {
 	x := newInsertionScene(t)
-	top := findP7TopologyPick(t, x.s, x.v, "FACE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-		return p.CreationEvidence.GeometryType == "PLANE" && math.Abs(p.CreationEvidence.Centroid[2]-20) < 1e-7
+	top := findP7TopologyPick(t, x.s, x.v, "FACE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.CreationEvidence.GeometryType == "PLANE" && math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-20) < 1e-7
 	})
 	x.apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, DatumDefinition: &workspace.DatumTransform{Source: workspace.DatumReference{Kind: "TOPOLOGY", FeatureID: x.chamfer.ID, SourceVersionID: top.SourceVersionID, Selection: &top.Selection}}})
 	future := x.v.Part.DatumPlanes[len(x.v.Part.DatumPlanes)-1]
@@ -1317,8 +1320,8 @@ func TestInsertFaceModifiersBooleanAndRemovalProtectionThroughRouter(t *testing.
 		tool := x.v.Part.Features[len(x.v.Part.Features)-1]
 		x.apply(workspace.CommandRequest{Type: "CREATE_BOOLEAN_FEATURE", BodyID: body, Operation: "REMOVE", KeepTools: true, Tools: []workspace.FeatureStageRef{{BodyID: toolBody, FeatureID: tool.ID}}})
 		anchor := x.v.Part.Features[len(x.v.Part.Features)-1]
-		top, key := x.faceWhere(anchor.ID, body, body, false, func(p workspace.FeatureSelection) bool {
-			return math.Abs(p.Selection.CreationEvidence.Centroid[2]-20) < 1e-7
+		top, key := x.faceWhere(anchor.ID, body, body, false, func(p workspace.FeatureSelection, center [3]float64) bool {
+			return math.Abs(center[2]-20) < 1e-7
 		})
 		r := x.request(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", AfterFeatureID: anchor.ID, VersionID: x.v.Document.VersionID, GeometryKey: key, Feature: &workspace.Feature{Type: "SHELL", BodyID: body, Length: 2, Selections: []workspace.FeatureSelection{top}}})
 		x.apply(r)
@@ -1340,11 +1343,11 @@ func TestInsertFaceModifiersBooleanAndRemovalProtectionThroughRouter(t *testing.
 		end := x.v.Part.Features[len(x.v.Part.Features)-1]
 		x.apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "REMOVE", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Direction: [3]float64{1, 0, 0}, Count: 2, Spacing: 8}, SourceKind: "FEATURE_DELTA", StartFeatureID: cut.ID, Source: workspace.FeatureStageRef{BodyID: body, FeatureID: end.ID}, ResultMode: "COMBINE"}}})
 		for _, kind := range []string{"DRAFT", "SHELL"} {
-			pick, key := x.faceWhere(cut.ID, body, body, false, func(p workspace.FeatureSelection) bool {
+			pick, key := x.faceWhere(cut.ID, body, body, false, func(p workspace.FeatureSelection, center [3]float64) bool {
 				if kind == "SHELL" {
-					return math.Abs(p.Selection.CreationEvidence.Centroid[2]-20) < 1e-7
+					return math.Abs(center[2]-20) < 1e-7
 				}
-				return math.Abs(p.Selection.CreationEvidence.Centroid[0]+10) < 1e-7
+				return math.Abs(center[0]+10) < 1e-7
 			})
 			r := x.request(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", AfterFeatureID: cut.ID, VersionID: x.v.Document.VersionID, GeometryKey: key, Feature: &workspace.Feature{Type: kind, BodyID: body, Length: 1, Angle: 2, NeutralPlaneID: "datum-xy", Selections: []workspace.FeatureSelection{pick}}})
 			x.reject(r, "FEATURE_DELTA")
@@ -1382,8 +1385,8 @@ func TestInsertContextVariantModifiersThroughRouter(t *testing.T) {
 				x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: body})
 				anchor := x.base
 				if kind == "DRAFT" {
-					edge := findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
-						return p.SourceBodyID == body && p.CreationEvidence.Centroid == [3]float64{-10, -10, 5}
+					edge := findP7TopologyPick(t, x.s, x.v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+						return p.SourceBodyID == body && topologyCentersNear(queriedTopologyCenter(t, queriedProperties), [3]float64{-10, -10, 5})
 					})
 					x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: body, Length: .5, Selections: []workspace.FeatureSelection{{Selection: edge.Selection, SourceVersionID: edge.SourceVersionID}}}})
 					anchor = x.v.Part.Features[len(x.v.Part.Features)-1]
@@ -1444,7 +1447,7 @@ func TestInsertContextVariantModifiersThroughRouter(t *testing.T) {
 				}
 				variant := root.ContextVariants[0]
 				scope := workspace.ContextReadScope{RootProductDocumentID: root.Document.ID, RootProductRevisionID: root.Document.VersionID, ContextVariantID: variant.VariantKey, InstancePath: &variant.OwningInstancePath}
-				pick := func(other string, match func(modelcore.TopologySelectionEvidence) bool) (workspace.FeatureSelection, string) {
+				pick := func(other string, match func(modelcore.TopologySelectionEvidence, [3]float64) bool) (workspace.FeatureSelection, string) {
 					r := workspace.FeatureInputRequest{ContextReadScope: scope, VersionID: x.v.Document.VersionID, AfterFeatureID: anchor.ID, BodyID: body, ReferenceBodyID: other}
 					input, e := x.s.GetFeatureInput(ctx, x.v.Document.ID, r)
 					if e != nil {
@@ -1452,24 +1455,27 @@ func TestInsertContextVariantModifiersThroughRouter(t *testing.T) {
 					}
 					r.GeometryKey = input.Artifact.GeometryKey
 					r.Kind = "FACE"
+					r.IncludeProperties = true
 					for i := uint64(1); i <= p6TopologyCount(t, input.Artifact.Topology, "faces"); i++ {
 						r.LocalID = i
 						p, e := x.s.GetFeatureInput(ctx, x.v.Document.ID, r)
 						if e != nil {
 							t.Fatal(e)
 						}
-						if match(p.Selection.Selection.CreationEvidence) {
+						if match(p.Selection.Selection.CreationEvidence, queriedTopologyCenter(t, *p.Properties)) {
 							return *p.Selection, r.GeometryKey
 						}
 					}
 					t.Fatal("context stage face missing")
 					return workspace.FeatureSelection{}, ""
 				}
-				face, key := pick("", func(e modelcore.TopologySelectionEvidence) bool {
+				// Explicit properties describe the accepted 20 mm projection; selection
+				// tokens still carry the independent definition evidence.
+				face, key := pick("", func(e modelcore.TopologySelectionEvidence, center [3]float64) bool {
 					if kind == "SHELL" {
-						return math.Abs(e.Centroid[2]-10) < 1e-7
+						return math.Abs(center[2]-20) < 1e-7 && math.Abs(e.Direction[2]) > .99
 					}
-					return math.Abs(e.Centroid[0]+10) < 1e-7 && e.GeometryType == "PLANE"
+					return math.Abs(center[0]+10) < 1e-7 && e.GeometryType == "PLANE"
 				})
 				independent := x.input(anchor.ID, body)
 				if independent.Artifact.GeometryKey == key {
@@ -1477,7 +1483,9 @@ func TestInsertContextVariantModifiersThroughRouter(t *testing.T) {
 				}
 				f := workspace.Feature{Type: kind, BodyID: body, Length: 2, Angle: 2, Selections: []workspace.FeatureSelection{face}}
 				if kind == "DRAFT" {
-					neutral, _ := pick(referenceBody, func(e modelcore.TopologySelectionEvidence) bool { return math.Abs(e.Centroid[2]-10) < 1e-7 })
+					neutral, _ := pick(referenceBody, func(e modelcore.TopologySelectionEvidence, center [3]float64) bool {
+						return math.Abs(center[2]-20) < 1e-7 && math.Abs(e.Direction[2]) > .99
+					})
 					f.NeutralPlane = &neutral
 					if neutral.SourceFeatureID != reference.ID {
 						t.Fatal("reference stage lost")

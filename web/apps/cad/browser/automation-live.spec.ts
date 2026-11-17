@@ -1,3 +1,4 @@
+import {measuredArtifactVolume} from "./measurement-oracle";
 import {confirmCommandName} from "./command-labels";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
@@ -51,7 +52,7 @@ test("durable conversation continues in background, accepts questions, restores 
   await expect.poll(async()=>(await currentRun(page,seed.id)).status,{timeout:90_000}).toBe("COMPLETED");
   const background=await currentRun(page,seed.id);expect(background.id).toBe(initial.id);expect(background.stageCount).toBe(2);expect(background.appliedCount).toBe(4);expect(background.presentedRevisionId).not.toBe(background.latestRevisionId);
   const final=await currentDocument(page,seed.id);expect(final.part.features.at(-1).type).toBe("FILLET");expect(final.part.features.at(-1).selections).toHaveLength(12);expect(final.part.features.at(-1).length).toBe(2);
-  const volume=Object.values(final.artifacts as Record<string,{volume:number}>).reduce((sum,artifact)=>sum+artifact.volume,0);expect(volume).toBeGreaterThan(0);expect(volume).toBeLessThan(48000);
+  const volumes=await Promise.all(Object.values(final.artifacts as Record<string,{geometryKey:string;geometryDomain?:string}>).filter(a=>a.geometryDomain==='SOLID_SET').map(artifact=>measuredArtifactVolume(page,artifact)));const volume=volumes.reduce((sum,value)=>sum+value,0);expect(volume).toBeGreaterThan(0);expect(volume).toBeLessThan(48000);
   const count=provider.calls();let rejectDisplay=true,failedDownloads=0;
   await page.route("**/api/documents/**/representations/**",async route=>{if(rejectDisplay&&route.request().url().includes(`/documents/${seed.id}/`)){failedDownloads++;await route.fulfill({status:503,body:"fixture display download unavailable"})}else await route.continue()});
   await page.reload();await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"建模助手",exact:true}).click();

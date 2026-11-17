@@ -42,7 +42,7 @@ func TestAssociatedExtrudeLifecycleThroughRouter(t *testing.T) {
 			}
 			volume := func(want float64) {
 				t.Helper()
-				if got := activeBodyArtifact(t, view).Volume; math.Abs(got-want) > 1e-5 {
+				if got := measuredArtifactVolume(t, activeBodyArtifact(t, view)); math.Abs(got-want) > 1e-5 {
 					t.Fatal("volume", got, want)
 				}
 			}
@@ -214,7 +214,7 @@ func TestCurvedTerminationUpdatesAndRequiresExplicitRepairThroughRouter(t *testi
 	volume := func(radius float64) {
 		t.Helper()
 		want := 160 - 2*(2*math.Sqrt(radius*radius-4)+radius*radius*math.Asin(2/radius))
-		if got := activeBodyArtifact(t, view).Volume; math.Abs(got-want) > 1e-5 {
+		if got := measuredArtifactVolume(t, activeBodyArtifact(t, view)); math.Abs(got-want) > 1e-5 {
 			t.Fatal("curved volume", got, want)
 		}
 	}

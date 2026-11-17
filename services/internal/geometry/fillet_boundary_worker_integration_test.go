@@ -79,14 +79,14 @@ func TestCppWorkerBoundaryFilletParameterRoundTrip(t *testing.T) {
 	for _, radius := range []float64{2, 2.2, 2.3, 3, 4, 3} {
 		fillet.Length = radius
 		result, _ := evaluate([]ProfilePad{base, fillet})
-		if result.GetVolume() <= 0 || result.GetVolume() >= initial.GetVolume() {
-			t.Fatalf("radius %g: material range %g", radius, result.GetVolume())
+		if measuredEvaluationVolume(t, client, result) <= 0 || measuredEvaluationVolume(t, client, result) >= measuredEvaluationVolume(t, client, initial) {
+			t.Fatalf("radius %g: material range %g", radius, measuredEvaluationVolume(t, client, result))
 		}
-		if prior, ok := volumes[radius]; ok && math.Abs(prior-result.GetVolume()) > 1e-7 {
+		if prior, ok := volumes[radius]; ok && math.Abs(prior-measuredEvaluationVolume(t, client, result)) > 1e-7 {
 			t.Fatal("parameter round trip changed result")
 		}
-		volumes[radius] = result.GetVolume()
-		t.Logf("radius=%g volume=%g triangles=%d", radius, result.GetVolume(), result.GetTriangleCount())
+		volumes[radius] = measuredEvaluationVolume(t, client, result)
+		t.Logf("radius=%g volume=%g triangles=%d", radius, measuredEvaluationVolume(t, client, result), result.GetTriangleCount())
 	}
 	corner := ProfilePad{FeatureID: "corners", BodyID: "body", InputFeatureID: "base", Generator: "FILLET", Length: 0.5}
 	corner.Selections = pick(initial, initialNaming, func(e *workerv1.EdgeInfo) bool {

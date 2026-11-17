@@ -181,7 +181,7 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		if math.Abs(activeBodyArtifact(t, fan).Volume-(18000-count*math.Pi*4*5)) > 1e-5 || math.Abs(activeBodyArtifact(t, cover).Volume-count*math.Pi*4*5) > 1e-5 {
+		if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, fan))-(18000-count*math.Pi*4*5)) > 1e-5 || math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, cover))-count*math.Pi*4*5) > 1e-5 {
 			t.Fatal("shared parameter geometry did not update")
 		}
 		for _, f := range fan.Part.Features {
@@ -224,11 +224,11 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 		t.Fatal(e)
 	}
 	fan, e = cold.GetDocument(t.Context(), fan.Document.ID, p6Actor)
-	if e != nil || math.Abs(activeBodyArtifact(t, fan).Volume-(18000-6*math.Pi*4*5)) > 1e-5 {
+	if e != nil || math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, fan))-(18000-6*math.Pi*4*5)) > 1e-5 {
 		t.Fatal("failed propagation did not recover", e)
 	}
 	apply(&fan, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + fanSketch + ":constraint:radius:value", Value: 3, Unit: "mm"})
-	if math.Abs(activeBodyArtifact(t, fan).Volume-(18000-6*math.Pi*9*5)) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, fan))-(18000-6*math.Pi*9*5)) > 1e-5 {
 		t.Fatal("seed hole diameter did not update every member")
 	}
 	// The two other evaluators consume the same distribution model and real
@@ -240,7 +240,7 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 	apply(&blade, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch.ID, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 5})
 	seed := blade.Part.Features[len(blade.Part.Features)-1]
 	apply(&blade, workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: seed.BodyID, Operation: "ADD", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 3, Spacing: 10, Direction: [3]float64{1, 0, 0}}, Source: workspace.FeatureStageRef{BodyID: seed.BodyID, FeatureID: seed.ID}, SourceKind: "GENERATOR_TOOL", ResultMode: "INDEPENDENT"}}})
-	if math.Abs(activeBodyArtifact(t, blade).Volume-90) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, blade))-90) > 1e-6 {
 		t.Fatal("independent solid pattern geometry incorrect")
 	}
 	patternFeature := blade.Part.Features[len(blade.Part.Features)-1]
@@ -248,7 +248,7 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 		return selection.Anchor.FeatureID == patternFeature.ID && strings.Contains(selection.Anchor.OutputSlot, "MEMBER/2/")
 	})
 	apply(&blade, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + seed.ID + ":length", Value: 7, Unit: "mm"})
-	if math.Abs(activeBodyArtifact(t, blade).Volume-126) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, blade))-126) > 1e-6 {
 		t.Fatal("seed edit not propagated to solids")
 	}
 	resolution, e := cold.ResolvePersistentSelection(t.Context(), blade.Document.ID, workspace.ResolvePersistentSelectionRequest{Selection: memberPick.Selection, SourceVersionID: memberPick.SourceVersionID, TargetVersionID: blade.Document.VersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
@@ -256,11 +256,11 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 		t.Fatalf("member face did not follow seed edit: %#v %v", resolution, e)
 	}
 	apply(&blade, workspace.CommandRequest{Type: "UNDO"})
-	if math.Abs(activeBodyArtifact(t, blade).Volume-90) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, blade))-90) > 1e-6 {
 		t.Fatal("pattern undo incorrect")
 	}
 	apply(&blade, workspace.CommandRequest{Type: "REDO"})
-	if math.Abs(activeBodyArtifact(t, blade).Volume-126) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, blade))-126) > 1e-6 {
 		t.Fatal("pattern redo incorrect")
 	}
 	apply(&blade, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + patternFeature.ID + ":pattern:count", Value: 2, Unit: "1"})
@@ -271,7 +271,7 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 	apply(&blade, workspace.CommandRequest{Type: "UNDO"})
 	suppressed := true
 	apply(&blade, workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: patternFeature.ID, ExpectedFeatureDigest: findP6FeatureDigest(t, blade.StructureTree, patternFeature.ID), Suppressed: &suppressed})
-	if math.Abs(activeBodyArtifact(t, blade).Volume-42) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, blade))-42) > 1e-6 {
 		t.Fatal("pattern suppression retained generated solids")
 	}
 	apply(&blade, workspace.CommandRequest{Type: "UNDO"})
@@ -279,12 +279,12 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 	frames := blade.Part.Features[len(blade.Part.Features)-1]
 	slot := 1
 	apply(&blade, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: frames.ID, ProfileMemberSlot: &slot, Generator: "LINEAR_EXTRUDE", Operation: "NEW_BODY", Length: 2})
-	if math.Abs(activeBodyArtifact(t, blade).Volume-12) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, blade))-12) > 1e-6 {
 		t.Fatal("spatial sketch was not consumed by extrude")
 	}
 	first, last := 0, 2
 	apply(&blade, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &workspace.Feature{Type: "LOFT", BodyID: sketch.BodyID, Operation: "NEW_BODY", Sections: []workspace.LoftSection{{SketchID: frames.ID, MemberSlot: &first}, {SketchID: frames.ID, MemberSlot: &last}}}})
-	if math.Abs(activeBodyArtifact(t, blade).Volume-120) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, blade))-120) > 1e-6 {
 		t.Fatal("spatial sketch was not consumed by loft")
 	}
 
@@ -300,7 +300,7 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 	}
 	blade = failed
 	apply(&blade, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + frames.ID + ":pattern:count", Value: 3, Unit: "1"})
-	if math.Abs(activeBodyArtifact(t, blade).Volume-120) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, blade))-120) > 1e-6 {
 		t.Fatal("restored member did not recover downstream loft")
 	}
 	// A mirrored cutting tool remains a cutting tool when selected again. AUTO
@@ -328,12 +328,12 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 		if accepted.Operation != "REMOVE" || accepted.Pattern.SourceKind != "GENERATOR_TOOL" {
 			t.Fatal("negative source was reinterpreted", accepted)
 		}
-		if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-float64(i+2)*math.Pi*4*5)) > 1e-5 {
-			t.Fatal("mirror filled or duplicated a hole", i, activeBodyArtifact(t, nested).Volume)
+		if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, nested))-(18000-float64(i+2)*math.Pi*4*5)) > 1e-5 {
+			t.Fatal("mirror filled or duplicated a hole", i, measuredArtifactVolume(t, activeBodyArtifact(t, nested)))
 		}
 	}
 	apply(&nested, workspace.CommandRequest{Type: "UNDO"})
-	if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-3*math.Pi*4*5)) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, nested))-(18000-3*math.Pi*4*5)) > 1e-5 {
 		t.Fatal("undo lost previous holes")
 	}
 	apply(&nested, workspace.CommandRequest{Type: "REDO"})
@@ -341,11 +341,11 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 		t.Fatal("redo changed feature identity")
 	}
 	apply(&nested, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + holeSketch + ":constraint:hole-radius:value", Value: 3, Unit: "mm"})
-	if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-4*math.Pi*9*5)) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, nested))-(18000-4*math.Pi*9*5)) > 1e-5 {
 		t.Fatal("nested tool did not follow seed diameter")
 	}
 	reopened, err := cold.GetDocument(t.Context(), nested.Document.ID, p6Actor)
-	if err != nil || reopened.Document.VersionID != nested.Document.VersionID || math.Abs(activeBodyArtifact(t, reopened).Volume-activeBodyArtifact(t, nested).Volume) > 1e-8 {
+	if err != nil || reopened.Document.VersionID != nested.Document.VersionID || math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, reopened))-measuredArtifactVolume(t, activeBodyArtifact(t, nested))) > 1e-8 {
 		t.Fatal("reopen changed nested pattern", err)
 	}
 
@@ -355,11 +355,11 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 	if len(multi.Pattern.AdditionalSources) != 1 || multi.Pattern.AdditionalSources[0].SourceKind != "GENERATOR_TOOL" {
 		t.Fatal("seed set not persisted", multi)
 	}
-	if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-6*math.Pi*9*5)) > 1e-5 {
-		t.Fatal("additional cutting seed was lost", activeBodyArtifact(t, nested).Volume)
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, nested))-(18000-6*math.Pi*9*5)) > 1e-5 {
+		t.Fatal("additional cutting seed was lost", measuredArtifactVolume(t, activeBodyArtifact(t, nested)))
 	}
 	apply(&nested, workspace.CommandRequest{Type: "UNDO"})
-	if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-4*math.Pi*9*5)) > 1e-5 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, nested))-(18000-4*math.Pi*9*5)) > 1e-5 {
 		t.Fatal("multi-seed Undo")
 	}
 	apply(&nested, workspace.CommandRequest{Type: "REDO"})

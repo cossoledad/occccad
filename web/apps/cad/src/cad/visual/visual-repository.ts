@@ -2,7 +2,7 @@ import type { Artifact, DocumentView, MeshData } from "../../types";
 import type { DecodedVisual } from "./mesh-glb";
 import { VisualDecoder } from "./visual-decoder";
 import { applyVisualDelta, VISUAL_DELTA_TYPE } from "./visual-delta";
-type LoadedVisual = {decoded: DecodedVisual; buffer?: ArrayBuffer};
+type LoadedVisual = {decoded: DecodedVisual; buffer?: ArrayBuffer; contours?:Promise<void>};
 type RawBase = {buffer: ArrayBuffer; path: string; digest: string};
 const apiBaseURL = (import.meta.env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
@@ -71,7 +71,7 @@ export class VisualRepository {
                         if (hash !== ref.digest)
                             throw new Error("Display artifact digest mismatch");
                     }
-                    const result = await (this.owner ?? this).decoder.decode(buffer, true, this.abort.signal);
+                    const result = await (this.owner ?? this).decoder.decode(buffer, !this.owner, this.abort.signal);
                     if (this.abort.signal.aborted) throw new DOMException("Preview canceled", "AbortError");
                     return result;
                 })();
@@ -83,6 +83,13 @@ export class VisualRepository {
             if (this.abort.signal.aborted) throw new DOMException("Display canceled", "AbortError");
             if ((a.representations.NAMING || decoded.association?.geometryId) && decoded.association?.geometryId !== a.geometryId) throw new Error("Visual geometry identity mismatch");
             if ((a.visualNamingDigest || a.representations.NAMING?.digest || decoded.association?.namingDigest) && decoded.association?.namingDigest !== (a.visualNamingDigest ?? a.representations.NAMING?.digest)) throw new Error("Visual Naming digest mismatch");
+            if(!this.owner && !decoded.mesh.contourIncidence && decoded.mesh.buffers?.indices.length){
+                loaded.contours??=this.decoder.prepareContours(decoded.mesh,this.abort.signal).then(graph=>{
+                    if(graph&&!decoded.mesh.contourIncidence)Object.defineProperty(decoded.mesh,'contourIncidence',{value:graph});
+                }).catch(error=>{loaded.contours=undefined;throw error;});
+                await loaded.contours;
+                if(this.abort.signal.aborted)throw new DOMException("Display canceled","AbortError");
+            }
             if (this.owner) this.owner.reusablePreview = {key, loaded};
             else if (this.latest.get(scope) === generation && a.representationKind === 'PERSISTENT' && loaded.buffer && loaded.buffer.byteLength <= 64*1024*1024 && /^[a-f0-9]{64}$/.test(ref.digest)) {
                 const basePath = new URL(path, 'http://display.local');

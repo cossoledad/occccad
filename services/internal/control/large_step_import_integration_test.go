@@ -75,7 +75,7 @@ func TestLargeSTEPImportThroughManagedRouter(t *testing.T) {
 		}
 		size := proto.Size(response)
 		largest = max(largest, size)
-		if size > geometryrpc.MaxMessageBytes || response.GetVolume() <= 0 || response.GetTriangleCount() == 0 {
+		if size > geometryrpc.MaxMessageBytes || response.GetValidationPolicy() != "occccad.geometry.brep-valid.v1" || response.GetTopology().GetSolidCount() == 0 || response.GetTriangleCount() == 0 {
 			t.Fatalf("invalid component %d result", index+1)
 		}
 		if response.GetPreviewMesh() != nil || response.GetRepresentationKind() != "PERSISTENT" {

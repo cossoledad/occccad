@@ -184,6 +184,11 @@ func (a *App) Reset(o Options) error {
 			return fmt.Errorf("stop configured process before reset: %s", addr)
 		}
 	}
+	// Migrations are embedded in the binary. Reusing a previously built migrate
+	// command can reset to an obsolete schema after editing the baseline SQL.
+	if e = a.GoBuild(o); e != nil {
+		return e
+	}
 	fmt.Fprintln(a.Err, "Reset configured development targets:", environmentIdentity())
 	os.Setenv("OCCCCAD_ALLOW_DEV_RESET", "1")
 	return a.native(a.services(), true, filepath.Join(a.Root, "build/services", o.Profile, "occccad-migrate"), "-reset-development-data")

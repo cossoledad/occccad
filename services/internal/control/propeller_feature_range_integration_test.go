@@ -92,7 +92,7 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 			polygon([][2]float64{{60, -50}, {-60, -50}, {-60, top}, {60, top}}, "base")
 			apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: s.ID, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 90})
 			base := view.Part.Features[len(view.Part.Features)-1]
-			baseVolume := activeBodyArtifact(t, view).Volume
+			baseVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 			apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{60, 50, 0}, Normal: [3]float64{1, 0, 0}, UDirection: [3]float64{0, 1, 0}})
 			plane := view.Part.DatumPlanes[len(view.Part.DatumPlanes)-1]
 			apply(workspace.CommandRequest{Type: "CREATE_SKETCH", DatumPlaneID: plane.ID})
@@ -115,7 +115,7 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 			if selected == nil {
 				t.Fatal("large fillet root missing")
 			}
-			unroundedVolume := activeBodyArtifact(t, view).Volume
+			unroundedVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 			apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: base.BodyID, Length: 80, Selections: selected}})
 			fillet := view.Part.Features[len(view.Part.Features)-1]
 			_, before := load()
@@ -155,10 +155,10 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 					}
 					// Locate the enlarged y=-50 cap and its extended z=0 edge
 					// in this fixture; local numbering differs from the user's document.
-					if e.Kind == "FACE" && evidence.GeometryType == "PLANE" && math.Abs(evidence.Centroid[1]+50) < 1e-6 && *evidence.MeasureSI > .0108+1e-8 {
+					if e.Kind == "FACE" && evidence.GeometryType == "PLANE" && math.Abs(queriedTopologyCenter(t, props)[1]+50) < 1e-6 && *evidence.MeasureSI > .0108+1e-8 {
 						faceOrigins = e.Origins
 					}
-					if e.Kind == "EDGE" && evidence.GeometryType == "LINE" && math.Abs(evidence.Centroid[1]+50) < 1e-6 && math.Abs(evidence.Centroid[2]) < 1e-6 && math.Abs(*evidence.MeasureSI-.124809324) < 1e-7 {
+					if e.Kind == "EDGE" && evidence.GeometryType == "LINE" && math.Abs(queriedTopologyCenter(t, props)[1]+50) < 1e-6 && math.Abs(queriedTopologyCenter(t, props)[2]) < 1e-6 && math.Abs(*evidence.MeasureSI-.124809324) < 1e-7 {
 						edgeOrigins = e.Origins
 					}
 				}
@@ -166,7 +166,7 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 					t.Fatalf("merged cap/boundary sources disagree: face=%v edge=%v", faceOrigins, edgeOrigins)
 				}
 			}
-			seedVolume := activeBodyArtifact(t, view).Volume
+			seedVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 			sourceID, startID := fillet.ID, blade.ID
 			if testCase.sourceKind == "GENERATOR_TOOL" {
 				sourceID, startID = blade.ID, ""
@@ -198,8 +198,8 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 			if testCase.sourceKind == "GENERATOR_TOOL" {
 				expectedVolume = seedVolume + unroundedVolume - baseVolume
 			}
-			if math.Abs(activeBodyArtifact(t, view).Volume-expectedVolume) > 1e-4 {
-				t.Fatalf("baseline copied or rounded leaf missing: %v want %v", activeBodyArtifact(t, view).Volume, 2*seedVolume-baseVolume)
+			if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-expectedVolume) > 1e-4 {
+				t.Fatalf("baseline copied or rounded leaf missing: %v want %v", measuredArtifactVolume(t, activeBodyArtifact(t, view)), 2*seedVolume-baseVolume)
 			}
 			if testCase.sourceKind == "GENERATOR_TOOL" {
 				memberMesh, memberVisual := load()
@@ -228,7 +228,7 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 							continue
 						}
 						evidence := props.PersistentSelection.CreationEvidence
-						if evidence.GeometryType == "LINE" && math.Abs(evidence.Centroid[0]+60) < 1e-6 && math.Abs(evidence.Centroid[1]-10) < 1e-6 && math.Abs(evidence.Centroid[2]-35) < 1e-6 {
+						if evidence.GeometryType == "LINE" && math.Abs(queriedTopologyCenter(t, props)[0]+60) < 1e-6 && math.Abs(queriedTopologyCenter(t, props)[1]-10) < 1e-6 && math.Abs(queriedTopologyCenter(t, props)[2]-35) < 1e-6 {
 							rootID = edge.LocalID
 							break
 						}
@@ -266,7 +266,7 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 				if !firstMember || !secondMember {
 					t.Fatal("second fillet lost first blend or member identity")
 				}
-				if !asymmetric && math.Abs(activeBodyArtifact(t, view).Volume-(2*seedVolume-baseVolume)) > 1e-4 {
+				if !asymmetric && math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-(2*seedVolume-baseVolume)) > 1e-4 {
 					t.Fatal("second root fillet differs from transformed first root")
 				}
 				apply(workspace.CommandRequest{Type: "UNDO"})
@@ -315,7 +315,7 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if math.Abs(activeBodyArtifact(t, view).Volume-(2*stage.Artifact.Volume-baseVolume)) > 1e-4 {
+			if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-(2*measuredArtifactVolume(t, stage.Artifact)-baseVolume)) > 1e-4 {
 				t.Fatal("radius/seed edit did not recompute material range")
 			}
 			pattern.Pattern.Count = 3

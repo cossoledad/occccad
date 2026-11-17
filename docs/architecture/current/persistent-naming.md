@@ -97,6 +97,8 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 - [resolver corpus](../../../services/internal/workspace/topology_selection_test.go)
 - [正式 Router Edge/Vertex 集成](../../../services/internal/control/edge_vertex_naming_integration_test.go)
 
+当前 evidence evaluator 为 `occccad.topology.contract.v8`。Face/Edge 证据取精确解析信息、支撑/位置、曲线区间和完整有向裁剪 pcurve 的规范摘要，不包含 OCCT 容差记录、序列化表顺序或为命名额外计算的面积、边长、质心。邻接仍按当前结果重建。相同语义 ref 的真实一对一后继只有在完整几何证据严格相同后，才可认证为未变并共享网格；摘要不用于搜索、创造或猜测持久身份。旧策略制品不得混入新求值。
+
 ## 导入根命名
 
 有效 Solid/Compound 和开放/混合 STEP/BREP Definition 均生成完整 Face/Edge/Vertex 根命名。XDE Definition 保持一个 Part；多 Solid 不再触发业务拆分或伪造装配。纯实体 Definition 先检查有效性，必要时在拷贝上运行 ShapeFix（mm：precision 1e-6、min 1e-7、max 1e-3），针对相邻圆柱面拆分造成的周期参数边界未闭合，仅在参数坐标系一致、两面各只有一条三维闭合边界且仅共享一条边时合并面片；不拼接近似同轴曲面。修复后再次检查有效 Solid 集、数量保持且无游离拓扑，再冻结实际 BREP SHA-256；修复失败返回组件诊断，不丢弃坏实体。准备与修复发生在身份分配之前，已冻结的历史快照不重写。ImportExchange 负责规范化精确快照，提交 ImportBody 或几何图形集 IMPORTED 结果前，控制面分配独立随机 topology ID，写入不可变 `identity.pb` Artifact，并由 `import_definitions` 索引；Feature 的 `importDefinitionId` 引用该重放输入。定义记录绑定 Feature/Body 或 Feature/resultId、原始源对象和源 Definition ID（新 Jobs 导入）、精确 BREP digest、OCCT 版本、导入策略及毫米单位。旧文档修复可仅依据其已冻结的精确 BREP，不虚构已丢失的原始源文件。
@@ -105,7 +107,7 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 
 EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named topology，再复用原生 Add/Remove/Intersect、OCCT history 与同域合并传播。初始输出有完整邻接、类型、几何 evidence 和有向法向；后续 split/merge/deletion 使用同一 resolver，分裂多候选保留 Ambiguous。缓存身份包含完整 seed，依赖图将 ImportBody 作为 Body Tip，后续草图/实体读取其命名和几何。
 
-已接纳 Body 的 Naming 可提供该冻结 ImportBody 根 transition，免除每次重新测量未变化的导入几何。恢复仍验证原始 BREP、策略、owner、typed locator、完整历史与全部已分配身份；根历史 digest 参与阶段缓存身份，后续 Tip transition 不改变根身份。精确拓扑及朝向相同、语义引用相同时复用对应证据；新拓扑继续测量，最终邻接重新索引。导入根、实体最终输出及独立几何结果共用包含/共享边界索引，保持 canonical 邻接及 history digest；不以数值相似度或 local 编号继承身份。求值与取消边界见[零件增量求值](part-feature-evaluation.md#零件增量求值)。
+已接纳 Body 的 Naming 可提供该冻结 ImportBody 根 transition，免除每次重新测量未变化的导入几何。恢复仍验证原始 BREP、策略、owner、typed locator、完整历史与全部已分配身份；根历史 digest 参与阶段缓存身份，后续 Tip transition 不改变根身份。精确拓扑及朝向相同、语义引用相同时复用对应证据；新拓扑继续计算几何证据，最终邻接重新索引。导入根、实体最终输出及独立几何结果共用包含/共享边界索引，保持 canonical 邻接及 history digest；不以数值相似度或 local 编号继承身份。求值与取消边界见[零件增量求值](part-feature-evaluation.md#零件增量求值)。
 
 已有无定义的导入由 `REPAIR_IMPORT_NAMING`（typed URI `occccad://part/exchange/repair-naming`）显式建立命名。工作台告警提供“建立导入命名”入口。修复保留原 Feature 和 BREP，通过正常 Transaction、CAS、entity ChangeSet 和新 Revision 提交；Undo/Redo 使用同一冻结定义，旧 Revision 不改写。已命名 Feature 不能以修复操作重新分配身份；缺失定义的历史快照仍使用 [IMPORT-DIAGNOSTICS](jobs-artifacts.md#持久任务与制品) 的明确诊断。
 

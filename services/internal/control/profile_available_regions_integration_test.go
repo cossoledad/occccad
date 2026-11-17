@@ -83,8 +83,8 @@ func TestExplicitProfileWithUnfinishedSketchThroughRouter(t *testing.T) {
 	dependencies("AVAILABLE")
 	volume := func(want float64) {
 		t.Helper()
-		if math.Abs(activeBodyArtifact(t, view).Volume-want) > 1e-5 {
-			t.Fatal("unexpected region material", activeBodyArtifact(t, view).Volume, want)
+		if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-want) > 1e-5 {
+			t.Fatal("unexpected region material", measuredArtifactVolume(t, activeBodyArtifact(t, view)), want)
 		}
 	}
 	volume(5 * math.Pi * 91)
@@ -118,7 +118,7 @@ func TestExplicitProfileWithUnfinishedSketchThroughRouter(t *testing.T) {
 	if e != nil || comparison.State != "AVAILABLE" || comparison.Snapshot == nil || comparison.Snapshot.VersionID == view.Document.VersionID {
 		t.Fatal("healthy region comparison", e, comparison)
 	}
-	if comparison.Snapshot.Feature.ProfileSelection.RegionIDs[0] != regionID || len(comparison.Snapshot.Artifacts) != 1 || math.Abs(comparison.Snapshot.Artifacts[0].Volume-5*math.Pi*91) > 1e-5 {
+	if comparison.Snapshot.Feature.ProfileSelection.RegionIDs[0] != regionID || len(comparison.Snapshot.Artifacts) != 1 || math.Abs(measuredArtifactVolume(t, comparison.Snapshot.Artifacts[0])-5*math.Pi*91) > 1e-5 {
 		t.Fatal("history substituted current profile", comparison.Snapshot)
 	}
 	comparisonArtifact := comparison.Snapshot.Artifacts[0]

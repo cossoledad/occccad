@@ -37,7 +37,6 @@ func TestPerpendicularEdgeProjectionThroughRouter(t *testing.T) {
 	pick := findP7TopologyPick(t, service, view, "EDGE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
 		return s.CreationEvidence.GeometryType == "LINE" && math.Abs(s.CreationEvidence.Direction[2]) > .99
 	})
-	evidence := pick.Selection.CreationEvidence
 	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketchID, Operations: []workspace.SketchOperation{{Type: "ADD_EXTERNAL_GEOMETRY", ExternalID: "projected-point", TopologyKind: "EDGE", TopologyID: pick.LocalID, GeometryKey: pick.GeometryKey, SourceVersionID: pick.SourceVersionID}}})
 	check := func(v workspace.DocumentView) {
 		t.Helper()
@@ -52,7 +51,7 @@ func TestPerpendicularEdgeProjectionThroughRouter(t *testing.T) {
 			if e.Status != "CONNECTED" || e.Snapshot == nil || e.Snapshot.Kind != "POINT" || e.PersistentSelection.ExpectedType != "EDGE" {
 				t.Fatalf("projection lost original edge identity: %+v", e)
 			}
-			if math.Abs(e.Snapshot.Point.X-evidence.Centroid[0]) > 1e-8 || math.Abs(e.Snapshot.Point.Y-evidence.Centroid[1]) > 1e-8 {
+			if math.Abs(e.Snapshot.Point.X-pick.Center[0]) > 1e-8 || math.Abs(e.Snapshot.Point.Y-pick.Center[1]) > 1e-8 {
 				t.Fatal("incorrect orthogonal point", e.Snapshot)
 			}
 			return
@@ -71,7 +70,7 @@ func TestPerpendicularEdgeProjectionThroughRouter(t *testing.T) {
 		{Type: "ADD_CONSTRAINT", Constraint: &workspace.SketchConstraint{ID: "coincident-projection", Kind: "COINCIDENT", References: []workspace.SketchGeometryRef{{Target: "ENTITY", EntityID: "constrained-point", SubElement: "POINT"}, {Target: "EXTERNAL", EntityID: "projected-point", SubElement: "POINT"}}}},
 	}})
 	solved := view.Part.Features[len(view.Part.Features)-1].Sketch.Entities[0].Point
-	if solved == nil || math.Abs(solved.X-evidence.Centroid[0]) > 1e-6 || math.Abs(solved.Y-evidence.Centroid[1]) > 1e-6 {
+	if solved == nil || math.Abs(solved.X-pick.Center[0]) > 1e-6 || math.Abs(solved.Y-pick.Center[1]) > 1e-6 {
 		t.Fatal("projected point is not usable as solver input", solved)
 	}
 	cold := workspace.NewWithArtifacts(db, client, artifacts)

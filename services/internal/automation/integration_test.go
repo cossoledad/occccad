@@ -207,7 +207,7 @@ func TestAutomationProductionTaskPreviewCommitRecoveryAndHistory(t *testing.T) {
 	}
 	volume := 0.0
 	for _, a := range final.Artifacts {
-		volume += a.Volume
+		volume += measuredArtifactVolume(t, a)
 	}
 	if math.Abs(volume-48000) > 1e-4 {
 		t.Fatalf("production volume=%g, want 48000", volume)
@@ -451,7 +451,7 @@ func TestAutomationAllEdgesFilletAndWorkbenchHandoff(t *testing.T) {
 	}
 	volume := 0.
 	for _, artifact := range final.Artifacts {
-		volume += artifact.Volume
+		volume += measuredArtifactVolume(t, artifact)
 	}
 	if volume <= 0 || volume >= 48000 {
 		t.Fatal("fillet did not change the real solid volume", volume)
@@ -549,7 +549,7 @@ func TestAutomationGenericSketchSolidAndProductCommands(t *testing.T) {
 	}
 	volume := 0.
 	for _, artifact := range part.Artifacts {
-		volume += artifact.Volume
+		volume += measuredArtifactVolume(t, artifact)
 	}
 	if math.Abs(volume-250*math.Pi) > 1e-6 {
 		t.Fatal("generic circle extrusion did not reach native Worker", volume)

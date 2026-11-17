@@ -39,7 +39,7 @@ func TestEngineeringHoleGroupThroughRouter(t *testing.T) {
 		t.Helper()
 		tip := 1 / math.Tan(math.Pi/3)
 		want := 4000 - float64(n)*(depth*math.Pi+math.Pi*tip/3)
-		if got := activeBodyArtifact(t, view).Volume; math.Abs(got-want) > 1e-5 {
+		if got := measuredArtifactVolume(t, activeBodyArtifact(t, view)); math.Abs(got-want) > 1e-5 {
 			t.Fatal("engineering hole volume", got, want)
 		}
 	}

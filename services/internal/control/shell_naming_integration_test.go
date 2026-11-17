@@ -43,8 +43,8 @@ func TestShellInteriorOwnershipThroughRouter(t *testing.T) {
 			apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{op}})
 			apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 20})
 			base := v.Part.Features[len(v.Part.Features)-1]
-			pick := findP7TopologyPick(t, service, v, "FACE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-				return math.Abs(s.CreationEvidence.Centroid[2]-20) < 1e-6
+			pick := findP7TopologyPick(t, service, v, "FACE", func(queriedProperties workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+				return math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-20) < 1e-6
 			})
 			shell := workspace.Feature{Type: "SHELL", BodyID: base.BodyID, Length: 1, Selections: []workspace.FeatureSelection{{Selection: pick.Selection, SourceVersionID: pick.SourceVersionID}}}
 			apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &shell})
@@ -82,7 +82,7 @@ func TestShellInteriorOwnershipThroughRouter(t *testing.T) {
 						t.Fatal("topology", e)
 					}
 					evidence := p.PersistentSelection.CreationEvidence
-					c := evidence.Centroid
+					c := queriedTopologyCenter(t, p)
 					if item.Kind == "FACE" {
 						inner := math.Abs(c[2]-thickness) < 1e-6
 						if round {

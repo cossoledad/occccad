@@ -50,14 +50,14 @@ func TestLoftReplicationAndMirrorLifecycleThroughRouter(t *testing.T) {
 			body := view.Part.Features[len(view.Part.Features)-1].BodyID
 			eccentric := rectangle("datum-xy", -2, 17, 2, 19)
 			apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: eccentric, Generator: "LINEAR_EXTRUDE", Operation: "REMOVE", Length: 10})
-			baseVolume := activeBodyArtifact(t, view).Volume
+			baseVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 			a := rectangle("datum-xy", 8, -2, 12, 2)
 			apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Name: "loft top", Origin: [3]float64{0, 0, 10}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
 			top := view.Part.DatumPlanes[len(view.Part.DatumPlanes)-1].ID
 			b := rectangle(top, 9, -1, 11, 1)
 			apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &workspace.Feature{Type: "LOFT", BodyID: body, Operation: "REMOVE", Sections: []workspace.LoftSection{{SketchID: a}, {SketchID: b}}}})
 			seed := view.Part.Features[len(view.Part.Features)-1]
-			seedVolume := activeBodyArtifact(t, view).Volume
+			seedVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 			toolVolume := baseVolume - seedVolume
 			if !view.ReplicationSources[seed.ID].Tool {
 				t.Fatal("loft tool unavailable in authoritative view")
@@ -68,7 +68,7 @@ func TestLoftReplicationAndMirrorLifecycleThroughRouter(t *testing.T) {
 				definition.Direction = [3]float64{1, 0, 0}
 				definition.MirrorPlaneID = "datum-yz"
 				plane := findP7TopologyPick(t, service, view, "FACE", func(p workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-					return p.GeometryType == "PLANE" && math.Abs(s.CreationEvidence.Centroid[0]+2) < 1e-6 && math.Abs(s.CreationEvidence.Direction[0]) > 0.99
+					return p.GeometryType == "PLANE" && math.Abs(queriedTopologyCenter(t, p)[0]+2) < 1e-6 && math.Abs(s.CreationEvidence.Direction[0]) > 0.99
 				})
 				definition.MirrorPlaneID = ""
 				definition.MirrorPlane = &workspace.FeatureSelection{Selection: plane.Selection, SourceVersionID: plane.SourceVersionID}
@@ -95,16 +95,16 @@ func TestLoftReplicationAndMirrorLifecycleThroughRouter(t *testing.T) {
 			}
 			checkVolume := func(expected float64) {
 				t.Helper()
-				if math.Abs(activeBodyArtifact(t, view).Volume-expected) > 1e-5 {
-					t.Fatal("copied stock/eccentric feature instead of loft tool", activeBodyArtifact(t, view).Volume, expected)
+				if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-expected) > 1e-5 {
+					t.Fatal("copied stock/eccentric feature instead of loft tool", measuredArtifactVolume(t, activeBodyArtifact(t, view)), expected)
 				}
 			}
 			checkVolume(seedVolume - toolVolume)
 			member := findP7TopologyPick(t, service, view, "EDGE", func(p workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-				return s.Anchor.FeatureID == pattern.ID && strings.HasPrefix(s.Anchor.OutputSlot, "MEMBER/1/") && p.GeometryType == "LINE" && math.Abs(s.CreationEvidence.Centroid[2]-10) < 1e-5
+				return s.Anchor.FeatureID == pattern.ID && strings.HasPrefix(s.Anchor.OutputSlot, "MEMBER/1/") && p.GeometryType == "LINE" && math.Abs(queriedTopologyCenter(t, p)[2]-10) < 1e-5
 			})
 			apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: body, Length: 0.2, Selections: []workspace.FeatureSelection{{Selection: member.Selection, SourceVersionID: member.SourceVersionID}}}})
-			downstreamVolume := activeBodyArtifact(t, view).Volume
+			downstreamVolume := measuredArtifactVolume(t, activeBodyArtifact(t, view))
 			if downstreamVolume >= seedVolume-toolVolume {
 				t.Fatal("member chamfer did not remove material")
 			}
@@ -148,17 +148,17 @@ func TestLoftReplicationAndMirrorLifecycleThroughRouter(t *testing.T) {
 				scan(*view.StructureTree)
 				apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: pattern.ID, ExpectedFeatureDigest: digest, Feature: &pattern})
 				downstreamVolume -= toolVolume
-				if math.Abs(activeBodyArtifact(t, view).Volume-downstreamVolume) > 1e-3 {
-					t.Fatal("count edit did not preserve member chamfer", activeBodyArtifact(t, view).Volume, downstreamVolume)
+				if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-downstreamVolume) > 1e-3 {
+					t.Fatal("count edit did not preserve member chamfer", measuredArtifactVolume(t, activeBodyArtifact(t, view)), downstreamVolume)
 				}
-				downstreamVolume = activeBodyArtifact(t, view).Volume
+				downstreamVolume = measuredArtifactVolume(t, activeBodyArtifact(t, view))
 			}
 			cold := workspace.NewWithArtifacts(db, client, artifacts)
 			reopened, e := cold.GetDocument(t.Context(), view.Document.ID, p6Actor)
 			if e != nil {
 				t.Fatal(e)
 			}
-			if math.Abs(activeBodyArtifact(t, reopened).Volume-downstreamVolume) > 1e-5 || !reopened.ReplicationSources[seed.ID].Tool {
+			if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, reopened))-downstreamVolume) > 1e-5 || !reopened.ReplicationSources[seed.ID].Tool {
 				t.Fatal("cold reopen lost replica or source capability")
 			}
 		})

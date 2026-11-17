@@ -288,7 +288,7 @@ func TestSubassemblyPublicInterfacesDriveHoleThroughTwoRigidLevels(t *testing.T)
 		}
 	}
 	assertPoint(60, 30)
-	if artifact, ok := root.Artifacts[variant().Bodies[0].GeometryKey]; !ok || math.Abs(artifact.Volume-(240*160*5-3*math.Pi*4)) > 1e-4 {
+	if artifact, ok := root.Artifacts[variant().Bodies[0].GeometryKey]; !ok || math.Abs(measuredArtifactVolume(t, artifact)-(240*160*5-3*math.Pi*4)) > 1e-4 {
 		t.Fatalf("exact Hole result volume: %+v", artifact)
 	}
 	for _, b := range root.Product.ContextBindings {

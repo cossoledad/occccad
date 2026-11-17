@@ -126,8 +126,8 @@ func TestHoleToPlaneLifecycleThroughRouter(t *testing.T) {
 					t.Fatal(e)
 				}
 				want := 12000 - math.Pi*(4*depth+extra)
-				if math.Abs(a.Artifact.Volume-want) > 1e-5 {
-					t.Fatal("exact volume", a.Artifact.Volume, want)
+				if math.Abs(measuredArtifactVolume(t, a.Artifact)-want) > 1e-5 {
+					t.Fatal("exact volume", measuredArtifactVolume(t, a.Artifact), want)
 				}
 				got := saved(hole.ID)
 				if got.ID != hole.ID || got.BodyID != hole.BodyID || got.Name != hole.Name || got.Order != hole.Order || got.EvaluationStatus != "" {
@@ -355,8 +355,8 @@ func TestHoleToPlaneAcceptedContextInputMaintenanceThroughRouter(t *testing.T) {
 					want = wantDepth
 				}
 				a := root.Artifacts[cv.Bodies[0].GeometryKey]
-				if math.Abs(a.Volume-(12000-4*math.Pi*want)) > 1e-5 {
-					t.Fatal("precise accepted hole depth", i, a.Volume, want)
+				if math.Abs(measuredArtifactVolume(t, a)-(12000-4*math.Pi*want)) > 1e-5 {
+					t.Fatal("precise accepted hole depth", i, measuredArtifactVolume(t, a), want)
 				}
 				for _, f := range cv.Part.Features {
 					if f.ID == hole.ID && (f.EvaluationStatus != "" || f.HolePoint.Reference.EntityID != "p") {
@@ -432,8 +432,8 @@ func TestHoleToPlaneAcceptedContextInputMaintenanceThroughRouter(t *testing.T) {
 			want = accepted
 		}
 		a := cold.Artifacts[cv.Bodies[0].GeometryKey]
-		if math.Abs(a.Volume-(12000-4*math.Pi*want)) > 1e-5 {
-			t.Fatal("local terminal plane changed on cold rebuild", a.Volume, want)
+		if math.Abs(measuredArtifactVolume(t, a)-(12000-4*math.Pi*want)) > 1e-5 {
+			t.Fatal("local terminal plane changed on cold rebuild", measuredArtifactVolume(t, a), want)
 		}
 	}
 	read(&root)

@@ -87,7 +87,7 @@ func TestSurfaceShapeControlPreviewParametersQualityHistoryAndCold(t *testing.T)
 	thickness := Feature{Type: "THICKEN", Operation: "NEW_BODY", Geometry: &GeometricFeatureDefinition{Kind: "THICKEN", Inputs: []GeometricInput{resultInput(blend)}, Parameters: GeometryOperationParameters{Distance: 2}}}
 	v = f.command(CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &thickness})
 	solid := v.Part.Features[len(v.Part.Features)-1]
-	if math.Abs(v.Artifacts[v.Part.Bodies[len(v.Part.Bodies)-1].GeometryKey].Volume-200) > 1e-4 {
+	if math.Abs(measuredArtifactVolume(t, v.Artifacts[v.Part.Bodies[len(v.Part.Bodies)-1].GeometryKey])-200) > 1e-4 {
 		t.Fatal("controlled surface did not thicken", solid)
 	}
 	b.Geometry.Curve.Points[0].Position[1] = 12
@@ -105,7 +105,7 @@ func TestSurfaceShapeControlPreviewParametersQualityHistoryAndCold(t *testing.T)
 	if _, err = f.service.AnalyzeShapeQuality(f.ctx, f.documentID, query); err == nil {
 		t.Fatal("accepted stale analysis")
 	}
-	if math.Abs(v.Artifacts[v.Part.Bodies[len(v.Part.Bodies)-1].GeometryKey].Volume-240) > 1e-4 {
+	if math.Abs(measuredArtifactVolume(t, v.Artifacts[v.Part.Bodies[len(v.Part.Bodies)-1].GeometryKey])-240) > 1e-4 {
 		t.Fatal("surface/solid association lost")
 	}
 	f.command(CommandRequest{Type: "UNDO"})

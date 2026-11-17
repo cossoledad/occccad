@@ -274,7 +274,7 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 					if err != nil {
 						return "", err
 					}
-					if a.Volume <= 0 {
+					if a.GeometryDomain != "SOLID_SET" || a.ValidationPolicy != geometryValidationPolicy {
 						continue
 					}
 					ref, err := service.brepArtifactReference(ctx, body.GeometryKey)

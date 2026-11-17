@@ -90,7 +90,7 @@ func (f *automationOccurrenceFixture) cylinder(outer, inner, length float64) Doc
 	view = f.apply(view.Document.ID, CommandRequest{Type: "CREATE_SOLID_FEATURE", BodyID: view.Part.ActiveBodyID, SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: length})
 	volume := 0.0
 	for _, a := range view.Artifacts {
-		volume += a.Volume
+		volume += measuredArtifactVolume(f.t, a)
 	}
 	if math.Abs(volume-math.Pi*(outer*outer-inner*inner)*length) > 1e-5 {
 		f.t.Fatal("native parameterized extrusion volume mismatch", volume)

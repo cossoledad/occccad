@@ -1886,6 +1886,7 @@ public:
             if(request->has_base_stage() && !runtime.force_cold) {
                 if(!request->has_import_seed() || base_brep.empty())throw std::invalid_argument("BASE_STAGE_REQUIRES_IMPORT");
                 const auto& source=request->base_stage();
+                if(source.validation_policy()!="occccad.geometry.brep-valid.v1")throw std::invalid_argument("BASE_STAGE_VALIDATION_MISMATCH");
                 const auto data=input_artifact(source.naming());
                 worker_api::PartTopologyManifest snapshot;
                 const auto geometry=occccad::kernel::make_geometry_id(base_brep.data(),base_brep.size());
@@ -1916,7 +1917,7 @@ public:
                    !transition.complete() || !transition.input_geometry_id().empty() || transition.has_result() ||
                    transition.deleted_size()!=0 || transition.ambiguous_size()!=0)
                     throw std::invalid_argument("BASE_STAGE_ROOT_MISMATCH");
-                occccad::kernel::PartBaseStage frozen;frozen.geometry_id=geometry;frozen.volume=source.volume();
+                occccad::kernel::PartBaseStage frozen;frozen.geometry_id=geometry;frozen.validated=true;
                 auto& root=frozen.root;root.feature_id=seed.feature_id;root.body_id=seed.body_id;root.result_geometry_id=geometry;
                 root.topology_history_complete=true;root.topology_history.feature_id=seed.feature_id;
                 root.topology_history.result_geometry_id=geometry;root.topology_history.policy_digest=request->topology_policy().policy_digest();
@@ -1947,7 +1948,7 @@ public:
             // Feature identity and the naming policy; transport IDs/outputs do not.
             std::ostringstream base_facts;
             if(runtime.base_stage)base_facts<<std::setprecision(std::numeric_limits<double>::max_digits10)
-                <<runtime.base_stage->geometry_id<<':'<<runtime.base_stage->volume<<':'
+                <<runtime.base_stage->geometry_id<<':'<<runtime.base_stage->validated<<':'
                 <<runtime.base_stage->root.topology_history.evidence_digest;
             std::string prefix=occccad::kernel::make_geometry_id(base_brep.data(),base_brep.size())+
                 request->topology_policy().SerializeAsString()+request->import_seed().SerializeAsString()+
@@ -2238,13 +2239,6 @@ public:
             }
             const auto summary = kernel_.getTopologySummary(geometry_id);
             if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "exchange import cancelled"};
-            if (summary.geometry_domain == "SOLID_SET") {
-                const auto mass_started = std::chrono::steady_clock::now();
-                spdlog::info("exchange_mass_properties geometry={} phase=started", geometry_id);
-                kernel_.getVolume(geometry_id);
-                spdlog::info("exchange_mass_properties geometry={} phase=completed duration_ms={}", geometry_id,
-                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-mass_started).count());
-            }
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
                             request->glb_output_key(),false,false,nullptr,nullptr,
@@ -2521,6 +2515,7 @@ private:
         const auto check_cancel=[&](){if(cancelled&&cancelled())throw std::runtime_error("EVALUATION_CANCELLED");};
         check_cancel();
         const auto publish=[&](const auto& key,const auto& bytes,const auto& type,auto* ref){const auto began=std::chrono::steady_clock::now();check_cancel();write_artifact(key,bytes,type,ref);auto* stats=response->mutable_runtime_stats();stats->set_artifact_io_ms(stats->artifact_io_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count());};
+        kernel_.validateResult(geometry_id);
         const auto bbox = kernel_.getBoundingBox(geometry_id);
         if(exact_only) {
             const auto topology=kernel_.getTopologySummary(geometry_id);
@@ -2528,7 +2523,7 @@ private:
             if(brep_buffer)*brep_buffer=brep;
             if(!brep_output_key.empty())publish(brep_output_key,*brep,"application/vnd.opencascade.brep",response->mutable_brep_artifact());
             response->set_geometry_id(geometry_id);response->set_geometry_key(geometry_key);
-            fill_bbox(bbox,response->mutable_bbox());response->set_volume(topology.geometry_domain=="SOLID_SET"?kernel_.getVolume(geometry_id):0);
+            fill_bbox(bbox,response->mutable_bbox());response->set_validation_policy("occccad.geometry.brep-valid.v1");
             auto* summary=response->mutable_topology();summary->set_face_count(topology.face_count);summary->set_edge_count(topology.edge_count);
             summary->set_vertex_count(topology.vertex_count);summary->set_solid_count(topology.solid_count);summary->set_geometry_domain(topology.geometry_domain);
             response->set_occt_version(OCC_VERSION_COMPLETE);response->set_representation_kind("EXACT_STAGE");
@@ -2613,7 +2608,7 @@ private:
                            response->mutable_glb_artifact());
 
         fill_bbox(bbox, response->mutable_bbox());
-        response->set_volume(topology.geometry_domain=="SOLID_SET"?kernel_.getVolume(geometry_id):0);
+        response->set_validation_policy("occccad.geometry.brep-valid.v1");
         response->set_cache_hit(false);
         response->set_occt_version(OCC_VERSION_COMPLETE);
         auto* summary = response->mutable_topology();

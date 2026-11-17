@@ -12,6 +12,7 @@ import (
 // FeatureInput is a read-only reconstruction of the stage before an edited
 // feature. It never moves Head or writes a compensable model change.
 type FeatureInputRequest struct {
+	IncludeProperties bool `json:"includeProperties,omitempty"`
 	ContextReadScope
 	AfterFeatureID  string `json:"afterFeatureId,omitempty"`
 	ResultStage     bool   `json:"resultStage,omitempty"`
@@ -72,18 +73,19 @@ func featureInputStageError(model PartModel, stage string, err error) error {
 }
 
 type FeatureInput struct {
-	ReferenceGeometry *ReferenceGeometry      `json:"referenceGeometry,omitempty"`
-	LoftStartPicks    []FeatureNeutralPick    `json:"loftStartPicks,omitempty"`
-	LoftEndPicks      []FeatureNeutralPick    `json:"loftEndPicks,omitempty"`
-	PointPick         *FeatureInputResolution `json:"pointPick,omitempty"`
-	TerminationPick   *FeatureNeutralPick     `json:"terminationPick,omitempty"`
-	NeutralPick       *FeatureNeutralPick     `json:"neutralPick,omitempty"`
-	VersionID         string                  `json:"versionId"`
-	SourceFeatureID   string                  `json:"sourceFeatureId"`
-	Artifact          Artifact                `json:"artifact"`
-	Artifacts         []Artifact              `json:"artifacts,omitempty"`
-	Picks             []FeatureInputPick      `json:"picks"`
-	Selection         *FeatureSelection       `json:"selection,omitempty"`
+	Properties        *TopologyElementProperties `json:"properties,omitempty"`
+	ReferenceGeometry *ReferenceGeometry         `json:"referenceGeometry,omitempty"`
+	LoftStartPicks    []FeatureNeutralPick       `json:"loftStartPicks,omitempty"`
+	LoftEndPicks      []FeatureNeutralPick       `json:"loftEndPicks,omitempty"`
+	PointPick         *FeatureInputResolution    `json:"pointPick,omitempty"`
+	TerminationPick   *FeatureNeutralPick        `json:"terminationPick,omitempty"`
+	NeutralPick       *FeatureNeutralPick        `json:"neutralPick,omitempty"`
+	VersionID         string                     `json:"versionId"`
+	SourceFeatureID   string                     `json:"sourceFeatureId"`
+	Artifact          Artifact                   `json:"artifact"`
+	Artifacts         []Artifact                 `json:"artifacts,omitempty"`
+	Picks             []FeatureInputPick         `json:"picks"`
+	Selection         *FeatureSelection          `json:"selection,omitempty"`
 }
 
 func (s *Service) featureStageAtVersion(ctx context.Context, documentID, versionID, stageID, bodyID string, display ...bool) (string, error) {
@@ -175,7 +177,21 @@ func (s *Service) resolveFeaturePick(ctx context.Context, pick FeatureSelection,
 }
 
 func (s *Service) GetFeatureInput(ctx context.Context, documentID string, request FeatureInputRequest) (FeatureInput, error) {
-	return s.getFeatureInput(ctx, documentID, request, true)
+	result, err := s.getFeatureInput(ctx, documentID, request, true)
+	if err != nil || !request.IncludeProperties {
+		return result, err
+	}
+	var properties TopologyElementProperties
+	if request.Kind == "" {
+		properties, err = s.bodyProperties(ctx, result.Artifact.GeometryKey)
+	} else {
+		properties, err = s.getTopologyElementPropertiesFromArtifact(ctx, result.Artifact.GeometryKey, request.Kind, request.LocalID)
+	}
+	if err != nil {
+		return FeatureInput{}, err
+	}
+	result.Properties = &properties
+	return result, nil
 }
 
 // Representation authorization reconstructs only legal upstream geometry. It

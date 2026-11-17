@@ -39,8 +39,8 @@ func TestFilletUntouchedTopologyThroughRouter(t *testing.T) {
 	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -10, Y: -10}, Second: &workspace.SketchPoint2{X: 10, Y: 10}}}})
 	apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 20})
 	base := v.Part.Features[len(v.Part.Features)-1]
-	selected := findP7TopologyPick(t, service, v, "EDGE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-		return strings.HasPrefix(s.Anchor.OutputSlot, "VERTICAL_FROM_PROFILE_ENDPOINTS/") && s.CreationEvidence.Centroid == [3]float64{10, 10, 10}
+	selected := findP7TopologyPick(t, service, v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+		return strings.HasPrefix(s.Anchor.OutputSlot, "VERTICAL_FROM_PROFILE_ENDPOINTS/") && topologyCentersNear(queriedTopologyCenter(t, queriedProperties), [3]float64{10, 10, 10})
 	})
 	type witness struct {
 		anchor   modelcore.SemanticTopologyRef
@@ -54,7 +54,7 @@ func TestFilletUntouchedTopologyThroughRouter(t *testing.T) {
 		}
 		s := p.PersistentSelection
 		if s != nil && strings.HasPrefix(s.Anchor.OutputSlot, "VERTICAL_FROM_PROFILE_ENDPOINTS/") && s.Anchor.OutputSlot != selected.Selection.Anchor.OutputSlot {
-			untouched = append(untouched, witness{s.Anchor, s.CreationEvidence.Centroid})
+			untouched = append(untouched, witness{s.Anchor, queriedTopologyCenter(t, p)})
 		}
 	}
 	if len(untouched) != 3 {
@@ -90,7 +90,7 @@ func TestFilletUntouchedTopologyThroughRouter(t *testing.T) {
 					t.Fatal(e)
 				}
 				s := p.PersistentSelection
-				if s == nil || s.CreationEvidence.Centroid != want.centroid {
+				if s == nil || !topologyCentersNear(queriedTopologyCenter(t, p), want.centroid) {
 					continue
 				}
 				found = true
@@ -141,12 +141,12 @@ func TestFilletUntouchedTopologyThroughRouter(t *testing.T) {
 			t.Fatal("cold mismatch", role)
 		}
 	}
-	opposite := findP7TopologyPick(t, service, v, "EDGE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-		return s.CreationEvidence.Centroid == [3]float64{10, -10, 10}
+	opposite := findP7TopologyPick(t, service, v, "EDGE", func(queriedProperties workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+		return topologyCentersNear(queriedTopologyCenter(t, queriedProperties), [3]float64{10, -10, 10})
 	})
 	apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: base.BodyID, Length: .2, Selections: []workspace.FeatureSelection{{Selection: opposite.Selection, SourceVersionID: opposite.SourceVersionID}}}})
 	last := v.Part.Features[len(v.Part.Features)-1]
-	if last.Selections[0].Selection.Anchor.FeatureID != base.ID || last.EvaluationStatus != "" || math.IsNaN(activeBodyArtifact(t, v).Volume) {
+	if last.Selections[0].Selection.Anchor.FeatureID != base.ID || last.EvaluationStatus != "" || math.IsNaN(measuredArtifactVolume(t, activeBodyArtifact(t, v))) {
 		t.Fatal("downstream edge not editable")
 	}
 }

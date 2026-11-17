@@ -287,7 +287,7 @@ export const restApi = {
     return result;
   },
   discardFeatureRepairContext:(id:string,displayId:string)=>request<void>(`/api/documents/${id}/feature-repair-context/${encodeURIComponent(displayId)}`,{method:'DELETE'}),
-  getFeatureInput: async (id: string, input: {versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;referenceBodyId?:string;geometryKey?:string;kind?:string;localId?:number}&Partial<import('./api/context-edit-scope').ContextEditScope>, signal?:AbortSignal) => {
+  getFeatureInput: async (id: string, input: {includeProperties?:boolean;versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;referenceBodyId?:string;geometryKey?:string;kind?:string;localId?:number}&Partial<import('./api/context-edit-scope').ContextEditScope>, signal?:AbortSignal) => {
     const scopedInput=contextCommand(id,input);
     const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(scopedInput),signal});
     // A sketch before the first solid has no upstream artifact. This is a
@@ -300,7 +300,7 @@ export const restApi = {
     }
     return result;
   },
-  getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string, signal?:AbortSignal, speculative=false) => {
+  getTopologyProperties: (id: string, geometryKey: string, kind: "BODY" | "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string, signal?:AbortSignal, speculative=false) => {
     const query = new URLSearchParams({ geometryKey, kind, localId: String(localId) });
     if (versionId) query.set("versionId", versionId);
     if(speculative)query.set('prepare','true');

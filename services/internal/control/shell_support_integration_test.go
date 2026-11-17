@@ -46,8 +46,8 @@ func TestSketchOnShellOuterFaceThroughRouter(t *testing.T) {
 	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: profile, Operations: operations})
 	apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: profile, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 40})
 	base := v.Part.Features[len(v.Part.Features)-1]
-	outerBefore := findP7TopologyPick(t, service, v, "FACE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-		return math.Abs(s.CreationEvidence.Centroid[0]-40) < 1e-6
+	outerBefore := findP7TopologyPick(t, service, v, "FACE", func(queriedProperties workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+		return math.Abs(queriedTopologyCenter(t, queriedProperties)[0]-40) < 1e-6
 	})
 	opening := findP7TopologyPick(t, service, v, "FACE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
 		return math.Abs(s.CreationEvidence.Direction[0]) < 1e-6 && s.CreationEvidence.Direction[2] < -0.5
@@ -156,8 +156,8 @@ func TestEngineeringHoleOnShellOuterWallThroughRouter(t *testing.T) {
 	})
 	apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "SHELL", BodyID: base.BodyID, Length: 1, Selections: []workspace.FeatureSelection{{Selection: opening.Selection, SourceVersionID: opening.SourceVersionID}}}})
 	shell := v.Part.Features[len(v.Part.Features)-1]
-	outer := findP7TopologyPick(t, service, v, "FACE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
-		return s.Anchor.FeatureID == base.ID && math.Abs(s.CreationEvidence.Centroid[2]-30) < 1e-6
+	outer := findP7TopologyPick(t, service, v, "FACE", func(queriedProperties workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+		return s.Anchor.FeatureID == base.ID && math.Abs(queriedTopologyCenter(t, queriedProperties)[2]-30) < 1e-6
 	})
 	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", TargetKind: "FACE", BodyID: base.BodyID, VersionID: v.Document.VersionID, GeometryKey: outer.GeometryKey, TopologyID: outer.LocalID})
 	location := v.Part.Features[len(v.Part.Features)-1]

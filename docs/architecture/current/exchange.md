@@ -40,7 +40,7 @@ STEP 默认 AP242，也可选 AP214IS。writer 使用请求局部 DESTEP_Paramet
 
 短期交换 Kernel 保留整个操作图，不受长期 Shape 缓存的 16 项淘汰影响，也不在每次插入时重新序列化全部驻留形体。一次请求内复用已解析的不可变 Part/Product。重试和重复导入可以复用已发布的源求值；键包含源、Definition、规范 BREP 摘要、实际 OCCT 版本和求值策略，文档仍分配独立命名身份。准备图仍会在每次尝试解析，未交付跨进程整图检查点。
 
-体积积分在私有拓扑/几何副本上拆分样条曲面的区间，再使用原有 OCCT Gauss–Kronrod，维持 1e-10 请求精度，不以显示网格体积替代精确几何。拆分不改写业务 BREP、面身份或 Naming。耗时以报告和真实 Worker 日志为准；请求精度不是一般模型的严格误差保证，小样本不作为工业容量或 P95 声明。
+普通导入和 Feature 求值不执行体积积分或保存质量属性；用户显式查询/测量时的体积积分在私有拓扑/几何副本上拆分样条曲面的区间，再使用原有 OCCT Gauss–Kronrod，维持 1e-10 请求精度，不以显示网格体积替代精确几何。拆分不改写业务 BREP、面身份或 Naming。耗时以报告和真实 Worker 日志为准；请求精度不是一般模型的严格误差保证，小样本不作为工业容量或 P95 声明。
 
 Product 的独立结果通过 ReferenceDisplayScope.results 显示，保留 document/revision/InstancePath/featureId/resultId；不混入实体 Body 或机构求解的 ResolvedInstances。视区和缩略图消费同一结果及解析外观。READY ContextVariant 的独立结果求值、完整跨零件消费和测量仍是独立后续工作。
 

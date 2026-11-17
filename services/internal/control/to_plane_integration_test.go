@@ -104,8 +104,8 @@ func TestToPlaneDatumLifecycleThroughRouter(t *testing.T) {
 				}
 				return tool
 			}
-			if math.Abs(stage().Volume-want(120*math.Pi+160)) > 1e-5 {
-				t.Fatal("wrong parallel result", stage().Volume)
+			if math.Abs(measuredArtifactVolume(t, stage())-want(120*math.Pi+160)) > 1e-5 {
+				t.Fatal("wrong parallel result", measuredArtifactVolume(t, stage()))
 			}
 
 			if _, e := service.ApplyCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: view.Document.ID + "-delete-plane", Type: "DELETE_NODE", TargetKind: "DATUM_PLANE", TargetID: plane.ID}); e == nil {
@@ -137,7 +137,7 @@ func TestToPlaneDatumLifecycleThroughRouter(t *testing.T) {
 				through.TerminationPlaneID = ""
 				through.TerminationPlane = bottom
 				preview, e := service.PreviewCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: view.Document.ID + "-same-body", Type: "EDIT_FEATURE", TargetID: feature.ID, Feature: &through, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, feature.ID)})
-				if e != nil || preview.Artifact == nil || math.Abs(preview.Artifact.Volume-(48000-30*(12*math.Pi+16))) > 1e-5 {
+				if e != nil || preview.Artifact == nil || math.Abs(measuredArtifactVolume(t, preview.Artifact)-(48000-30*(12*math.Pi+16))) > 1e-5 {
 					t.Fatal("same-Body face termination", e)
 				}
 			}
@@ -156,8 +156,8 @@ func TestToPlaneDatumLifecycleThroughRouter(t *testing.T) {
 			if remove {
 				expected = 120*math.Pi + 120
 			}
-			if math.Abs(stage().Volume-want(expected)) > 1e-5 {
-				t.Fatal("target rotation did not update exact result", stage().Volume, want(expected))
+			if math.Abs(measuredArtifactVolume(t, stage())-want(expected)) > 1e-5 {
+				t.Fatal("target rotation did not update exact result", measuredArtifactVolume(t, stage()), want(expected))
 			}
 			if saved(modifier.ID).EvaluationStatus != "" {
 				t.Fatal("target update lost modifier references", saved(modifier.ID))
@@ -273,12 +273,12 @@ func TestToPlaneFaceRepairThroughRouter(t *testing.T) {
 	if feature.TerminationPlane.SourceFeatureID != tip.ID || feature.TerminationPlane.SourceFeatureID == feature.TerminationPlane.Selection.Anchor.FeatureID {
 		t.Fatal("source stage is not the actual Body tip", feature.TerminationPlane)
 	}
-	if math.Abs(activeBodyArtifact(t, view).Volume-160) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-160) > 1e-6 {
 		t.Fatal("finite face boundary incorrectly constrained extent")
 	}
 	base.Length = 12
 	apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: base.ID, Feature: &base, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, base.ID)})
-	if math.Abs(activeBodyArtifact(t, view).Volume-192) > 1e-6 {
+	if math.Abs(measuredArtifactVolume(t, activeBodyArtifact(t, view))-192) > 1e-6 {
 		t.Fatal("face move did not update termination")
 	}
 	for _, id := range []string{base.ID, tip.ID} {
@@ -336,8 +336,8 @@ func TestToPlaneFaceRepairThroughRouter(t *testing.T) {
 	apply(repair)
 	final := activeBodyArtifact(t, view)
 	result := saved(feature.ID)
-	if math.Abs(final.Volume-320) > 1e-6 || result.ID != feature.ID || result.Order != feature.Order || result.BodyID != feature.BodyID || result.Name != feature.Name || !reflect.DeepEqual(result.ProfileSelection, feature.ProfileSelection) {
-		t.Fatal("repair identity/geometry", result, final.Volume)
+	if math.Abs(measuredArtifactVolume(t, final)-320) > 1e-6 || result.ID != feature.ID || result.Order != feature.Order || result.BodyID != feature.BodyID || result.Name != feature.Name || !reflect.DeepEqual(result.ProfileSelection, feature.ProfileSelection) {
+		t.Fatal("repair identity/geometry", result, measuredArtifactVolume(t, final))
 	}
 
 	// Generator-tool/range replication cannot silently re-execute this extent.
@@ -360,7 +360,7 @@ func TestToPlaneFaceRepairThroughRouter(t *testing.T) {
 		}
 		pattern := &workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "ADD", Pattern: &workspace.FeaturePattern{PatternDefinition: definition, Source: workspace.FeatureStageRef{BodyID: body, FeatureID: feature.ID}, SourceKind: "BODY_STAGE", ResultMode: "COMBINE"}}
 		copied, e := service.PreviewCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: view.Document.ID + "-copy-" + kind, Type: "CREATE_PATTERN", Feature: pattern})
-		if e != nil || copied.Artifact == nil || math.Abs(copied.Artifact.Volume-2*final.Volume) > 1e-5 {
+		if e != nil || copied.Artifact == nil || math.Abs(measuredArtifactVolume(t, copied.Artifact)-2*measuredArtifactVolume(t, final)) > 1e-5 {
 			t.Fatal("evaluated Body copy", kind, e)
 		}
 	}

@@ -110,7 +110,7 @@ func TestFeatureInputRepairThroughRouter(t *testing.T) {
 			if e != nil {
 				t.Fatalf("valid upstream inaccessible after saved topology vanished: %v", e)
 			}
-			if math.Abs(input.Artifact.Volume-16000) > 1e-6 || input.Artifact.Naming.Status != "READY" || input.SourceFeatureID != base.ID {
+			if math.Abs(measuredArtifactVolume(t, input.Artifact)-16000) > 1e-6 || input.Artifact.Naming.Status != "READY" || input.SourceFeatureID != base.ID {
 				t.Fatalf("not a valid upstream: %+v", input)
 			}
 			if len(input.Picks) != len(feature.Selections) {
