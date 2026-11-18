@@ -681,7 +681,8 @@ func (service *Service) BindPersistentSelection(ctx context.Context, documentID 
 	if (request.BodyID == "") == (request.Result == nil) {
 		return modelcore.PersistentSelection{}, fmt.Errorf("%w: SELECTION_OWNER_AMBIGUOUS", ErrValidation)
 	}
-	manifest, geometryKey, _, err := service.selectionManifestForVersion(ctx, documentID, request.SourceVersionID, owner)
+	tipContext := context.WithValue(ctx, namingTipOnlyKey{}, true)
+	manifest, geometryKey, _, err := service.selectionManifestForVersion(tipContext, documentID, request.SourceVersionID, owner)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return modelcore.PersistentSelection{}, fmt.Errorf("%w: PERSISTENT_SELECTION_UNAVAILABLE", ErrValidation)
@@ -713,7 +714,8 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.PolicyDigest != modelcore.TopologyNamingPolicyDigest {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "RESOLVER_POLICY_MISMATCH"}, nil
 	}
-	sourceManifest, _, _, err := service.selectionManifestForVersion(ctx, documentID, request.SourceVersionID, request.Selection)
+	source := context.WithValue(ctx, namingTipOnlyKey{}, true)
+	sourceManifest, _, _, err := service.selectionManifestForVersion(source, documentID, request.SourceVersionID, request.Selection)
 	if err != nil {
 		if diagnostic, ok := namingDiagnostic(err); ok {
 			return unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic), nil
@@ -733,7 +735,8 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.Selection.CreationEvidence.EvidenceDigest != "" && request.Selection.CreationEvidence.EvidenceDigest != sourceOutput.GetEvidence().GetEvidenceDigest() {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "CREATION_EVIDENCE_MISMATCH"}, nil
 	}
-	manifest, geometryKey, digest, err := service.selectionManifestForVersion(ctx, documentID, request.TargetVersionID, request.Selection)
+	target := context.WithValue(ctx, namingResolverOnlyKey{}, true)
+	manifest, geometryKey, digest, err := service.selectionManifestForVersion(target, documentID, request.TargetVersionID, request.Selection)
 	if err != nil {
 		if diagnostic, ok := namingDiagnostic(err); ok {
 			return unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic), nil

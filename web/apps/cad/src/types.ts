@@ -18,6 +18,7 @@ export type MeshData = {
   edgeProfile?: EdgeProfile;
   readonly contourIncidence?: import('./cad/rendering/mesh-contour-incidence').ContourIncidence;
   buffers?: {positions:Float32Array;indices:Uint32Array;normals?:Float32Array;faceIds:Uint32Array};
+  previousSurface?: WeakRef<MeshData>;
   normals?: Vec3[];
   vertices: Vec3[];
   triangles: [number, number, number][];
@@ -149,6 +150,7 @@ export type VisualPrimitive = {
 export type FeatureTopologyAssociation = {kind:"FACE"|"EDGE"|"VERTEX";localId:number;origins:string[];primary:string[];modifiers?:string[];supports?:string[];members?:{patternId:string;slot:number}[];status:"MAPPED"|"MAPPING_MISSING"};
 export type FeatureAssociationIndex = {features:string[];elements:FeatureTopologyAssociation[]};
 export type VisualizationManifest = {
+ precision?:import("./cad/visual/visual-precision").VisualPrecision;
  featureAssociations?:FeatureAssociationIndex;
  featureContributions?:Record<string,"CURRENT"|"NO_CURRENT_CONTRIBUTION"|"MAPPING_MISSING">;
   schemaVersion: 1 | 2; referenceGeometry: ReferenceGeometry;

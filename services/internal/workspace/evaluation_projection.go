@@ -1260,6 +1260,9 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			manifest.NodeResults[key] = result
 		}
 	}
+	if err == nil && revisionID != "" {
+		manifest.PartCheckpoints = acceptedPartCheckpoints(model, manifest)
+	}
 	return graph, manifest, err
 }
 

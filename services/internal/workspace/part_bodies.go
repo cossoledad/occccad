@@ -271,7 +271,9 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 			m.Bodies[i].DisplayFallback = nil
 			continue
 		}
-		key, err := s.evaluateBody(ctx, requestID+"/body/"+m.Bodies[i].ID, bodyModel(*m, m.Bodies[i].ID), *m)
+		// Each Body in this ordered evaluation runs once. Recursive stage reads
+		// use evaluateBody's request-local memo with their own frozen scope.
+		key, err := s.buildBody(ctx, requestID+"/body/"+m.Bodies[i].ID, bodyModel(*m, m.Bodies[i].ID), *m)
 		m.Bodies[i].GeometryKey = ""
 		m.Bodies[i].DisplayFallback = nil
 		if err != nil {

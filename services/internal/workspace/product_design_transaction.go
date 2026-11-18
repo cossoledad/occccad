@@ -505,6 +505,7 @@ func (service *Service) commitProductDesignCandidates(ctx context.Context, group
 		}
 		batch := &database.Batch{}
 		batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,'READY',$6,$7,$8,$9)`, candidate.revisionID, candidate.documentID, candidate.headRevision, revisionSequence, candidate.nextJSON, auditCommandID, candidate.modelHash, dependencyDigest, manifestJSON)
+		queuePartCheckpoints(batch, candidate.manifest)
 		batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, candidate.revisionID, candidate.headRevision)
 		requestJSON, _ := json.Marshal(candidate.request)
 		individualDigest := modelcore.ValueDigest(requestJSON)
@@ -532,8 +533,8 @@ func (service *Service) commitProductDesignCandidates(ctx context.Context, group
 		batch.Queue(`INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, candidate.transactionID, changesJSON, candidate.changes.CanonicalDigest, writes, candidate.changes.ImpactSeeds)
 		manifestDigest := modelcore.ValueDigest(manifestJSON)
 		batch.Queue(`INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,'SUCCEEDED',true)`, candidate.revisionID, strings.ToLower(candidate.documentType), evaluatorVersion, candidate.modelHash, manifestJSON, manifestDigest)
-		for _, edge := range candidate.graph.Edges {
-			batch.Queue(`INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind) VALUES($1,$2,$3,$4)`, candidate.revisionID, edge.Source, edge.Target, edge.Kind)
+		if err := queueDependencyEdges(batch, candidate.revisionID, candidate.graph); err != nil {
+			return err
 		}
 		eventPayload, _ := json.Marshal(map[string]any{"workspaceId": candidate.workspaceID, "sequence": candidate.headSequence + 1, "revisionId": candidate.revisionID, "transactionId": candidate.transactionID, "productDesignTransactionId": groupID, "modelHash": candidate.modelHash, "changeDigest": candidate.changes.CanonicalDigest})
 		batch.Queue(`INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload) VALUES('WORKSPACE',$1,'workspace.transaction.committed.v1',1,$2)`, candidate.workspaceID, eventPayload)

@@ -23,18 +23,18 @@
 - `bodies` 或 `results` 恰有一个 owner，互斥。根保存当前 `tip_feature_id`、全链完整性与 typed locator → semantic/evidence 映射；Body 和几何 FeatureResult 不能混合。一个 Naming 根不组织整个 Part。
 - 每个 `NamingHistoryBlock` 的 codec `schema_version=1`，包含前驱 SHA / 行数、完整行数、一个 Feature 的 metadata、literal 变化行、删除、歧义和有序 `layout`。前驱为空的块必须从零行开始，后续块必须与根声明的直接前驱及行数一致。
 - LITERAL span 按序读取本块 literal 表；CARRY span 读取已验证前驱行的 result 和完整 evidence，重建 `UNCHANGED(result ← result)`。只有同引用、同完整证据的自延续可编码为 CARRY；类型变化、其他来源、删除或歧义不省略。span 中的 offset 是已校验块内位置，不是拓扑身份。边界、计数、重复继承范围及有序语义须验证；完整行序列可无损重建。
-- 块的 `values` 和根各有局部 `semantic_refs` / `evidence` 表，1-based，0 非法。仅按完整值 intern，不按几何 hash、地址或 evidence digest 合并身份。块内不保存历史 locator 快照；根只保存当前 tip。跨块仍存在重复引用/证据，文件块并不保证每种模型的单个历史闭包最小。
+- 块的 `values` 和根各有局部引用表与 `evidence` 表，均从 1 编号。当前编码使用 `reference_dictionary` 的字符串符号和有序来源列表。解码恢复完整的 `SemanticTopologyRef` 值。可证明与 tip 定位证据一致时，根还提供按展开历史行排列的定位表。块内不保存历史 locator 快照；根只保存当前 tip。跨块仍存在重复引用/证据，文件块并不保证每种模型的单个历史闭包最小。
 - Evidence 保留 Plane / Cylinder / Line / Circle / Point / Spline / Other typed 数据、公共质心、SI measure、digest、endpoint role 和邻接；不伪造 evaluator 未提供的值。Curve range 保留 LINE_MM、ANGLE_RADIANS 或 NATIVE_CURVE_PARAMETER 的原生约定，不能当成统一弧长。
 - Loader 校验根/全部块摘要及大小、policy/evaluator、Frame/单位、Feature/Geometry、单 owner、前驱、layout、表引用和 locator 唯一性。source/target Revision 及授权另行校验。部分缺失不能降级为“完整历史”，也不能按最近坐标改绑。
 
 Worker 直接借用紧凑原生记录；32 MiB memo 按不可变记录、完整策略及前驱字节复用编码。一次请求先租借已有匹配项，再补算缺失项，防止长链顺序扫描淘汰稍后可命中的尾部；前驱 SHA 仍逐项核对。`PartEvaluationManifest.naming_history_artifacts` 只返回本次需要发布的块引用，根声明整个闭包。`EvaluatePartRequest.naming_source` 是已接纳根的发布复用提示，排除在精确计算缓存键外；它不能改变计算、身份或接纳门禁。导入根恢复另传根明确声明的 `PartBaseStage.root_history`，Worker 校验其摘要/归属。
 
-数据库的 `artifact_dependencies` 原子记录根→全部块及块→前驱；共享块只存一份，依赖集不可改写。父引用限制直接删除仍被引用的块。可达性审计已提供；自动物理 GC 尚未启用，仍须设计完整 Revision、跨文档、预览和活动 Job 根集合。完整 Naming 不在 RPC 或数据库复制保存。
+数据库的 `artifact_dependencies` 原子记录根→尾块及块→前驱。共享前缀保留相同的块和依赖。父引用限制直接删除仍被引用的块。可达性审计已提供；自动物理 GC 尚未启用，仍须设计完整 Revision、跨文档、预览和活动 Job 根集合。完整 Naming 不在 RPC 或数据库复制保存。
 
-查询在全部块校验后只保留有序语义事件和完整当前 tip 证据，不展开 CARRY、不缓存历史行/删除的几何证据；权威制品保持完整。内核与测试的显式完整展开另有读者租借、预算和取消门禁。语义查询与缓存归[Naming](persistent-naming.md#有界解析视图与按需查询)，原生所有权与剩余增长归[Part 求值](part-feature-evaluation.md#通用特征性能与增长边界)。
+tip 绑定独立读取当前定位表。需要沿历史解析时校验全链并保留有序事件及当前 tip 证据。已接纳前缀续算可按证据接纳新后缀。内核与测试的显式完整展开另有读者租借、预算和取消门禁。语义查询与缓存归[Naming](persistent-naming.md#有界解析视图与按需查询)，原生所有权与剩余增长归[Part 求值](part-feature-evaluation.md#通用特征性能与增长边界)。
 
 ## 演进与验证边界
 
 生产不兼容读取旧 v1/v2 Naming；未发布开发数据通过 `mise run data:reset --yes` 重建。运行前重新构建 `mise run go:build`，避免旧迁移程序仍嵌入旧 SQL。Visual 仍为 schema 2；Naming 3 不表示 glTF 或 CAD 身份版本变化。新字段遵循 protobuf 字段号和显式 schema；Preview 仍为 transient，不形成正式 Revision。
 
-`NamingArtifact.HistoryBlocksKeepLegacyBytesAndSurviveEvictionAndColdRebuild` 用冻结旧编码器比较完整展开后的逻辑 v2 字节；不是比较 v3 文件与 v2 的 SHA。Native 增量/冷算保持 BREP 和历史摘要；正式 Router 对同一新格式输入比较冷算根 SHA，根又绑定每个块 SHA。Go 测试另外对照冻结旧扫描器、删除/重新出现/歧义顺序、错误闭包、缓存淘汰/取消、共享前缀依赖和精简查询视图。
+`NamingArtifact.HistoryBlocksKeepLegacyBytesAndSurviveEvictionAndColdRebuild` 用冻结旧编码器比较完整展开后的逻辑 v2 字节。Router 验证各自冻结的 BREP、Naming 根及历史块摘要。恢复圆曲线后，OCCT 文本可将轴分量的零写成相反符号，连带改变 BREP 和证据摘要。对应回放测试核对 BREP 数值及拓扑排列、完整 Naming 的语义引用、证据、定位和有序历史，并逐份验证原摘要。Go 测试还覆盖旧扫描器、删除/重新出现/歧义顺序、错误闭包、缓存淘汰/取消、共享前缀依赖和精简查询视图。

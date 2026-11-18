@@ -49,6 +49,7 @@ import { sketchCommitResultUnknown } from "../cad/tool/sketch-command-session";
 import { SelectionInputResult } from "../cad/input/input-types";
 import type { SketchCommandState, SketchCommandAction, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
 import { VisualRepository, type DisplayArtifact as Artifact, type DisplayDocumentView as DocumentView } from "../cad/visual/visual-repository";
+import { DEFAULT_VISUAL_PRECISION, type VisualPrecision } from "../cad/visual/visual-precision";
 import { assemblyConstraintReferences } from "../cad/assembly/assembly-capability";
 import type { DocumentSessions } from "../cad/document/document-session";
 import { captureDocumentCamera, documentCameraState, documentCameraPose, restoreDocumentCamera } from "../cad/navigation/document-camera-state";
@@ -929,11 +930,22 @@ export class CadViewportEngine {
     return sketchInteractionView(this.view, this.editContext);
   }
 
-  private visuals = new VisualRepository();
+  private visualPrecision = DEFAULT_VISUAL_PRECISION;
+  private renderedVisualPrecision = DEFAULT_VISUAL_PRECISION;
+  private visuals = new VisualRepository(undefined, DEFAULT_VISUAL_PRECISION);
   private visualGeneration = 0;
   private pendingVisualSnapshot = false;
   private lastDisplayedSnapshot = "";
   private visualError?: HTMLDivElement;
+  setVisualPrecision(precision: VisualPrecision): void {
+    if (precision === this.visualPrecision) return;
+    this.visualPrecision = precision;
+    this.visualGeneration++;
+    this.previewVisualGeneration++;
+    this.previewVisuals?.dispose();
+    this.visuals.dispose();
+    this.visuals = new VisualRepository(undefined, precision);
+  }
   private geometrySignature(view: DocumentDescriptor, editContext?: ViewportEditContext): string {
     const part = (value?: DocumentDescriptor) => value?.part && [
       value.part.bodies.map(body=>[body.id,body.geometryKey,body.displayFallback,body.consumed]),
@@ -944,7 +956,7 @@ export class CadViewportEngine {
       value.part.datumAxes?.map(axis=>[axis.id,axis.origin,axis.direction]),
       value.part.datumPoints?.map(point=>[point.id,point.position]),
     ];
-    return JSON.stringify([view.document.id, view.document.type, part(view),view.referenceDisplayScopes?.map(scope=>[scope.documentId,scope.instancePath.canonical,scope.translation,scope.rotation,scope.referenceGeometry.datumPoints?.map(p=>[p.id,p.position]),scope.referenceGeometry.datumPlanes.map(p=>[p.id,p.origin,p.normal,p.uDirection,p.size]),scope.referenceGeometry.datumAxes?.map(a=>[a.id,a.origin,a.direction]),scope.referenceGeometry.axisSystems.map(a=>[a.id,a.origin,a.xDirection,a.yDirection,a.zDirection])]),
+    return JSON.stringify([this.visualPrecision, view.document.id, view.document.type, part(view),view.referenceDisplayScopes?.map(scope=>[scope.documentId,scope.instancePath.canonical,scope.translation,scope.rotation,scope.referenceGeometry.datumPoints?.map(p=>[p.id,p.position]),scope.referenceGeometry.datumPlanes.map(p=>[p.id,p.origin,p.normal,p.uDirection,p.size]),scope.referenceGeometry.datumAxes?.map(a=>[a.id,a.origin,a.direction]),scope.referenceGeometry.axisSystems.map(a=>[a.id,a.origin,a.xDirection,a.yDirection,a.zDirection])]),
       view.referenceDisplayScopes?.map(scope=>[scope.instancePath.canonical,scope.results?.map(r=>[r.featureId,r.resultId,r.geometryKey,r.visible])]),
       view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.displayFallback, resolved.translation, resolved.rotation,
         resolved.ownedSketchIds]),
@@ -1036,7 +1048,7 @@ export class CadViewportEngine {
 	// Accepted 2D edits retain the exact Body display, GPU attributes and BVH.
 	// Rebind the Revision and reconcile sketch objects before the next gesture.
 	const rootPartContext=(context?:ViewportEditContext)=>!context||!context.occurrencePath&&context.view.document.id===view.document.id;
-	if(this.view?.document.type==='PART'&&view.document.type==='PART'&&rootPartContext(this.editContext)&&rootPartContext(editContext)&&this.geometrySignature(this.view)===this.geometrySignature(view)){
+	if(this.renderedVisualPrecision===this.visualPrecision&&this.view?.document.type==='PART'&&view.document.type==='PART'&&rootPartContext(this.editContext)&&rootPartContext(editContext)&&this.geometrySignature(this.view)===this.geometrySignature(view)){
 	  this.clearCommandPreview(false);
 	  this.editContext=editContext;
 	  this.updateDisplayProjection(view);
@@ -1045,6 +1057,7 @@ export class CadViewportEngine {
 	  this.callbacks.documentViewReady?.(view.document.id,false);
 	  return;
 	}
+    this.renderedVisualPrecision = this.visualPrecision;
     this.clearInsertPatternPreview();
     this.navigation.cancel();
     const previousDocumentID = this.view?.document.id;

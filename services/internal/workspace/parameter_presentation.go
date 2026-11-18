@@ -8,6 +8,18 @@ import (
 )
 
 func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinition) modelcore.ParameterDefinition {
+	if parameter.OwnerFeatureID == "" {
+		return presentPartParameter(model, parameter, nil)
+	}
+	for i := range model.Features {
+		if model.Features[i].ID == parameter.OwnerFeatureID {
+			return presentPartParameter(model, parameter, &model.Features[i])
+		}
+	}
+	return presentPartParameter(model, parameter, nil)
+}
+
+func presentPartParameter(model PartModel, parameter modelcore.ParameterDefinition, feature *Feature) modelcore.ParameterDefinition {
 	parameter.DisplayAlias = parameter.Key
 	if parameter.OwnerFeatureID == "" {
 		parameter.DisplayName = parameter.Label
@@ -17,13 +29,6 @@ func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinit
 		parameter.QualifiedDisplayPath = parameter.DisplayName
 		parameter.DisplayAlias = parameter.Key
 		return parameter
-	}
-	var feature *Feature
-	for i := range model.Features {
-		if model.Features[i].ID == parameter.OwnerFeatureID {
-			feature = &model.Features[i]
-			break
-		}
 	}
 	if feature == nil {
 		parameter.DisplayName, parameter.QualifiedDisplayPath = parameter.Label, parameter.Label

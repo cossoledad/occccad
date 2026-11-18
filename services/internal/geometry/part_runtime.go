@@ -12,6 +12,8 @@ type PartRuntimeOptions struct {
 	Affinity             string
 	BaseStage            *workerv1.PartBaseStage
 	NamingSource         *workerv1.ArtifactReference
+	Continuation         *workerv1.PartContinuation
+	BaseMeshSeed         *workerv1.ArtifactReference
 }
 type partRuntimeKey struct{}
 

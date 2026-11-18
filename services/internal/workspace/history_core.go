@@ -447,6 +447,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	}
 	batch := &database.Batch{}
 	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, revisionID, input.documentID, input.headRevision, revisionSequence, input.modelJSON, revisionState, commandID, modelHash, dependencyDigest, manifestJSON)
+	queuePartCheckpoints(batch, manifest)
 	batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id) VALUES($1,$2)`, revisionID, input.headRevision)
 	var revertID, reapplyID any
 	var rootID any
@@ -466,8 +467,8 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	}
 	batch.Queue(`INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, transactionID, changesJSON, input.changes.CanonicalDigest, writes, input.changes.ImpactSeeds)
 	batch.Queue(`INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,$7,true)`, revisionID, strings.ToLower(input.documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest, evaluationStatus)
-	for _, edge := range graph.Edges {
-		batch.Queue(`INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind) VALUES($1,$2,$3,$4)`, revisionID, edge.Source, edge.Target, edge.Kind)
+	if err := queueDependencyEdges(batch, revisionID, graph); err != nil {
+		return err
 	}
 	event, _ := json.Marshal(map[string]any{"workspaceId": input.workspaceID, "sequence": currentSequence + 1, "revisionId": revisionID, "transactionId": transactionID})
 	batch.Queue(`INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload) VALUES('WORKSPACE',$1,'workspace.transaction.committed.v1',1,$2)`, input.workspaceID, event)

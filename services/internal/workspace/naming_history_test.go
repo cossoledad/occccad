@@ -77,7 +77,7 @@ func namingRootFixture(t *testing.T, v *workerv1.PartTopologyManifest, patch fun
 }
 func fixtureHistoryLoader(payloads map[string][]byte) namingHistoryLoader {
 	return func(ctx context.Context, ref *workerv1.NamingHistoryReference) (*decodedNamingBlock, error) {
-		return decodeNamingBlock(ctx, payloads[ref.Sha256], ref)
+		return decodeNamingBlock(ctx, payloads[ref.Sha256], ref, true)
 	}
 }
 

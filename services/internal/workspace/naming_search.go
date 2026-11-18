@@ -3,6 +3,7 @@ package workspace
 import (
 	"container/heap"
 	"context"
+	"encoding/binary"
 	"sort"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
@@ -29,10 +30,71 @@ type namingOwnerSearch struct {
 }
 type namingSearchIndex struct {
 	symbols  map[string]int
+	atoms    map[string]uint64
 	owners   map[namingOwner]*namingOwnerSearch
 	complete bool
 }
 type namingQueryStats struct{ Events, Outputs int }
+
+func (index *namingSearchIndex) retainedBytes() int {
+	bytes := 256
+	for symbol := range index.symbols {
+		bytes += len(symbol) + 64
+	}
+	for text := range index.atoms {
+		bytes += len(text) + 64
+	}
+	for _, owner := range index.owners {
+		bytes += 256 + len(owner.seen)*32 + cap(owner.events)*56 + cap(owner.outputs)*8
+		for _, event := range owner.events {
+			bytes += (cap(event.sources) + cap(event.targets)) * 8
+		}
+		for _, entries := range owner.bySource {
+			bytes += 64 + cap(entries)*8
+		}
+		for _, entries := range owner.byOutput {
+			bytes += 64 + cap(entries)*8
+		}
+	}
+	return bytes
+}
+
+// Pack the complete ordered tuple using immutable, manifest-local string
+// ordinals. This has the same equality as comparing all the original strings.
+func (index *namingSearchIndex) symbolKey(data []byte, ref modelcore.SemanticTopologyRef, insert bool) ([]byte, bool) {
+	atom := func(text string) uint64 {
+		id := index.atoms[text]
+		if id == 0 && insert {
+			id = uint64(len(index.atoms) + 1)
+			index.atoms[text] = id
+		}
+		return id
+	}
+	feature, slot := atom(ref.FeatureID), atom(ref.OutputSlot)
+	if feature == 0 || slot == 0 {
+		return nil, false
+	}
+	data = binary.AppendUvarint(data, feature)
+	data = binary.AppendUvarint(data, slot)
+	for _, source := range ref.SourceIDs {
+		id := atom(source)
+		if id == 0 {
+			return nil, false
+		}
+		data = binary.AppendUvarint(data, id)
+	}
+	return data, true
+}
+
+func (index *namingSearchIndex) findSymbol(ref modelcore.SemanticTopologyRef) (int, bool) {
+	var scratch [96]byte
+	key, ok := index.symbolKey(scratch[:0], ref, false)
+	if !ok {
+		return 0, false
+	}
+	id, found := index.symbols[string(key)]
+	return id, found
+}
 
 func namingSelectionOwner(selection modelcore.PersistentSelection) namingOwner {
 	if selection.SourceResult != nil {
@@ -48,7 +110,7 @@ func namingFeatureOwner(feature *workerv1.FeatureResult) (namingOwner, bool) {
 }
 
 func buildNamingSearchIndex(ctx context.Context, manifest *topologyManifest) (*namingSearchIndex, error) {
-	index := &namingSearchIndex{symbols: map[string]int{}, owners: map[namingOwner]*namingOwnerSearch{}, complete: len(manifest.GetFeatureResults()) > 0}
+	index := &namingSearchIndex{symbols: map[string]int{}, atoms: map[string]uint64{}, owners: map[namingOwner]*namingOwnerSearch{}, complete: len(manifest.GetFeatureResults()) > 0}
 	pointers := map[*workerv1.SemanticTopologyRef]int{}
 	intern := func(ref *workerv1.SemanticTopologyRef) int {
 		if id, ok := pointers[ref]; ok {
@@ -56,11 +118,12 @@ func buildNamingSearchIndex(ctx context.Context, manifest *topologyManifest) (*n
 		}
 		// Borrow the immutable source slice only for canonicalization. Exported
 		// selections continue to copy their source IDs and optional evidence.
-		key := refKey(modelcore.SemanticTopologyRef{FeatureID: ref.GetFeatureId(), OutputSlot: ref.GetOutputSlot(), SourceIDs: ref.GetSourceIds()})
-		id, ok := index.symbols[key]
+		var scratch [96]byte
+		key, _ := index.symbolKey(scratch[:0], modelcore.SemanticTopologyRef{FeatureID: ref.GetFeatureId(), OutputSlot: ref.GetOutputSlot(), SourceIDs: ref.GetSourceIds()}, true)
+		id, ok := index.symbols[string(key)]
 		if !ok {
 			id = len(index.symbols)
-			index.symbols[key] = id
+			index.symbols[string(key)] = id
 		}
 		pointers[ref] = id
 		return id
@@ -183,7 +246,7 @@ func (q *namingEvents) Pop() any {
 }
 
 func (index *namingSearchIndex) semanticOutput(selection modelcore.PersistentSelection) *workerv1.SemanticTopologyOutput {
-	id, ok := index.symbols[refKey(selection.Anchor)]
+	id, ok := index.findSymbol(selection.Anchor)
 	if !ok {
 		return nil
 	}
@@ -205,7 +268,7 @@ func (index *namingSearchIndex) semanticOutput(selection modelcore.PersistentSel
 // follow a rule that occurred before its source became live.
 func (index *namingSearchIndex) resolve(selection modelcore.PersistentSelection, geometryKey, geometryID string, stats *namingQueryStats) modelcore.SelectionResolution {
 	result := modelcore.SelectionResolution{Status: modelcore.SelectionMissing, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "PERSISTENT_SELECTION_MISSING", Diagnostic: "semantic anchor has no result in the target body tip"}
-	id, ok := index.symbols[refKey(selection.Anchor)]
+	id, ok := index.findSymbol(selection.Anchor)
 	owner := index.owners[namingSelectionOwner(selection)]
 	if !ok || owner == nil || !owner.seen[id] {
 		result.Status = modelcore.SelectionOutsideCurrentTip

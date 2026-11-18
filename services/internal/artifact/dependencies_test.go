@@ -49,7 +49,7 @@ func TestNamingArtifactClosureSharesPrefixesAndProtectsReachableBlocks(t *testin
 		t.Fatal(err)
 	}
 	dependencies, err := service.Dependencies(ctx, second.ID)
-	if err != nil || len(dependencies) != 3 {
+	if err != nil || len(dependencies) != 1 || dependencies[0].ID != c.ID {
 		t.Fatal(dependencies, err)
 	}
 	reachable, err := service.ReachableObjects(ctx, []string{second.ID})

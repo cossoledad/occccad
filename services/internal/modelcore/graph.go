@@ -305,7 +305,9 @@ type NodeResult struct {
 	OutputDigest string `json:"outputDigest"`
 	Status       string `json:"status"`
 }
+type PartCheckpoint struct{ BodyID, FeatureID, InputDigest, GeometryKey string }
 type EvaluationManifest struct {
+	PartCheckpoints          []PartCheckpoint             `json:"-"` // publication data for the accepting transaction
 	Runtime                  json.RawMessage              `json:"runtime,omitempty"`
 	RevisionID               string                       `json:"revisionId"`
 	ModelHash                string                       `json:"modelHash"`

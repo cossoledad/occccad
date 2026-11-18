@@ -6,6 +6,7 @@ import (
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 )
 
 // The persisted DAG qualifies reuse before preparing geometry. This is an
@@ -18,10 +19,12 @@ type partExecutionPlan struct {
 	inputs         map[modelcore.DependencyKey][]modelcore.DependencyKey
 	acceptedStages map[string]string
 	acceptedBodies map[string]string
+	priorResults   map[modelcore.DependencyKey]modelcore.NodeResult
 }
 type partExecutionPlanKey struct{}
 
 func preparePartExecution(ctx context.Context, before, model PartModel, prior *modelcore.EvaluationManifest, seeds []modelcore.DependencyKey) (context.Context, error) {
+	defer perf.Start(ctx, "part-plan")()
 	if geometry.PartRuntime(ctx).ForceCold || prior == nil || prior.EvaluatorDigest != evaluatorVersion {
 		return ctx, nil
 	}
@@ -42,7 +45,7 @@ func preparePartExecution(ctx context.Context, before, model PartModel, prior *m
 			}
 		}
 	}
-	plan := &partExecutionPlan{graph: graph, dirty: map[modelcore.DependencyKey]bool{}, before: map[string]Feature{}, bodies: map[string]bool{}, inputs: map[modelcore.DependencyKey][]modelcore.DependencyKey{}, acceptedStages: map[string]string{}, acceptedBodies: map[string]string{}}
+	plan := &partExecutionPlan{graph: graph, dirty: map[modelcore.DependencyKey]bool{}, before: map[string]Feature{}, bodies: map[string]bool{}, inputs: map[modelcore.DependencyKey][]modelcore.DependencyKey{}, acceptedStages: map[string]string{}, acceptedBodies: map[string]string{}, priorResults: prior.NodeResults}
 	for _, edge := range graph.Edges {
 		plan.inputs[edge.Target] = append(plan.inputs[edge.Target], edge.Source)
 	}

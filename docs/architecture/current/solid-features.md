@@ -80,6 +80,8 @@ Boolean 并/差最多32工具，交集一个；工具定义保存 Body+Feature �
 
 ## 阶段、命名与历史
 
+已接纳的 Body 阶段通过 Body、Feature 和依赖输入摘要索引冻结结果。索引随接纳 Revision 在同一事务发布。普通追加和中段编辑先找最近的未变上游阶段，确认 Body 所有权、完整前缀顺序、Naming 定位及 B-Rep 摘要，再只准备后续 spec。Worker 恢复 tip 几何、定位与证据，追加事件时沿用原先的历史块摘要。命名表无法证明行对应、缺少检查点、强制冷算和阵列需要旧工具上下文时，使用现有完整输入链。包含真实全局变化的后续步骤照常求值。
+
 依赖连接上游 Feature 输出，而不连接 Body 的未来最终结果。局部修改先重建自身之前的 Body 前缀，再以保存的 source Revision、Body 和 PersistentSelection 解析当前输入。缺失、歧义或类型变化必须失败，不能用最近几何或持久化 local ID 恢复。显示层的 local pick 只用于创建正式持久选择。
 
 拔模所选角度面的单一 Modified 输出以 DRAFTED_FROM 归属拔模，并沿原面保持 Modified 延续；未变面/边不改归属。真实分裂/合并仍走原规则，不猜测面对应。生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 以[求值入口](../../../services/internal/workspace/service.go)为准，Naming evaluator、策略 ID、digest 与容差以[命名策略源码](../../../services/internal/modelcore/topology_naming.go)为准；缓存包含版本和完整来源历史。

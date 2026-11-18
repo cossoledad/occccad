@@ -5,6 +5,7 @@ import type { SolidDisplaySettings, ReferenceVisibility, GridVisibility } from "
 import type { CaptureSettings } from "../../cad/interaction/capture-settings";
 import type { NavigationProfileID } from "../../cad/navigation/navigation-profile";
 import type { DisplayLengthUnit } from "../../state/ui-preferences";
+import type { VisualPrecision } from "../../cad/visual/visual-precision";
 
 export type CreationDefaults={solid:Required<Pick<SurfaceStyle,"color"|"roughness"|"metalness">>};
 export const DEFAULT_CREATION_DEFAULTS:CreationDefaults={solid:{color:palette.solid,roughness:studioMaterial.roughness,metalness:studioMaterial.metalness}};
@@ -17,12 +18,13 @@ export function normalizeCreationDefaults(value:unknown):CreationDefaults {
 export type GlobalOptionsSnapshot={
  sceneSettings:SceneSettings;creationDefaults:CreationDefaults;
  solidDisplay:SolidDisplaySettings;referenceVisibility:ReferenceVisibility;gridVisibility:GridVisibility;
+ visualPrecision:VisualPrecision;
  navigationProfile:NavigationProfileID;catiaRotationSphereVisible:boolean;captureSettings:CaptureSettings;
  displayLengthUnit:DisplayLengthUnit;documentLengthUnits:Record<string,DisplayLengthUnit>;
 };
 export function globalOptionsSnapshot(value:GlobalOptionsSnapshot):GlobalOptionsSnapshot {
  return structuredClone({sceneSettings:value.sceneSettings,creationDefaults:value.creationDefaults,solidDisplay:value.solidDisplay,
-  referenceVisibility:value.referenceVisibility,gridVisibility:value.gridVisibility,navigationProfile:value.navigationProfile,
+  referenceVisibility:value.referenceVisibility,gridVisibility:value.gridVisibility,visualPrecision:value.visualPrecision,navigationProfile:value.navigationProfile,
   catiaRotationSphereVisible:value.catiaRotationSphereVisible,captureSettings:value.captureSettings,
   displayLengthUnit:value.displayLengthUnit,documentLengthUnits:value.documentLengthUnits});
 }

@@ -247,14 +247,10 @@ func TestFeatureInputRepairThroughRouter(t *testing.T) {
 			request.ExpectedFeatureDigest = findP6FeatureDigest(t, view.StructureTree, feature.ID)
 			request.PreviewID = ""
 			cold, e := fresh.PreviewCommand(workspace.WithColdEvaluation(t.Context()), view.Document.ID, request)
-			if e != nil || cold.Artifact == nil || cold.Artifact.GeometryID != final.GeometryID {
+			if e != nil || cold.Artifact == nil {
 				t.Fatal("cold rebuild differs", e)
 			}
-			for _, role := range []string{"BREP", "NAMING"} {
-				if cold.Artifact.Representations[role].Digest != final.Representations[role].Digest {
-					t.Fatalf("cold %s differs", role)
-				}
-			}
+			assertExactPartReplay(t, artifacts, final, *cold.Artifact)
 			after, e := fresh.GetDocument(t.Context(), view.Document.ID, p6Actor)
 			if e != nil || after.Document.VersionID != view.Document.VersionID {
 				t.Fatal("cold preview changed Head", e)

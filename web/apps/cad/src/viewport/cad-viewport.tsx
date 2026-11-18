@@ -19,6 +19,7 @@ import type { Artifact, AssemblyGeometryRef, DocumentView, Selection, SelectionI
 import type { AssemblyConstraintToolKind } from "../cad/tool/cad-tool";
 import { CadViewportEngine } from "./cad-viewport-engine";
 import type { DocumentSessions } from "../cad/document/document-session";
+import { useUIPreferences } from "../state/ui-preferences";
 
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
@@ -128,6 +129,7 @@ function inputDisplay(view:DocumentView,current:Props):DocumentView {
 }
 
 export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadViewport(props, ref) {
+  const visualPrecision = useUIPreferences(state => state.visualPrecision);
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<CadViewportEngine | undefined>(undefined);
   const patternPreview = useRef<InstancePatternPreview | undefined>(undefined);
@@ -209,6 +211,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
 
   useEffect(() => {
     const instance = engine.current; if (!instance) return;
+    instance.setVisualPrecision(visualPrecision);
     instance.setApplicationDisplay(callbacks.current.applicationDisplay,callbacks.current.mechanismSelection);
     const replaceInput = (view:DocumentView) => inputDisplay(view,props);
     instance.render(replaceInput(props.view), props.editingView ? { view: replaceInput(props.editingView), occurrencePath: props.activeInstancePath,
@@ -218,7 +221,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
-  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts, props.featureInputBoundary]);
+  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts, props.featureInputBoundary, visualPrecision]);
 
   // Pose/clock changes update existing occurrences without rebuilding geometry.
   useEffect(()=>{

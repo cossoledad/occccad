@@ -21,6 +21,7 @@ std::vector<api::FeatureResult> expanded_history(const occccad::worker::EncodedN
     std::vector<api::FeatureResult> result;
     for(const auto& payload:encoded.blocks) {
         api::NamingHistoryBlock block;if(!block.ParseFromArray(payload->bytes.data(),static_cast<int>(payload->bytes.size())))throw std::runtime_error("invalid test block");
+        occccad::worker::expand_naming_references(*block.mutable_values());
         const auto& values=block.values();const auto& source=values.transitions(0);
         api::FeatureResult feature;feature.set_feature_id(source.feature_id());feature.set_body_id(source.body_id());
         if(source.has_result())*feature.mutable_result()=source.result();
@@ -42,7 +43,8 @@ std::vector<api::FeatureResult> expanded_history(const occccad::worker::EncodedN
         for(const auto& a:source.ambiguous()){auto* row=history->add_ambiguous();for(auto ref:a.sources())*row->add_sources()=stored_ref(values,ref);for(auto ref:a.candidates())*row->add_candidates()=stored_ref(values,ref);row->set_diagnostic_code(a.diagnostic_code());}
         result.push_back(std::move(feature));
     }
-    const auto& root=encoded.root;
+    auto root=encoded.root;
+    occccad::worker::expand_naming_references(root);
     const auto& tip=root.bodies(0).tip();
     for(const auto& binding:tip){auto* row=result.back().add_semantic_outputs();*row->mutable_semantic_ref()=stored_ref(root,binding.semantic_ref());*row->mutable_evidence()=stored_evidence(root,binding.evidence());row->set_local_id(binding.local_id());row->set_topology_type(binding.topology_type());}
     return result;

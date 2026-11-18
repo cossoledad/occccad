@@ -49,7 +49,22 @@ func (s *Service) ReadyByDigests(ctx context.Context, kind Kind, digests []strin
 }
 
 func (s *Service) Dependencies(ctx context.Context, parent string) ([]Object, error) {
-	rows, err := s.database.Query(ctx, `SELECT o.id::text,o.kind,o.sha256,o.storage_backend,o.object_key,o.content_type,o.size_bytes FROM occccad.artifact_dependencies d JOIN occccad.artifact_objects o ON o.id=d.child_id WHERE d.parent_id=$1 AND o.state='READY' ORDER BY o.id`, parent)
+	return s.dependencyObjects(ctx, `SELECT o.id::text,o.kind,o.sha256,o.storage_backend,o.object_key,o.content_type,o.size_bytes FROM occccad.artifact_dependencies d JOIN occccad.artifact_objects o ON o.id=d.child_id WHERE d.parent_id=$1 AND o.state='READY' ORDER BY o.id`, parent)
+}
+
+// NamingHistoryObjects follows the published predecessor chain. A digest
+// filter can fetch just the artifact required by an exact-stage restore.
+func (s *Service) NamingHistoryObjects(ctx context.Context, root, digest string) ([]Object, error) {
+	return s.dependencyObjects(ctx, `WITH RECURSIVE history(id) AS (
+ SELECT child_id FROM occccad.artifact_dependencies WHERE parent_id=$1
+ UNION SELECT d.child_id FROM occccad.artifact_dependencies d JOIN history h ON h.id=d.parent_id
+ ) SELECT o.id::text,o.kind,o.sha256,o.storage_backend,o.object_key,o.content_type,o.size_bytes FROM history h
+ JOIN occccad.artifact_objects o ON o.id=h.id
+ WHERE o.state='READY' AND ($2='' OR o.sha256=$2) ORDER BY o.id`, root, digest)
+}
+
+func (s *Service) dependencyObjects(ctx context.Context, query string, args ...any) ([]Object, error) {
+	rows, err := s.database.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -70,18 +85,31 @@ func (s *Service) Dependencies(ctx context.Context, parent string) ([]Object, er
 // calling this method. A block's one predecessor is immutable, including when
 // concurrent roots share it; a different dependency set is corruption.
 func (s *Service) RecordNamingClosure(ctx context.Context, root Object, ordered []Object) error {
+	return s.recordNamingClosure(ctx, root, ordered, 0)
+}
+
+// The caller has verified the predecessor against an accepted root. Its
+// upstream dependency is already published and is shared verbatim.
+func (s *Service) RecordNamingContinuation(ctx context.Context, root, predecessor Object, suffix []Object) error {
+	if predecessor.Kind != KindNamingHistory || len(suffix) == 0 {
+		return fmt.Errorf("invalid naming continuation")
+	}
+	return s.recordNamingClosure(ctx, root, append([]Object{predecessor}, suffix...), 1)
+}
+
+func (s *Service) recordNamingClosure(ctx context.Context, root Object, ordered []Object, beginAt int) error {
 	if root.Kind != KindTopologyManifest || len(ordered) == 0 {
 		return fmt.Errorf("invalid naming closure root")
 	}
-	expected := map[string]map[string]bool{root.ID: {}}
-	for i, o := range ordered {
-		if o.Kind != KindNamingHistory || o.ID == root.ID || expected[o.ID] != nil {
+	tip := ordered[len(ordered)-1]
+	expected := map[string]map[string]bool{root.ID: {tip.ID: true}}
+	for i, o := range ordered[beginAt:] {
+		if o.Kind != KindNamingHistory || o.ID == root.ID || expected[o.ID] != nil || beginAt == 1 && o.ID == ordered[0].ID {
 			return fmt.Errorf("invalid naming closure member")
 		}
-		expected[root.ID][o.ID] = true
 		expected[o.ID] = map[string]bool{}
-		if i > 0 {
-			expected[o.ID][ordered[i-1].ID] = true
+		if i+beginAt > 0 {
+			expected[o.ID][ordered[i+beginAt-1].ID] = true
 		}
 	}
 	tx, err := s.database.Begin(ctx)
@@ -133,13 +161,13 @@ func (s *Service) RecordNamingClosure(ctx context.Context, root Object, ordered 
 		}
 	}
 	var pairs [][2]string
-	for i, o := range ordered {
-		if i > 0 {
-			pairs = append(pairs, [2]string{o.ID, ordered[i-1].ID})
+	for i, o := range ordered[beginAt:] {
+		if i+beginAt > 0 && len(existing[o.ID]) == 0 {
+			pairs = append(pairs, [2]string{o.ID, ordered[i+beginAt-1].ID})
 		}
 	}
-	for _, o := range ordered {
-		pairs = append(pairs, [2]string{root.ID, o.ID})
+	if len(existing[root.ID]) == 0 {
+		pairs = append(pairs, [2]string{root.ID, tip.ID})
 	}
 	for begin := 0; begin < len(pairs); begin += artifactBatchSize {
 		end := min(begin+artifactBatchSize, len(pairs))

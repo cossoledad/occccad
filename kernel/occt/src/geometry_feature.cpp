@@ -1,3 +1,4 @@
+#include "internal/named_boundary_index.hpp"
 #include <internal/solid_material.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Check.hxx>
@@ -5,6 +6,7 @@
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
@@ -371,22 +373,13 @@ void validate_result(const GeometryFeatureBuild& b, const std::string& op) {
 }  // namespace geometry_features
 using namespace geometry_features;
 
-GeometryFeatureBuild read_geometry_input(const GeometryFeatureInput& input) {
+namespace {
+GeometryFeatureBuild read_geometry_source(const BodyToolInput& source) {
     GeometryFeatureBuild out;
-    if (input.plane) {
-        const auto& p = *input.plane;
-        if (p.id.empty())
-            throw std::invalid_argument("GEOMETRY_PLANE_ID_REQUIRED");
-        out.shape = BRepBuilderAPI_MakeFace(gp_Pln(gp_Ax3(point(p.origin), direction(p.normal),
-                                                          direction(p.u_direction))))
-                        .Face();
-        add(out, {p.id, "datum.plane", {p.id}}, out.shape);
-        return out;
-    }
-    if (input.source.brep.empty() || input.source.feature_id.empty())
+    if (source.brep.empty() || source.feature_id.empty())
         throw std::invalid_argument("GEOMETRY_INPUT_SNAPSHOT_REQUIRED");
     BRep_Builder builder;
-    std::istringstream stream(std::string(input.source.brep.begin(), input.source.brep.end()));
+    std::istringstream stream(std::string(source.brep.begin(), source.brep.end()));
     BRepTools::Read(out.shape, stream, builder);
     if (out.shape.IsNull() || stream.bad())
         throw std::invalid_argument("GEOMETRY_INPUT_BREP_INVALID");
@@ -394,7 +387,7 @@ GeometryFeatureBuild read_geometry_input(const GeometryFeatureInput& input) {
     for (auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
         TopExp::MapShapes(out.shape, type, maps[type]);
     std::set<std::string> identities, locators;
-    for (const auto& n : input.source.topology) {
+    for (const auto& n : source.topology) {
         const auto type = n.type == TopologyType::FACE     ? TopAbs_FACE
                           : n.type == TopologyType::EDGE   ? TopAbs_EDGE
                           : n.type == TopologyType::VERTEX ? TopAbs_VERTEX
@@ -412,28 +405,73 @@ GeometryFeatureBuild read_geometry_input(const GeometryFeatureInput& input) {
         expected += static_cast<size_t>(m.second.Extent());
     if (out.named.size() != expected)
         throw std::invalid_argument("GEOMETRY_INPUT_NAMING_INCOMPLETE");
-    if (!input.members.empty()) {
-        std::vector<TopoDS_Shape> chosen;
-        std::set<std::string> unique;
-        for (const auto& member : input.members) {
-            const auto k = key(ref(member));
-            if (!unique.insert(k).second)
-                throw std::invalid_argument("GEOMETRY_INPUT_DUPLICATE_MEMBER");
-            const auto it = std::find_if(out.named.begin(), out.named.end(),
-                                         [&](const auto& n) { return key(n.ref) == k; });
-            if (it == out.named.end())
-                throw std::invalid_argument("GEOMETRY_INPUT_MEMBER_MISSING");
-            chosen.push_back(it->shape);
-        }
-        out.shape = compound(chosen);
-        out.named.erase(
-            std::remove_if(out.named.begin(), out.named.end(),
-                           [&](const auto& n) { return !contains(out.shape, n.shape); }),
-            out.named.end());
-    }
-    if (input.reversed)
-        out.shape.Reverse();
     return out;
+}
+
+class GeometryInputs {
+    struct Snapshot {
+        GeometryFeatureBuild geometry;
+        std::unordered_map<std::string, std::size_t> members;
+    };
+    std::unordered_map<const BodyToolInput*, Snapshot> sources_;
+
+public:
+    GeometryFeatureBuild read(const GeometryFeatureInput& input) {
+        GeometryFeatureBuild out;
+        if (input.plane) {
+            const auto& p = *input.plane;
+            if (p.id.empty()) throw std::invalid_argument("GEOMETRY_PLANE_ID_REQUIRED");
+            out.shape = BRepBuilderAPI_MakeFace(gp_Pln(gp_Ax3(point(p.origin), direction(p.normal),
+                                                              direction(p.u_direction))))
+                            .Face();
+            add(out, {p.id, "datum.plane", {p.id}}, out.shape);
+            return out;
+        }
+
+        if (!input.source) throw std::invalid_argument("GEOMETRY_INPUT_SNAPSHOT_REQUIRED");
+        auto [entry, inserted] = sources_.try_emplace(input.source.get());
+        auto& snapshot = entry->second;
+        if (inserted) {
+            snapshot.geometry = read_geometry_source(*input.source);
+            for (std::size_t i = 0; i < snapshot.geometry.named.size(); ++i)
+                snapshot.members.emplace(key(snapshot.geometry.named[i].ref), i);
+        }
+        const auto& source = snapshot.geometry;
+        if (input.members.empty()) {
+            out = source;
+        } else {
+            std::vector<TopoDS_Shape> chosen;
+            std::set<std::string> unique;
+            for (const auto& member : input.members) {
+                const auto identity = key(ref(member));
+                if (!unique.insert(identity).second)
+                    throw std::invalid_argument("GEOMETRY_INPUT_DUPLICATE_MEMBER");
+                const auto found = snapshot.members.find(identity);
+                if (found == snapshot.members.end())
+                    throw std::invalid_argument("GEOMETRY_INPUT_MEMBER_MISSING");
+                chosen.push_back(source.named[found->second].shape);
+            }
+            out.shape = compound(chosen);
+            TopTools_IndexedMapOfShape members;
+            TopExp::MapShapes(out.shape, members);
+            for (const auto& named : source.named)
+                if (members.Contains(named.shape)) out.named.push_back(named);
+        }
+        // Builders may add p-curves or update topological flags. Give each
+        // input its own working subshape, borrowing only the frozen index.
+        if (input.source.use_count() > 1) {
+            BRepBuilderAPI_Copy copy(out.shape, Standard_True, Standard_False);
+            out.shape = copy.Shape();
+            for (auto& named : out.named) named.shape = copy.ModifiedShape(named.shape);
+        }
+        if (input.reversed) out.shape.Reverse();
+        return out;
+    }
+};
+}  // namespace
+
+GeometryFeatureBuild read_geometry_input(const GeometryFeatureInput& input) {
+    return GeometryInputs{}.read(input);
 }
 
 void complete_geometry_naming(GeometryFeatureBuild& b, const std::string& id) {
@@ -441,19 +479,14 @@ void complete_geometry_naming(GeometryFeatureBuild& b, const std::string& id) {
         std::map<std::string,
                  std::vector<std::pair<TopoDS_Shape, std::vector<SemanticTopologyRef>>>>
             groups;
+        const NamedBoundaryIndex boundary(b.named, type);
         for (const auto& s : members(b.shape, type)) {
-            if (std::any_of(b.named.begin(), b.named.end(),
-                            [&](const auto& n) { return n.shape.IsSame(s); }))
-                continue;
+            if (boundary.contains(s)) continue;
             std::vector<SemanticTopologyRef> sources;
-            for (const auto& n : b.named)
-                if ((type == TopAbs_FACE && n.shape.ShapeType() == TopAbs_EDGE &&
-                     contains(s, n.shape)) ||
-                    (type == TopAbs_EDGE && n.shape.ShapeType() == TopAbs_FACE &&
-                     contains(n.shape, s)) ||
-                    (type == TopAbs_VERTEX && n.shape.ShapeType() == TopAbs_EDGE &&
-                     contains(n.shape, s)))
-                    sources.push_back(n.ref);
+            std::vector<std::size_t> adjacent;
+            boundary.visit(s, [&](std::size_t i) { adjacent.push_back(i); });
+            std::sort(adjacent.begin(), adjacent.end());
+            for (const auto i : adjacent) sources.push_back(b.named[i].ref);
             if (sources.empty())
                 throw std::invalid_argument("GEOMETRY_HISTORY_INCOMPLETE");
             groups[signature(sources)].push_back({s, sources});
@@ -464,7 +497,8 @@ void complete_geometry_naming(GeometryFeatureBuild& b, const std::string& id) {
                     "GEOMETRY_HISTORY_BRANCH_AMBIGUOUS:" + std::to_string(type) + "/" +
                     std::to_string(group.second.size()));
             const auto& p = group.second.front();
-            add(b, derived(id, "boundary/" + std::to_string(type), p.second), p.first, p.second);
+            auto identity = derived(id, "boundary/" + std::to_string(type), p.second);
+            b.named.push_back({identity, p.first, p.second, {identity}});
         }
     }
     std::set<std::string> ids;
@@ -491,8 +525,9 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
                 "sha256:" + s.import_seed->brep_sha256)
             throw std::invalid_argument("IMPORT_SEED_SNAPSHOT_MISMATCH");
         GeometryFeatureInput input;
-        input.source.feature_id = s.feature_id;
-        input.source.brep = s.import_brep;
+        auto source = std::make_shared<BodyToolInput>();
+        source->feature_id = s.feature_id;
+        source->brep = s.import_brep;
         for (const auto& n : s.import_seed->identities) {
             if (n.stable_id.empty())
                 throw std::invalid_argument("IMPORT_SEED_INVALID_IDENTITY_MAP");
@@ -501,9 +536,10 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
                               : n.topology_type == PersistentTopologyType::vertex
                                   ? TopologyType::VERTEX
                                   : TopologyType::COMPOUND;
-            input.source.topology.push_back(
+            source->topology.push_back(
                 {s.feature_id, "import.topology", {n.stable_id}, type, n.local_id});
         }
+        input.source = std::move(source);
         auto out = read_geometry_input(input);
         validate_result(out, s.operation);
         complete_geometry_naming(out, s.feature_id);
@@ -518,10 +554,11 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
     for (double v : {p.distance, p.angle, p.start, p.end, p.tension})
         if (!std::isfinite(v))
             throw std::invalid_argument("GEOMETRY_NONFINITE_PARAMETER");
+    GeometryInputs geometry_inputs;
     std::vector<GeometryFeatureBuild> inputs;
     for (const auto& input : s.inputs) {
         check();
-        inputs.push_back(read_geometry_input(input));
+        inputs.push_back(geometry_inputs.read(input));
     }
     if (!s.sketch_wire.curves.empty()) {
         GeometryFeatureBuild b;

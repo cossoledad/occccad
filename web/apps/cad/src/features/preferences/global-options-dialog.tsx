@@ -9,6 +9,7 @@ import {DEFAULT_REFERENCE_VISIBILITY,DEFAULT_SOLID_DISPLAY,DEFAULT_GRID_VISIBILI
 import {useUIPreferences,type DisplayLengthUnit} from "../../state/ui-preferences";
 import {DEFAULT_CREATION_DEFAULTS,type GlobalOptionsSnapshot} from "./global-options-model";
 import {SceneOptionsFields} from "./scene-options-fields";
+import {DEFAULT_VISUAL_PRECISION,VISUAL_PRECISION_OPTIONS,type VisualPrecision} from "../../cad/visual/visual-precision";
 
 const units=[{value:"mm",label:"毫米 (mm)"},{value:"cm",label:"厘米 (cm)"},{value:"m",label:"米 (m)"},{value:"in",label:"英寸 (in)"}];
 type Page="scene"|"display"|"creation"|"navigation"|"units";
@@ -17,7 +18,7 @@ export function GlobalOptionsDialog({draft,patch,close,activeDocumentID,metrics}
  const [page,setPage]=useState<Page>("scene");
  const reset=()=>{if(!draft)return;switch(page){
   case "scene":patch({sceneSettings:{...DEFAULT_SCENE_SETTINGS}});break;
-  case "display":patch({solidDisplay:{...DEFAULT_SOLID_DISPLAY},referenceVisibility:{...DEFAULT_REFERENCE_VISIBILITY},gridVisibility:{...DEFAULT_GRID_VISIBILITY}});break;
+  case "display":patch({visualPrecision:DEFAULT_VISUAL_PRECISION,solidDisplay:{...DEFAULT_SOLID_DISPLAY},referenceVisibility:{...DEFAULT_REFERENCE_VISIBILITY},gridVisibility:{...DEFAULT_GRID_VISIBILITY}});break;
   case "creation":patch({creationDefaults:structuredClone(DEFAULT_CREATION_DEFAULTS)});break;
   case "navigation":patch({navigationProfile:"default",catiaRotationSphereVisible:false,captureSettings:structuredClone(DEFAULT_CAPTURE_SETTINGS)});break;
   case "units":{const documentLengthUnits={...draft.documentLengthUnits};if(activeDocumentID)delete documentLengthUnits[activeDocumentID];patch({displayLengthUnit:"mm",documentLengthUnits});break}
@@ -25,6 +26,7 @@ export function GlobalOptionsDialog({draft,patch,close,activeDocumentID,metrics}
  const contents=draft&&<>
   {page==="scene"&&<SceneOptionsFields value={draft.sceneSettings} onChange={sceneSettings=>patch({sceneSettings})} metrics={metrics}/>}
   {page==="display"&&<Space orientation="vertical" className="global-options-fields">
+   <CommandField label="三维显示精度" width="content"><Select<VisualPrecision> aria-label="三维显示精度" value={draft.visualPrecision} options={[...VISUAL_PRECISION_OPTIONS]} onChange={visualPrecision=>patch({visualPrecision})}/></CommandField>
    <Typography.Title level={5}>实体显示</Typography.Title><Radio.Group aria-label="实体显示" value={draft.solidDisplay.mode} onChange={e=>patch({solidDisplay:{...draft.solidDisplay,mode:e.target.value}})} options={[{value:"shaded",label:"正常显示"},{value:"wireframe",label:"线框显示"}]}/>
    <Checkbox disabled={draft.solidDisplay.mode==="wireframe"} checked={draft.solidDisplay.mode==="wireframe"||draft.solidDisplay.edges} onChange={e=>patch({solidDisplay:{...draft.solidDisplay,edges:e.target.checked}})}>显示边线</Checkbox>
    <Checkbox checked={draft.solidDisplay.vertices} onChange={e=>patch({solidDisplay:{...draft.solidDisplay,vertices:e.target.checked}})}>显示交点</Checkbox>

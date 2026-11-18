@@ -4,6 +4,7 @@
 #endif
 #include <Standard_Version.hxx>
 #include "naming_history.hpp"
+#include "part_continuation.hpp"
 #include "cancellation.hpp"
 
 #include <internal/occt_kernel.hpp>
@@ -38,6 +39,7 @@
 #include <OSD_ThreadPool.hxx>
 #include <OSD_Parallel.hxx>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <numeric>
@@ -48,6 +50,8 @@ namespace sketch_api = occccad::geometry::sketch;
 namespace assembly_api = occccad::assembly;
 
 namespace {
+constexpr double default_visual_linear = 0.15;
+constexpr double default_visual_angular = 0.30;
 
 std::uintmax_t maximum_exchange_bytes() {
     const char* configured = std::getenv("OCCCCAD_EXCHANGE_MAX_BYTES");
@@ -144,8 +148,12 @@ std::vector<uint8_t> read_artifact(const worker_api::ArtifactReference& referenc
     std::ifstream stream(path, std::ios::binary);
     if (!stream)
         throw std::runtime_error("cannot open artifact input");
-    std::vector<uint8_t> data{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
-    if (data.size() != reference.size_bytes() ||
+    const auto size = std::filesystem::file_size(path);
+    if (size != reference.size_bytes() || size > maximum_exchange_bytes())
+        throw std::invalid_argument("artifact input integrity mismatch");
+    std::vector<uint8_t> data(size);
+    if (!stream.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(size)) ||
+        stream.peek() != std::char_traits<char>::eof() ||
         occccad::kernel::make_geometry_id(data.data(), data.size()) != "sha256:" + reference.sha256())
         throw std::invalid_argument("artifact input integrity mismatch");
     return data;
@@ -1496,6 +1504,7 @@ public:
     if (!naming.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())) ||
         naming.schema_version() != 3 || naming.brep_sha256() != source.brep().sha256() || naming.policy_digest()!=occccad::kernel::topology_naming_policy_digest)
         throw std::invalid_argument("GEOMETRY_INPUT_NAMING_SNAPSHOT_MISMATCH");
+    occccad::worker::expand_naming_references(naming);
     std::string tip_feature;bool complete=false;
     const google::protobuf::RepeatedPtrField<worker_api::NamingTopologyLocator>* tip_outputs=nullptr;
     if(source.has_result()) {
@@ -1530,14 +1539,23 @@ public:
     }
     return tool;
     }
+    using GeometrySources = std::unordered_map<std::string, std::shared_ptr<const occccad::kernel::BodyToolInput>>;
     template<class Reader>
-    occccad::kernel::GeometryFeatureInput read_geometry_input(const worker_api::GeometryFeatureInput& input,Reader&& read) {
+    occccad::kernel::GeometryFeatureInput read_geometry_input(const worker_api::GeometryFeatureInput& input,Reader&& read, GeometrySources* sources = nullptr) {
         occccad::kernel::GeometryFeatureInput result;
         const auto vec=[](const worker_api::Vec3& v){return occccad::kernel::Vec3{v.x(),v.y(),v.z()};};
         if(input.has_plane()) {
             if(input.has_source() || input.members_size()!=0)throw std::invalid_argument("GEOMETRY_PLANE_INPUT_AMBIGUOUS");
             const auto& p=input.plane();result.plane=occccad::kernel::GeometryPlane{vec(p.origin()),vec(p.normal()),vec(p.u_direction()),p.id()};
-        } else result.source=read_boolean_source(input.source(),read);
+        } else if (sources) {
+            const auto key = input.source().SerializeAsString();
+            auto found = sources->find(key);
+            if (found == sources->end())
+                found = sources->emplace(key, std::make_shared<const occccad::kernel::BodyToolInput>(read_boolean_source(input.source(),read))).first;
+            result.source = found->second;
+        } else {
+            result.source = std::make_shared<const occccad::kernel::BodyToolInput>(read_boolean_source(input.source(),read));
+        }
         if(input.members_size()>4096)throw std::invalid_argument("GEOMETRY_MEMBER_BUDGET");
         for(const auto& member:input.members())result.members.push_back({member.feature_id(),member.output_slot(),{member.source_ids().begin(),member.source_ids().end()}});
         result.reversed=input.reversed();return result;
@@ -1546,13 +1564,14 @@ public:
     occccad::kernel::GeometryFeatureSpec read_geometry_feature(const worker_api::GeometryFeatureSpec& input,Reader&& read) {
         if(input.inputs_size()>128 || input.curve().points_size()>4096 || input.curve().knots_size()>4096 || input.sketch_wire().curves_size()>4096)throw std::invalid_argument("GEOMETRY_INPUT_BUDGET");
         const auto vec=[](const worker_api::Vec3& v){return occccad::kernel::Vec3{v.x(),v.y(),v.z()};};
+        GeometrySources sources;
         occccad::kernel::GeometryFeatureSpec result;
         result.feature_id = input.feature_id();
         result.result_id = input.result_id();
         result.operation = input.operation();
         result.construction_tolerance =
             input.construction_tolerance() > 0 ? input.construction_tolerance() : 1e-7;
-        for(const auto& v:input.inputs())result.inputs.push_back(read_geometry_input(v,read));
+        for(const auto& v:input.inputs())result.inputs.push_back(read_geometry_input(v,read,&sources));
         const auto& c=input.curve();for(const auto& v:c.points()){occccad::kernel::GeometryControlPoint point{v.id(),vec(v.position()),{}};for(const auto& r:v.sources())point.sources.push_back({r.feature_id(),r.output_slot(),{r.source_ids().begin(),r.source_ids().end()}});result.curve.points.push_back(std::move(point));}
         result.curve.normal=vec(c.normal());result.curve.x_direction=vec(c.x_direction());result.curve.radius=c.radius();result.curve.start_angle=c.start_angle();result.curve.end_angle=c.end_angle();result.curve.degree=c.degree();
         result.curve.knots={c.knots().begin(),c.knots().end()};result.curve.multiplicities={c.multiplicities().begin(),c.multiplicities().end()};result.curve.weights={c.weights().begin(),c.weights().end()};result.curve.closed=c.closed();
@@ -1568,8 +1587,8 @@ public:
             result.surface.second_keep_point = vec(surface.second_keep_point());
         result.surface.keep_point = vec(surface.keep_point());
         if(surface.sections_size()>32||surface.boundaries_size()>128)throw std::invalid_argument("SURFACE_CONTROL_BUDGET");
-        if(surface.has_spine())result.surface.spine=read_geometry_input(surface.spine(),read);
-        if(surface.has_guide())result.surface.guide=read_geometry_input(surface.guide(),read);
+        if(surface.has_spine())result.surface.spine=read_geometry_input(surface.spine(),read,&sources);
+        if(surface.has_guide())result.surface.guide=read_geometry_input(surface.guide(),read,&sources);
         for(const auto& c:surface.sections()){
             occccad::kernel::GeometrySectionControl control;control.id=c.id();control.section_index=c.section_index();
             if(c.has_closing_point())control.closing_point=vec(c.closing_point());
@@ -1580,7 +1599,7 @@ public:
         }
         for(const auto& c:surface.boundaries()){
             occccad::kernel::GeometryBoundaryControl control;control.id=c.id();control.boundary_index=c.boundary_index();control.continuity=c.continuity();control.tension=c.tension();
-            if(c.has_support())control.support=read_geometry_input(c.support(),read);
+            if(c.has_support())control.support=read_geometry_input(c.support(),read,&sources);
             result.surface.boundaries.push_back(std::move(control));
         }
         if(input.has_import_seed()){
@@ -1612,7 +1631,7 @@ public:
                 auto* ref=value->mutable_reference();for(const auto& token:cell.reference.boundary)ref->add_boundary(token);
                 ref->set_boundary_unique(cell.reference.boundary_unique);ref->set_input_digest(cell.reference.input_digest);ref->set_cell_digest(cell.reference.cell_digest);
                 const auto prefix=request->output_prefix()+"/"+cell.reference.cell_digest.substr(7);
-                fill_evaluation(cell.geometry_id,cell.geometry_id,0.1,0.5,value->mutable_geometry(),prefix+".brep",prefix+".glb");
+                fill_evaluation(cell.geometry_id,cell.geometry_id,0,0,value->mutable_geometry(),prefix+".brep",prefix+".glb");
             }
             return grpc::Status::OK;
         } catch(const std::invalid_argument& e){return {grpc::StatusCode::INVALID_ARGUMENT,e.what()};}
@@ -1652,17 +1671,23 @@ public:
             const auto publish=[&](const auto& key,const auto& bytes,const auto& type,auto* ref){const auto began=std::chrono::steady_clock::now();if(context->IsCancelled())throw std::runtime_error("EVALUATION_CANCELLED");write_artifact(key,bytes,type,ref);auto* timings=response->mutable_runtime_stats();timings->set_artifact_io_ms(timings->artifact_io_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count());};
             std::unordered_set<std::string> known_naming_blocks;
             if(!request->force_cold() && request->has_naming_source()) {
-                const auto bytes=input_artifact(request->naming_source());
-                worker_api::PartTopologyManifest source;
-                if(!source.ParseFromArray(bytes.data(),static_cast<int>(bytes.size())) || source.schema_version()!=3 ||
-                   source.policy_digest()!=request->topology_policy().policy_digest() || source.coordinate_space()!="PART_LOCAL" || source.length_unit()!="mm" || source.transitions_size()!=0)
-                    throw std::invalid_argument("NAMING_SOURCE_CONTRACT_MISMATCH");
-                const auto body=request->profile_pads_size()?request->profile_pads(0).body_id():request->import_seed().body_id();
-                if(!body.empty() && (source.bodies_size()!=1 || source.results_size()!=0 || source.bodies(0).body_id()!=body))
-                    throw std::invalid_argument("NAMING_SOURCE_OWNER_MISMATCH");
-                for(const auto& block:source.history()) {
-                    if(block.sha256().size()!=64)throw std::invalid_argument("NAMING_SOURCE_DIGEST_INVALID");
-                    known_naming_blocks.insert(block.sha256());
+                try {
+                    const auto bytes=input_artifact(request->naming_source());
+                    worker_api::PartTopologyManifest source;
+                    if(!source.ParseFromArray(bytes.data(),static_cast<int>(bytes.size())) || source.schema_version()!=3 ||
+                       source.policy_digest()!=request->topology_policy().policy_digest() || source.coordinate_space()!="PART_LOCAL" || source.length_unit()!="mm" || source.transitions_size()!=0)
+                        throw std::invalid_argument("NAMING_SOURCE_CONTRACT_MISMATCH");
+                    const auto body=request->profile_pads_size()?request->profile_pads(0).body_id():request->import_seed().body_id();
+                    if(!body.empty() && (source.bodies_size()!=1 || source.results_size()!=0 || source.bodies(0).body_id()!=body))
+                        throw std::invalid_argument("NAMING_SOURCE_OWNER_MISMATCH");
+                    for(const auto& block:source.history()) {
+                        if(block.sha256().size()!=64)throw std::invalid_argument("NAMING_SOURCE_DIGEST_INVALID");
+                        known_naming_blocks.insert(block.sha256());
+                    }
+                } catch (const std::exception&) {
+                    // This is a publication hint. The actual evaluation can
+                    // publish its complete history when the hint is unusable.
+                    known_naming_blocks.clear();
                 }
             }
             const auto publish_history=[&](const auto& blocks,auto* manifest){
@@ -1682,6 +1707,7 @@ public:
             canonical.clear_request_id(); canonical.clear_geometry_key();
             canonical.clear_brep_output_key(); canonical.clear_glb_output_key();
             canonical.clear_force_cold();canonical.clear_runtime_affinity();canonical.clear_naming_source();
+            canonical.clear_base_mesh_seed();
             const auto request_key = occccad::kernel::make_geometry_id(canonical.SerializeAsString()) + (external_outputs ? ":persistent" : ":transient");
             const auto cached = cache_.find(request_key);
             if (!request->force_cold() && cached != cache_.end()) {
@@ -1692,6 +1718,8 @@ public:
                 if (external_outputs && cached->second.brep && !cached->second.brep->empty()) {
                     publish(request->brep_output_key(), *cached->second.brep, "application/vnd.opencascade.brep", response->mutable_brep_artifact());
                     if(!request->exact_only())publish(request->glb_output_key(), *cached->second.glb, "model/gltf-binary", response->mutable_glb_artifact());
+                    if (cached->second.mesh_seed) publish(request->glb_output_key()+".seed", *cached->second.mesh_seed,
+                        "application/vnd.occccad.mesh-seed.v1", response->mutable_mesh_seed_artifact());
                     if (!cached->second.naming.empty()) publish(request->brep_output_key()+".naming.pb", cached->second.naming,
                         "application/vnd.occccad.topology-manifest.v3+protobuf", response->mutable_evaluation_manifest()->mutable_topology_manifest_artifact());
                     if(!cached->second.history_blocks.empty())publish_history(cached->second.history_blocks,response->mutable_evaluation_manifest());
@@ -1700,7 +1728,8 @@ public:
                 if (!response->geometry_id().empty()) {
 
                     auto* stats=response->mutable_runtime_stats();
-                    stats->set_stages_reused(request->profile_pads_size());
+                    stats->set_frozen_prefix_stages(request->continuation().stage_count());
+                    stats->set_stages_reused(request->profile_pads_size()+stats->frozen_prefix_stages());
                     for(const auto& pad:request->profile_pads())stats->add_reused_feature_ids(pad.feature_id());
                     for(const auto& stage:old_stats.stages()){auto* out=stats->add_stages();*out=stage;out->set_reused(true);}
                     stats->set_queue_ms(std::chrono::duration<double,std::milli>(acquired-started).count());
@@ -1735,9 +1764,16 @@ public:
                 append_spec(request->rectangular_pad());
             }
             const auto base_read_started=std::chrono::steady_clock::now();
-            const auto base_owner=request->has_base_brep_artifact()
-                ? read_shared_input(request->base_brep_artifact(),request->force_cold())
-                : std::make_shared<const std::vector<uint8_t>>(request->base_brep_data().begin(),request->base_brep_data().end());
+            const auto base_owner = [&]() {
+                try {
+                    return request->has_base_brep_artifact()
+                        ? read_shared_input(request->base_brep_artifact(),request->force_cold())
+                        : std::make_shared<const std::vector<uint8_t>>(request->base_brep_data().begin(),request->base_brep_data().end());
+                } catch (const std::exception&) {
+                    if (request->has_continuation()) throw std::invalid_argument("PART_CONTINUATION_BREP_UNAVAILABLE");
+                    throw;
+                }
+            }();
             const auto& base_brep=*base_owner;
             input_io_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-base_read_started).count();
             std::vector<occccad::kernel::ProfilePadSpec> profile_specs;
@@ -1883,6 +1919,25 @@ public:
             const auto cancellation=std::make_shared<occccad::worker::CancellationPolling>([context](){return context->IsCancelled();});
             runtime.cancelled=[cancellation](){return cancellation->poll();};
             runtime.fresh_cancelled=[cancellation](){return cancellation->check();};
+            worker_api::PartTopologyManifest accepted_prefix;
+            if (request->has_continuation()) {
+                const auto& continuation = request->continuation();
+                if (request->force_cold() || request->has_import_seed() || request->has_base_stage() || !specs.empty() ||
+                    profile_specs.empty() || !request->has_base_brep_artifact() || continuation.body_id() != profile_specs.front().body_id ||
+                    continuation.feature_id() != profile_specs.front().input_feature_id)
+                    throw std::invalid_argument("PART_CONTINUATION_REQUEST_INVALID");
+                const auto data = [&]() {
+                    try {
+                        return input_artifact(continuation.naming());
+                    } catch (const std::exception&) {
+                        throw std::invalid_argument("PART_CONTINUATION_NAMING_UNAVAILABLE");
+                    }
+                }();
+                if (!accepted_prefix.ParseFromArray(data.data(), static_cast<int>(data.size())))
+                    throw std::invalid_argument("PART_CONTINUATION_NAMING_INVALID");
+                runtime.continuation = occccad::worker::restore_part_continuation(accepted_prefix, continuation,
+                    "sha256:" + request->base_brep_artifact().sha256(), request->topology_policy());
+            }
             if(request->has_base_stage() && !runtime.force_cold) {
                 if(!request->has_import_seed() || base_brep.empty())throw std::invalid_argument("BASE_STAGE_REQUIRES_IMPORT");
                 const auto& source=request->base_stage();
@@ -1906,6 +1961,7 @@ public:
                    root_block.full_lineage_count()!=static_cast<uint64_t>(root_block.values().transitions(0).lineage_size()))throw std::invalid_argument("BASE_STAGE_ROOT_BLOCK_INVALID");
                 for(const auto& span:root_block.layout())if(span.carry())throw std::invalid_argument("BASE_STAGE_ROOT_CARRY_INVALID");
                 snapshot=*root_block.mutable_values();
+                occccad::worker::expand_naming_references(snapshot);
                 const worker_api::NamingTransition* found_root=nullptr;
                 for(const auto& candidate:snapshot.transitions())if(candidate.feature_id()==seed.feature_id) {
                     if(found_root)throw std::invalid_argument("BASE_STAGE_DUPLICATE_ROOT");
@@ -1947,6 +2003,7 @@ public:
             // Canonical keys include actual immutable source digests, stable Body /
             // Feature identity and the naming policy; transport IDs/outputs do not.
             std::ostringstream base_facts;
+            if (runtime.continuation) base_facts << "continuation:" << request->continuation().naming().sha256();
             if(runtime.base_stage)base_facts<<std::setprecision(std::numeric_limits<double>::max_digits10)
                 <<runtime.base_stage->geometry_id<<':'<<runtime.base_stage->validated<<':'
                 <<runtime.base_stage->root.topology_history.evidence_digest;
@@ -1956,6 +2013,22 @@ public:
             for(const auto& pad:request->profile_pads()) {
                 prefix=occccad::kernel::make_geometry_id(prefix+pad.SerializeAsString());
                 runtime.stage_keys.push_back(prefix);
+            }
+            if (!request->force_cold() && !request->exact_only() && !base_brep.empty() && request->has_base_mesh_seed()) {
+                const auto began = std::chrono::steady_clock::now();
+                const auto id = occccad::kernel::make_geometry_id(base_brep.data(), base_brep.size());
+                const double linear = request->linear_deflection() > 0 ? request->linear_deflection() : default_visual_linear;
+                const double angular = request->angular_deflection() > 0 ? request->angular_deflection() : default_visual_angular;
+                if (!kernel_.hasMeshSeed(id, linear, angular) && request->base_mesh_seed().size_bytes() <= 64 * 1024 * 1024) {
+                    try {
+                        const auto data = read_shared_input(request->base_mesh_seed(), false);
+                        kernel_.loadBrepr(base_brep);
+                        response->mutable_runtime_stats()->set_restored_mesh_faces(kernel_.restoreMeshSeed(id, linear, angular, *data));
+                    } catch (const std::exception& error) {
+                        spdlog::debug("mesh seed unavailable: {}", error.what());
+                    }
+                    response->mutable_runtime_stats()->set_mesh_seed_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count());
+                }
             }
             const auto exact_started=std::chrono::steady_clock::now();
             const double queue_ms=std::chrono::duration<double,std::milli>(acquired-started).count();
@@ -1969,7 +2042,7 @@ public:
                            kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep, request->has_import_seed() ? &seed : nullptr,runtime),
                        profile_evaluation.geometry_id);
             if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled before display"};
-            std::shared_ptr<const std::vector<uint8_t>> cached_brep,cached_glb;
+            std::shared_ptr<const std::vector<uint8_t>> cached_brep,cached_glb,cached_seed;
             std::vector<uint8_t> cached_naming;
             std::vector<std::shared_ptr<const occccad::worker::EncodedNamingBlock>> cached_history_blocks;
             auto* stats=response->mutable_runtime_stats();
@@ -1986,7 +2059,8 @@ public:
             stats->set_face_evidence_computed(runtime_stats.face_evidence_computed);
             stats->set_face_evidence_reused(runtime_stats.face_evidence_reused);
             stats->set_base_stage_restored(runtime_stats.base_stage_restored);
-            stats->set_stages_executed(runtime_stats.stages_executed);stats->set_stages_reused(runtime_stats.stages_reused);
+            stats->set_frozen_prefix_stages(request->continuation().stage_count());
+            stats->set_stages_executed(runtime_stats.stages_executed);stats->set_stages_reused(runtime_stats.stages_reused+stats->frozen_prefix_stages());
             stats->set_generator_calls(runtime_stats.generator_calls);stats->set_modifier_calls(runtime_stats.modifier_calls);
             stats->set_body_operation_calls(runtime_stats.body_operation_calls);stats->set_stage_cache_bytes(runtime_stats.stage_cache_bytes);
             stats->set_stage_evictions(runtime_stats.stage_evictions);
@@ -1999,7 +2073,8 @@ public:
             const auto display_started=std::chrono::steady_clock::now();
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
-                            request->glb_output_key(),request->exact_only(),request->force_cold(),&cached_brep,&cached_glb,runtime.cancelled,runtime.fresh_cancelled);
+                            request->glb_output_key(),request->exact_only(),request->force_cold(),&cached_brep,&cached_glb,runtime.cancelled,runtime.fresh_cancelled,true,&cached_seed,
+                            request->has_import_seed() && profile_specs.empty());
             stats->set_display_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-display_started).count());
             if (!profile_specs.empty() || request->has_import_seed() || request->has_geometry_feature()) {
                 auto* manifest = response->mutable_evaluation_manifest();
@@ -2026,7 +2101,8 @@ public:
                 }
                 const auto naming_started=std::chrono::steady_clock::now();
                 std::string topology_bytes;
-                auto encoded=naming_encoder_.encode(profile_evaluation.feature_results,request->topology_policy(),geometry_id,response->brep_artifact().sha256(),request->force_cold(),[&](){return cancellation->poll();});
+                auto encoded=naming_encoder_.encode(profile_evaluation.feature_results,request->topology_policy(),geometry_id,response->brep_artifact().sha256(),request->force_cold(),[&](){return cancellation->poll();},
+                    request->has_continuation() ? &accepted_prefix : nullptr);
                 cached_history_blocks=std::move(encoded.blocks);
                 encoded.root.SerializeToString(&topology_bytes);
                 stats->set_naming_blocks_computed(encoded.computed);stats->set_naming_blocks_reused(encoded.reused);
@@ -2053,14 +2129,14 @@ public:
             }
 
             if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled before result admission"};
-            const auto bytes = response->ByteSizeLong() + response->brep_artifact().size_bytes()
+            const auto bytes = response->ByteSizeLong() + response->brep_artifact().size_bytes() + response->mesh_seed_artifact().size_bytes()
                 + response->glb_artifact().size_bytes() + response->evaluation_manifest().topology_manifest_artifact().size_bytes()
                 + std::accumulate(cached_history_blocks.begin(),cached_history_blocks.end(),size_t{0},[](size_t n,const auto& b){return n+b->bytes.size();});
             if (!request->force_cold() && bytes <= cache_budget_) {
                 EvaluationCache entry;
                 entry.response = *response;
                 if (external_outputs) {
-                    entry.brep=std::move(cached_brep);entry.glb=std::move(cached_glb);entry.naming=std::move(cached_naming);entry.history_blocks=std::move(cached_history_blocks);
+                    entry.brep=std::move(cached_brep);entry.glb=std::move(cached_glb);entry.mesh_seed=std::move(cached_seed);entry.naming=std::move(cached_naming);entry.history_blocks=std::move(cached_history_blocks);
                 }
                 // Reject oversized entries before reading artifacts back. A hit
                 // never depends on prior attempt files remaining on disk.
@@ -2081,6 +2157,9 @@ public:
             log_rpc("EvaluatePart", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
+            if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "evaluation cancelled"};
+            if (request->has_continuation() && std::string_view(error.what()).find("PART_CONTINUATION_") == 0)
+                return {grpc::StatusCode::FAILED_PRECONDITION, error.what()};
             return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
         } catch (const std::exception& error) {
             if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,error.what()};
@@ -2242,7 +2321,7 @@ public:
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
                             request->glb_output_key(),false,false,nullptr,nullptr,
-                            [context](){return context->IsCancelled();},[context](){return context->IsCancelled();});
+                            [context](){return context->IsCancelled();},[context](){return context->IsCancelled();},true,nullptr,true);
             log_rpc("ImportExchange", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
@@ -2250,6 +2329,45 @@ public:
         } catch (const std::exception& error) {
             if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "exchange import cancelled"};
             return {grpc::StatusCode::INTERNAL, error.what()};
+        }
+    }
+
+    grpc::Status Tessellate(grpc::ServerContext* context, const worker_api::TessellateRequest* request,
+                           worker_api::TessellateResponse* response) override {
+        const auto linear = request->linear_deflection();
+        const auto angular = request->angular_deflection();
+        if (!request->has_brep() || request->geometry_id() != "sha256:" + request->brep().sha256() ||
+            request->visual_output_key().empty() || !std::isfinite(linear) || linear < 0.01 || linear > 10 ||
+            !std::isfinite(angular) || angular < 0.05 || angular > 1)
+            return {grpc::StatusCode::INVALID_ARGUMENT, "invalid frozen visualization input"};
+        std::unique_lock<std::mutex> lock(mutex_, std::defer_lock);
+        while (!lock.try_lock()) {
+            if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "visualization cancelled in queue"};
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        try {
+            const auto cancel = std::make_shared<occccad::worker::CancellationPolling>([context] { return context->IsCancelled(); });
+            if (cancel->check()) return {grpc::StatusCode::CANCELLED, "visualization cancelled"};
+            const auto start = std::chrono::steady_clock::now();
+            const auto geometry = kernel_.loadBrepr(read_input(request->brep(), false));
+            if (geometry != request->geometry_id()) throw std::invalid_argument("VISUAL_SOURCE_MISMATCH");
+            worker_api::EvaluatePartResponse evaluation;
+            fill_evaluation("", geometry, linear, angular, &evaluation, "", request->visual_output_key(), false, false,
+                            nullptr, nullptr, [cancel] { return cancel->poll(); }, [cancel] { return cancel->check(); }, false);
+            if (cancel->check()) return {grpc::StatusCode::CANCELLED, "visualization cancelled"};
+            *response->mutable_visual_artifact() = evaluation.glb_artifact();
+            *response->mutable_bbox() = evaluation.bbox();
+            *response->mutable_topology() = evaluation.topology();
+            *response->mutable_runtime_stats() = evaluation.runtime_stats();
+            response->mutable_runtime_stats()->set_display_ms(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+            response->set_triangle_count(evaluation.triangle_count());
+            response->set_display_vertex_count(evaluation.display_vertex_count());
+            return grpc::Status::OK;
+        } catch (const std::invalid_argument& e) {
+            return {grpc::StatusCode::INVALID_ARGUMENT, e.what()};
+        } catch (const std::exception& e) {
+            if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "visualization cancelled"};
+            return {grpc::StatusCode::INTERNAL, e.what()};
         }
     }
 
@@ -2511,7 +2629,8 @@ private:
                          worker_api::EvaluatePartResponse* response,
                          const std::string& brep_output_key = {},
                          const std::string& glb_output_key = {}, bool exact_only = false, bool force_cold = false,
-                         std::shared_ptr<const std::vector<uint8_t>>* brep_buffer=nullptr,std::shared_ptr<const std::vector<uint8_t>>* glb_buffer=nullptr,std::function<bool()> cancelled={},std::function<bool()> fresh_cancelled={}) {
+                         std::shared_ptr<const std::vector<uint8_t>>* brep_buffer=nullptr,std::shared_ptr<const std::vector<uint8_t>>* glb_buffer=nullptr,std::function<bool()> cancelled={},std::function<bool()> fresh_cancelled={}, bool transient_mesh=true,
+                         std::shared_ptr<const std::vector<uint8_t>>* seed_buffer=nullptr, bool capture_mesh_seed=false) {
         const auto check_cancel=[&](){if(cancelled&&cancelled())throw std::runtime_error("EVALUATION_CANCELLED");};
         check_cancel();
         const auto publish=[&](const auto& key,const auto& bytes,const auto& type,auto* ref){const auto began=std::chrono::steady_clock::now();check_cancel();write_artifact(key,bytes,type,ref);auto* stats=response->mutable_runtime_stats();stats->set_artifact_io_ms(stats->artifact_io_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count());};
@@ -2533,9 +2652,12 @@ private:
         // area/length/centroid properties belong to explicit inspection.
         const auto topology=kernel_.getTopologySummary(geometry_id);
         const double linear_deflection =
-            requested_linear_deflection > 0.0 ? requested_linear_deflection : occccad::kernel::visual_linear_deflection_mm;
+            requested_linear_deflection > 0.0 ? requested_linear_deflection : default_visual_linear;
         const double angular_deflection =
-            requested_angular_deflection > 0.0 ? requested_angular_deflection : occccad::kernel::visual_angular_deflection_radians;
+            requested_angular_deflection > 0.0 ? requested_angular_deflection : default_visual_angular;
+        if (linear_deflection == default_visual_linear && angular_deflection == default_visual_angular) response->set_visual_precision("balanced");
+        else if (linear_deflection == 0.05 && angular_deflection == 0.18) response->set_visual_precision("fine");
+        else if (linear_deflection == 0.02 && angular_deflection == 0.10) response->set_visual_precision("extra-fine");
         // Geometry identity freezes local topology order. Naming is deliberately
         // kept outside this cache and bound to these IDs by the response manifest.
         std::ostringstream policy;
@@ -2552,7 +2674,7 @@ private:
         }
         else {
             auto computed = std::make_shared<VisualSnapshot>();
-            computed->mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection,true,cancelled,fresh_cancelled);
+            computed->mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection,true,cancelled,fresh_cancelled,capture_mesh_seed && !brep_output_key.empty());
             check_cancel();
             google::protobuf::Struct association;
             (*association.mutable_fields())["geometryId"].set_string_value(geometry_id);
@@ -2580,7 +2702,8 @@ private:
             const auto bytes = computed->glb->capacity() + (m.vertices.capacity()+m.normals.capacity()+edge_capacity)*sizeof(occccad::kernel::Vec3)
                 + m.triangles.capacity()*sizeof(occccad::kernel::Triangle) + m.face_ids.capacity()*sizeof(uint32_t)
                 + m.topology_vertices.capacity()*sizeof(occccad::kernel::TopologyPoint) + m.edges.capacity()*sizeof(occccad::kernel::EdgePolyline)
-                + m.edge_profile.capacity()*sizeof(occccad::kernel::EdgeDisplaySegment);
+                + m.edge_profile.capacity()*sizeof(occccad::kernel::EdgeDisplaySegment)
+                + (m.mesh_seed ? m.mesh_seed->capacity() : 0);
             snapshot = computed;
             if (!force_cold && bytes <= cache_budget_) {
                 while(!visual_cache_.empty() && visual_bytes_+bytes>cache_budget_) {
@@ -2606,6 +2729,10 @@ private:
         if (!glb_output_key.empty())
             publish(glb_output_key, *glb, "model/gltf-binary",
                            response->mutable_glb_artifact());
+        if (!brep_output_key.empty() && mesh.mesh_seed) {
+            if (seed_buffer) *seed_buffer = mesh.mesh_seed;
+            publish(glb_output_key+".seed", *mesh.mesh_seed, "application/vnd.occccad.mesh-seed.v1", response->mutable_mesh_seed_artifact());
+        }
 
         fill_bbox(bbox, response->mutable_bbox());
         response->set_validation_policy("occccad.geometry.brep-valid.v1");
@@ -2619,7 +2746,7 @@ private:
         response->set_triangle_count(mesh.triangles.size());
         response->set_display_vertex_count(mesh.vertices.size());
         response->set_representation_kind(brep_output_key.empty() ? "TRANSIENT_PREVIEW" : "PERSISTENT");
-        if (!brep_output_key.empty()) return;
+        if (!brep_output_key.empty() || !transient_mesh) return;
         auto* output_mesh = response->mutable_preview_mesh();
         for (const auto& vertex : mesh.vertices) {
             auto* output_vertex = output_mesh->add_vertices();
@@ -2685,7 +2812,7 @@ private:
         occccad::geometry::sketch::make_plane_gcs_sketch_solver();
     struct EvaluationCache {
         worker_api::EvaluatePartResponse response;
-        std::shared_ptr<const std::vector<uint8_t>> brep, glb;
+        std::shared_ptr<const std::vector<uint8_t>> brep, glb, mesh_seed;
         std::vector<uint8_t> naming;
         std::vector<std::shared_ptr<const occccad::worker::EncodedNamingBlock>> history_blocks;
         size_t bytes=0;uint64_t used=0;

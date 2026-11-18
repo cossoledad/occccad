@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/occccad/occccad/internal/artifact"
+	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/occccad/occccad/internal/visualdelta"
 )
 
@@ -93,7 +94,9 @@ func (s *Server) serveVisualDelta(w http.ResponseWriter, r *http.Request, target
 		writeError(w, http.StatusInternalServerError, "visual target read failed")
 		return nil, true
 	}
+	finishEncoding := perf.Start(r.Context(), "visual-delta-encode")
 	patch, e := visualdelta.Encode(r.Context(), baseBytes, targetBytes, base.SHA256, target.SHA256)
+	finishEncoding()
 	if r.Context().Err() != nil {
 		return nil, true
 	}

@@ -24,14 +24,16 @@ GeometryFeatureSpec line(const std::string& id, Vec3 a = {0, 0, 0}, Vec3 b = {50
 }
 GeometryFeatureInput input(OcctKernel& k, const ProfileEvaluationResult& r) {
     GeometryFeatureInput i;
+    auto source = std::make_shared<BodyToolInput>();
+    i.source = source;
     const auto& f = r.feature_results.back();
-    i.source.feature_id = f.feature_id;
-    i.source.body_id = f.body_id;
-    i.source.result_id = f.result_id;
-    i.source.geometry_id = r.geometry_id;
-    i.source.brep = k.serializeBrepr(r.geometry_id);
+    source->feature_id = f.feature_id;
+    source->body_id = f.body_id;
+    source->result_id = f.result_id;
+    source->geometry_id = r.geometry_id;
+    source->brep = k.serializeBrepr(r.geometry_id);
     for (const auto& o : f.semantic_outputs)
-        i.source.topology.push_back(
+        source->topology.push_back(
             {o.semantic_ref.feature_id, o.semantic_ref.output_slot, o.semantic_ref.source_ids,
              o.topology_type == PersistentTopologyType::face   ? TopologyType::FACE
              : o.topology_type == PersistentTopologyType::edge ? TopologyType::EDGE

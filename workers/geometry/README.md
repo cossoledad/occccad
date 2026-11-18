@@ -18,8 +18,9 @@
 | MeasureGeometry | 冻结 B-Rep/位姿/瞬时 locator 的精确属性、最短距离及三点角度；[几何测量](../../docs/architecture/current/geometric-measurement.md) |
 | InspectExchange / ImportExchange / ExportExchange | ArtifactReference 上的 STEP/BREP/XDE；[交换](../../docs/architecture/current/jobs-artifacts.md) |
 | GetTopology | 冷恢复/缓存精确面边点及提示；[几何制品](../../docs/architecture/current/geometry-representations.md) |
+| Tessellate | 从指定摘要的冻结 BREP 生成指定显示精度的 GLB；[显示模型](../../docs/architecture/current/model-display.md#显示模型) |
 
-UnloadGeometry 幂等释放指定驻留 Shape 及拓扑属性；检查点和其他缓存仍按各自预算管理，完整进程回收由 Router 执行。Proto 中的 LoadGeometry、Tessellate、CreateChamfer、CreateFillet 当前没有 server override，调用返回 UNIMPLEMENTED。局部圆角/倒角由 EvaluatePart 承载。
+UnloadGeometry 幂等释放指定驻留 Shape 及拓扑属性。检查点和其他缓存按各自预算管理，完整进程回收由 Router 执行。Proto 中的 LoadGeometry、CreateChamfer、CreateFillet 当前返回 UNIMPLEMENTED。局部圆角和倒角由 EvaluatePart 承载。
 
 `kernel/api` 定义 OCCT-free 值类型，`kernel/occt` 实现精确几何，`kernel/assembly` 只求纯数值刚体约束，`sketch/` 隔离 PlaneGCS 类型。源码、RPC 代理、结果采用与 CAS 的完整检查归[Worker/Router 合同](../../docs/architecture/current/worker-contracts.md)。
 

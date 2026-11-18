@@ -27,6 +27,56 @@ async function ready(page:Page,dialog:ReturnType<Page["getByRole"]>){
  await expect(page.locator("[data-feature-preview]")).toHaveCount(1);
 }
 
+test('global display precision retessellates a frozen Body and preserves its face pick', async ({page}, info) => {
+ const errors: string[] = [];
+ page.on('pageerror', error => errors.push(error.message));
+ await login(page);
+ const seed = await page.evaluate(async () => {
+  // @ts-ignore production Vite module
+  const {restApi: api} = await import('/src/api.ts');
+  let view = await api.createDocument('PART', 'Frozen display precision acceptance');
+  const id = view.document.id;
+  view = await api.command(id, {type: 'CREATE_SKETCH', plane: 'XY'});
+  const sketchId = view.part!.features.at(-1)!.id;
+  await api.command(id, {type: 'EDIT_SKETCH', sketchId, operations: [{type: 'ADD_ENTITY', entity: {id: 'precision-profile', kind: 'CIRCLE', role: 'PROFILE', center: {x: 0, y: 0}, radius: 40}}]});
+  view = await api.command(id, {type: 'CREATE_SOLID_FEATURE', generator: 'LINEAR_EXTRUDE', sketchId, operation: 'ADD', length: 20});
+  return {id, revision: view.document.versionId, key: view.part!.bodies[0].geometryKey!};
+ });
+ await page.goto(`/documents/${seed.id}`);
+ const point = await worldScreen(page, [8, 0, 20]);
+ const snapshot = () => page.evaluate(({x,y,key}) => {
+  const e = (window as any).__cameraEngine;
+  const artifact = e.view?.artifacts?.[key] ?? e.view?.artifact;
+  const rect = e.renderer.domElement.getBoundingClientRect();
+  const selection = e.hitTest(x-rect.x, y-rect.y);
+  return {precision:artifact?.visualization?.precision, triangles:artifact?.mesh?.buffers?.faceIds.length,
+   revision:e.view?.document.versionId, geometry:artifact?.geometryId, naming:artifact?.representations?.NAMING?.digest,
+   pick: selection && [selection.kind, selection.topologyId, selection.geometryKey]};
+ }, {...point,key:seed.key});
+ await expect.poll(async () => (await snapshot()).precision).toBe('balanced');
+ const before = await snapshot();
+ expect(before.pick?.[0]).toBe('face');
+ await page.getByRole('button', {name: '选项', exact: true}).click();
+ const dialog = page.getByRole('dialog', {name: '选项', exact: true});
+ await dialog.getByRole('menuitem', {name: '显示', exact: true}).click();
+ const request = page.waitForResponse(response => response.url().includes('precision=fine'));
+ await dialog.getByRole('combobox', {name: '三维显示精度'}).click();
+ await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').getByText('精细（0.05 mm）', {exact: true}).click();
+ const response = await request;
+ expect(response.ok()).toBeTruthy();
+ await dialog.getByRole('button', {name: '关闭', exact: true}).click();
+ await expect.poll(async () => (await snapshot()).precision).toBe('fine');
+ const after = await snapshot();
+ expect(after.triangles).toBeGreaterThan(before.triangles);
+ expect([after.revision, after.geometry, after.naming, after.pick]).toEqual([seed.revision, before.geometry, before.naming, before.pick]);
+ await info.attach('precision comparison', {body: JSON.stringify({before, after, timing:response.request().timing(), contentLength:response.headers()['content-length']}), contentType:'application/json'});
+ await page.reload();
+ await worldScreen(page, [8, 0, 20]);
+ await expect.poll(async () => (await snapshot()).precision).toBe('fine');
+ expect((await current(page, seed.id)).document.versionId).toBe(seed.revision);
+ expect(errors).toEqual([]);
+});
+
 test('face sketch drawing retains accepted Body buffers and BVH',async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await login(page);
  const seed=await page.evaluate(async()=>{

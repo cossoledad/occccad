@@ -1574,16 +1574,23 @@ func featureDefinitionDigest(model PartModel, featureID string) (string, error) 
 				sources[parameter.PropertySlot] = parameter.Source
 			}
 		}
-		value, err := json.Marshal(struct {
-			Feature Feature                          `json:"feature"`
-			Sources map[string]modelcore.ValueSource `json:"parameterSources"`
-		}{geometryFeatureDefinition(feature), sources})
-		if err != nil {
-			return "", err
-		}
-		return modelcore.ValueDigest(value), nil
+		return normalizedFeatureDefinitionDigest(feature, sources)
 	}
 	return "", fmt.Errorf("%w: selected feature does not exist", ErrValidation)
+}
+
+func normalizedFeatureDefinitionDigest(feature Feature, sources map[string]modelcore.ValueSource) (string, error) {
+	if sources == nil {
+		sources = map[string]modelcore.ValueSource{}
+	}
+	value, err := json.Marshal(struct {
+		Feature Feature                          `json:"feature"`
+		Sources map[string]modelcore.ValueSource `json:"parameterSources"`
+	}{geometryFeatureDefinition(feature), sources})
+	if err != nil {
+		return "", err
+	}
+	return modelcore.ValueDigest(value), nil
 }
 
 func applyEditFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -2746,6 +2753,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	batch := &database.Batch{}
 	diagnostic.stage("COMMIT")
 	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, revisionState, auditCommandID, modelHash, dependencyDigest, manifestJSON)
+	queuePartCheckpoints(batch, manifest)
 	batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, revisionID, prepared.headRevision)
 	batch.Queue(`INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,base_revision_id,result_revision_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,'DOMAIN','COMMITTED',$7,$8,now())`, prepared.transactionID, prepared.workspaceID, currentSequence+1, prepared.actorID, prepared.requestID, prepared.requestDigest, prepared.headRevision, revisionID)
 	batch.Queue(`INSERT INTO occccad.transaction_commands(transaction_id,ordinal,command_id,type_uri,schema_version,payload,payload_digest) VALUES($1,0,$2,$3,$4,$5,$6)`, prepared.transactionID, prepared.command.CommandID, prepared.command.TypeURI, prepared.command.SchemaVersion, prepared.command.Payload, payloadDigest)
@@ -2755,8 +2763,8 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	}
 	batch.Queue(`INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, prepared.transactionID, changesJSON, changes.CanonicalDigest, writes, changes.ImpactSeeds)
 	batch.Queue(`INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,$7,true)`, revisionID, strings.ToLower(prepared.documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest, evaluationStatus)
-	for _, edge := range graph.Edges {
-		batch.Queue(`INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind) VALUES($1,$2,$3,$4)`, revisionID, edge.Source, edge.Target, edge.Kind)
+	if err := queueDependencyEdges(batch, revisionID, graph); err != nil {
+		return err
 	}
 	eventPayload, _ := json.Marshal(map[string]any{"workspaceId": prepared.workspaceID, "sequence": currentSequence + 1, "revisionId": revisionID, "transactionId": prepared.transactionID, "modelHash": modelHash, "changeDigest": changes.CanonicalDigest})
 	batch.Queue(`INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload) VALUES('WORKSPACE',$1,'workspace.transaction.committed.v1',1,$2)`, prepared.workspaceID, eventPayload)

@@ -24,7 +24,7 @@ type decodedNamingBlock struct {
 type namingHistoryLoader func(context.Context, *workerv1.NamingHistoryReference) (*decodedNamingBlock, error)
 type namingHistoryLoadError struct{ error }
 
-func decodeNamingBlock(ctx context.Context, data []byte, expected *workerv1.NamingHistoryReference) (*decodedNamingBlock, error) {
+func decodeNamingBlock(ctx context.Context, data []byte, expected *workerv1.NamingHistoryReference, includeEvidence bool) (*decodedNamingBlock, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -84,11 +84,17 @@ func decodeNamingBlock(ctx context.Context, data []byte, expected *workerv1.Nami
 			return nil, fmt.Errorf("overlapping naming carry ranges")
 		}
 	}
-	view, err := unpackNamingValues(v)
+	view, err := unpackNamingValuesWithEvidence(v, includeEvidence)
 	if err != nil {
 		return nil, err
 	}
-	return &decodedNamingBlock{view: view, layout: block.Layout, previous: block.PreviousSha256, previousRows: block.PreviousLineageCount, fullRows: block.FullLineageCount, retainedBytes: len(data) * 16, policyID: v.PolicyId, evaluator: v.EvaluatorVersion}, nil
+	decoded := &decodedNamingBlock{view: view, layout: block.Layout, previous: block.PreviousSha256, previousRows: block.PreviousLineageCount, fullRows: block.FullLineageCount, retainedBytes: len(data) * 16, policyID: v.PolicyId, evaluator: v.EvaluatorVersion}
+	if !includeEvidence {
+		decoded.queryOnly = true
+		decoded.layout = nil
+		decoded.retainedBytes = namingQueryBlockCharge(view.FeatureResults[0]) + len(decoded.previous) + len(decoded.policyID) + len(decoded.evaluator) + 512
+	}
+	return decoded, nil
 }
 
 // Query consumers use ordered semantic events and current-tip evidence. Do not
@@ -119,7 +125,7 @@ func namingBlockForQueries(block *decodedNamingBlock) *decodedNamingBlock {
 	return &projected
 }
 
-func unpackNamingRoot(ctx context.Context, m *workerv1.PartTopologyManifest, load namingHistoryLoader) (*topologyManifest, error) {
+func unpackNamingTip(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
 	if m.SchemaVersion != 3 || len(m.Transitions) != 0 || len(m.History) == 0 || len(m.Bodies)+len(m.Results) != 1 {
 		return nil, fmt.Errorf("invalid naming root contract")
 	}
@@ -144,6 +150,28 @@ func unpackNamingRoot(ctx context.Context, m *workerv1.PartTopologyManifest, loa
 			return nil, fmt.Errorf("invalid naming result root")
 		}
 	}
+	tail := m.History[len(m.History)-1]
+	if tail.FeatureId != tip || tail.ResultGeometryId != m.GeometryId || len(tail.Sha256) != 64 || tail.SizeBytes == 0 {
+		return nil, fmt.Errorf("naming root tip mismatch")
+	}
+	meta := &workerv1.NamingTransition{FeatureId: tip, BodyId: body, Result: result, Complete: complete, ResultGeometryId: m.GeometryId}
+	values := &workerv1.PartTopologyManifest{SchemaVersion: 3, GeometryId: m.GeometryId, BrepSha256: m.BrepSha256, PolicyDigest: m.PolicyDigest, CoordinateSpace: m.CoordinateSpace, LengthUnit: m.LengthUnit, SemanticRefs: m.SemanticRefs, ReferenceDictionary: m.ReferenceDictionary, Evidence: m.Evidence, Transitions: []*workerv1.NamingTransition{meta}}
+	if result == nil {
+		values.Bodies = []*workerv1.NamingBody{{BodyId: body, Transitions: []uint32{1}, TipTransition: 1, Tip: m.Bodies[0].Tip}}
+	} else {
+		values.Results = []*workerv1.NamingGeometryResult{{Reference: result, Transitions: []uint32{1}, TipTransition: 1, Tip: m.Results[0].Tip}}
+	}
+	return unpackNamingValues(values)
+}
+
+func unpackNamingRoot(ctx context.Context, m *workerv1.PartTopologyManifest, load namingHistoryLoader) (*topologyManifest, error) {
+	locators, err := unpackNamingTip(m)
+	if err != nil {
+		return nil, err
+	}
+	tip := locators.FeatureResults[0]
+	body, result := tip.BodyId, tip.Result
+
 	if load == nil {
 		return nil, fmt.Errorf("naming history loader required")
 	}
@@ -184,21 +212,8 @@ func unpackNamingRoot(ctx context.Context, m *workerv1.PartTopologyManifest, loa
 		out.retainedBytes += block.retainedBytes
 	}
 	last := out.FeatureResults[len(out.FeatureResults)-1]
-	if last.FeatureId != tip || last.ResultGeometryId != m.GeometryId || allComplete != complete {
+	if last.FeatureId != tip.FeatureId || last.ResultGeometryId != m.GeometryId || allComplete != tip.TopologyHistoryComplete {
 		return nil, fmt.Errorf("naming root tip mismatch")
-	}
-	// Decode the independent current locator table, then attach it to a fresh
-	// tip view. Cached historical records remain immutable across revisions.
-	meta := &workerv1.NamingTransition{FeatureId: last.FeatureId, BodyId: last.BodyId, Result: last.Result, Complete: last.TopologyHistoryComplete, ResultGeometryId: last.ResultGeometryId}
-	values := &workerv1.PartTopologyManifest{SchemaVersion: 3, GeometryId: m.GeometryId, BrepSha256: m.BrepSha256, PolicyDigest: m.PolicyDigest, CoordinateSpace: m.CoordinateSpace, LengthUnit: m.LengthUnit, SemanticRefs: m.SemanticRefs, Evidence: m.Evidence, Transitions: []*workerv1.NamingTransition{meta}}
-	if result == nil {
-		values.Bodies = []*workerv1.NamingBody{{BodyId: body, Transitions: []uint32{1}, TipTransition: 1, Tip: m.Bodies[0].Tip}}
-	} else {
-		values.Results = []*workerv1.NamingGeometryResult{{Reference: result, Transitions: []uint32{1}, TipTransition: 1, Tip: m.Results[0].Tip}}
-	}
-	locators, err := unpackNamingValues(values)
-	if err != nil {
-		return nil, err
 	}
 	latest := &workerv1.FeatureResult{FeatureId: last.FeatureId, BodyId: last.BodyId, Result: last.Result, InputFeatureId: last.InputFeatureId, ProfileFeatureId: last.ProfileFeatureId, ResultGeometryId: last.ResultGeometryId, TopologyHistory: last.TopologyHistory, TopologyHistoryComplete: last.TopologyHistoryComplete, Diagnostics: last.Diagnostics, SemanticOutputs: locators.FeatureResults[0].SemanticOutputs}
 	out.FeatureResults[len(out.FeatureResults)-1] = latest

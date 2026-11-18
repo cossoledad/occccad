@@ -11,6 +11,22 @@ import (
 
 const visualizationExtension = "OCCCCAD_visualization"
 
+func readVisualizationJSON(source io.Reader, size int64) ([]byte, error) {
+	var header [20]byte
+	if _, err := io.ReadFull(source, header[:]); err != nil {
+		return nil, fmt.Errorf("invalid GLB header: %w", err)
+	}
+	length := int64(binary.LittleEndian.Uint32(header[12:16]))
+	if binary.LittleEndian.Uint32(header[:4]) != 0x46546c67 || binary.LittleEndian.Uint32(header[4:8]) != 2 || int64(binary.LittleEndian.Uint32(header[8:12])) != size || binary.LittleEndian.Uint32(header[16:20]) != 0x4e4f534a || length%4 != 0 || length > size-20 {
+		return nil, fmt.Errorf("invalid GLB header")
+	}
+	chunk := make([]byte, int(length))
+	if _, err := io.ReadFull(source, chunk); err != nil {
+		return nil, err
+	}
+	return chunk, nil
+}
+
 // glbWithVisualization mirrors the complete Part display manifest into a
 // vendor GLB extension. It remains valid without a triangle mesh, so an empty
 // Part or sketch-only Part is still a real visualization artifact.
@@ -31,16 +47,8 @@ func glbWithVisualizationReader(source io.Reader, size int64, visualization Visu
 	if size == 0 {
 		document = map[string]any{"asset": map[string]any{"version": "2.0", "generator": "occccad metadata service"}, "scene": 0, "scenes": []any{map[string]any{"nodes": []any{}}}, "nodes": []any{}}
 	} else {
-		var header [20]byte
-		if _, err := io.ReadFull(source, header[:]); err != nil {
-			return nil, fmt.Errorf("invalid GLB header: %w", err)
-		}
-		jsonSize := int64(binary.LittleEndian.Uint32(header[12:16]))
-		if binary.LittleEndian.Uint32(header[:4]) != 0x46546c67 || binary.LittleEndian.Uint32(header[4:8]) != 2 || int64(binary.LittleEndian.Uint32(header[8:12])) != size || binary.LittleEndian.Uint32(header[16:20]) != 0x4e4f534a || jsonSize%4 != 0 || jsonSize > size-20 {
-			return nil, fmt.Errorf("invalid GLB header")
-		}
-		chunk := make([]byte, int(jsonSize))
-		if _, err := io.ReadFull(source, chunk); err != nil {
+		chunk, err := readVisualizationJSON(source, size)
+		if err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(chunk, &document); err != nil {
@@ -49,7 +57,7 @@ func glbWithVisualizationReader(source io.Reader, size int64, visualization Visu
 		if document == nil {
 			return nil, fmt.Errorf("missing GLB JSON object")
 		}
-		remaining := size - 20 - jsonSize
+		remaining := size - 20 - int64(len(chunk))
 		if remaining > 0 {
 			var chunk [8]byte
 			if _, err := io.ReadFull(source, chunk[:]); err != nil {

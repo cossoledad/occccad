@@ -1,8 +1,12 @@
 package workspace
 
-import "fmt"
+import (
+	"fmt"
 
-func referenceStructure(model PartModel, legacy []DocumentStructureNode, path, doc, revision string, editable bool) []DocumentStructureNode {
+	"github.com/occccad/occccad/internal/modelcore"
+)
+
+func referenceStructure(model PartModel, legacy []DocumentStructureNode, path, doc, revision string, editable bool, sources map[string]map[string]modelcore.ValueSource) []DocumentStructureNode {
 	containers := map[string]string{}
 	for _, p := range model.DatumPlanes {
 		containers[p.ID] = p.GeometricalSetID
@@ -29,7 +33,7 @@ func referenceStructure(model PartModel, legacy []DocumentStructureNode, path, d
 			continue
 		}
 		containers[f.ID] = f.GeometricalSetID
-		digest, _ := featureDefinitionDigest(model, f.ID)
+		digest, _ := normalizedFeatureDefinitionDigest(f, sources[f.ID])
 		node := featureStructureNode(f, path+"/geometrical-set:"+f.GeometricalSetID, doc, revision, digest, editable, editable)
 		if f.Result != nil {
 			node.GeometryKey = f.Result.GeometryKey

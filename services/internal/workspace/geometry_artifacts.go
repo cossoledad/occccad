@@ -122,7 +122,10 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 		}
 
 		if e.GetRepresentationKind() != "EXACT_STAGE" {
-			v.FeatureAssociations = deriveFeatureAssociations(manifest)
+			v.FeatureAssociations = manifest.associations
+			if v.FeatureAssociations == nil {
+				v.FeatureAssociations = deriveFeatureAssociations(manifest)
+			}
 			v.FeatureContributions = featureContributionStatuses(v.FeatureAssociations)
 		}
 		objects["NAMING"] = naming
@@ -137,6 +140,7 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 	if ref == nil || ref.GetSizeBytes() > uint64(^uint64(0)>>1) {
 		return fmt.Errorf("visual ArtifactReference required")
 	}
+	v.Precision = e.GetVisualPrecision()
 	visual, err := s.artifacts.AdoptTransformed(ctx, artifactstore.KindGLB, "model/gltf-binary", ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), func(data io.Reader, size int64) (io.Reader, error) {
 		return glbWithVisualizationReader(data, size, v, map[string]string{"geometryId": e.GeometryId, "namingDigest": e.GetEvaluationManifest().GetTopologyManifestDigest()})
 	})
@@ -144,6 +148,11 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 		return err
 	}
 	objects["VISUAL"] = visual
+	if seed := e.GetMeshSeedArtifact(); seed != nil && seed.ContentType == "application/vnd.occccad.mesh-seed.v1" {
+		if object, seedErr := s.adoptEvaluationObject(ctx, seed, artifactstore.KindBREP); seedErr == nil {
+			objects["MESH_SEED"] = object
+		}
+	}
 	worker := s.worker.WorkerFor(key)
 	return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, ValidationPolicy: e.ValidationPolicy, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount, "domain": geometryDomain(e)}, TriangleCount: e.TriangleCount, DisplayVertexCount: e.DisplayVertexCount, Visualization: v}, objects)
 }
@@ -174,6 +183,11 @@ func (s *Service) ensureVisualizationArtifact(ctx context.Context, model PartMod
 	return key, err
 }
 func (s *Service) ensureVisualizationVariant(ctx context.Context, base string, v VisualizationManifest) (string, error) {
+	a, err := s.loadArtifact(ctx, base)
+	if err != nil {
+		return "", err
+	}
+	v.Precision = a.Visualization.Precision
 	raw, _ := json.Marshal(v)
 	sum := sha256.Sum256(append([]byte(evaluatorVersion+"|base="+base), raw...))
 	key := "sha256:" + hex.EncodeToString(sum[:])
@@ -182,10 +196,6 @@ func (s *Service) ensureVisualizationVariant(ctx context.Context, base string, v
 		return "", err
 	}
 	glb, err = glbWithVisualization(glb, v)
-	if err != nil {
-		return "", err
-	}
-	a, err := s.loadArtifact(ctx, base)
 	if err != nil {
 		return "", err
 	}
@@ -226,7 +236,7 @@ func (s *Service) loadArtifact(ctx context.Context, key string) (Artifact, error
 			return a, err
 		}
 	}
-	rows, err := s.database.Query(ctx, `SELECT r.role,r.schema_version,o.id::text,o.sha256,o.size_bytes,o.content_type FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id AND o.state='READY' WHERE r.geometry_key=$1`, key)
+	rows, err := s.database.Query(ctx, `SELECT r.role,r.schema_version,o.id::text,o.sha256,o.size_bytes,o.content_type FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id AND o.state='READY' WHERE r.geometry_key=$1 AND r.role<>'MESH_SEED'`, key)
 	if err != nil {
 		return a, err
 	}

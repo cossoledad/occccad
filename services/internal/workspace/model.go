@@ -220,6 +220,7 @@ type ReferenceGeometry struct {
 // and every Product occurrence that references it. Positions are always in
 // Part coordinates; occurrence transforms are applied only by the consumer.
 type VisualizationManifest struct {
+	Precision            string                   `json:"precision,omitempty"`
 	FeatureContributions map[string]string        `json:"featureContributions,omitempty"`
 	FeatureAssociations  *FeatureAssociationIndex `json:"featureAssociations,omitempty"`
 	SchemaVersion        uint32                   `json:"schemaVersion"`

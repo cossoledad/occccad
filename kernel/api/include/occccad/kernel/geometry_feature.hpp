@@ -10,7 +10,7 @@ struct GeometryPlane {
     std::string id;
 };
 struct GeometryFeatureInput {
-    BodyToolInput source;
+    std::shared_ptr<const BodyToolInput> source;
     std::vector<FeatureTopologyRef> members;
     bool reversed{};
     std::optional<GeometryPlane> plane;

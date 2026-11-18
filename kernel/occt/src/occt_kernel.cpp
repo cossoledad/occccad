@@ -1,3 +1,6 @@
+#include "internal/named_boundary_index.hpp"
+#include <BinTools.hxx>
+#include <Standard_Version.hxx>
 #include "internal/immutable_prefix.hpp"
 #include <internal/retained_prefix_budget.hpp>
 #include <internal/naming_digest.hpp>
@@ -2064,41 +2067,6 @@ std::string derived_topology_name(const TopAbs_ShapeEnum type) {
     }
 }
 
-std::vector<SemanticTopologyRef> adjacent_naming_sources(
-    const TopoDS_Shape& target, const std::vector<NamedShape>& named) {
-    std::vector<SemanticTopologyRef> sources;
-    const auto collect = [&](const auto& predicate) {
-        for (const auto& candidate : named)
-            if (predicate(candidate.shape) &&
-                std::none_of(sources.begin(), sources.end(), [&](const auto& source) {
-                    return same_ref(source, candidate.ref);
-                }))
-                sources.push_back(candidate.ref);
-    };
-    // Prefer the immediate topological boundary/owner.  This gives a derived
-    // edge its incident semantic faces and a vertex its incident semantic
-    // edges, rather than coupling identity to every nearby sub-shape.
-    if (target.ShapeType() == TopAbs_FACE) {
-        collect([&](const TopoDS_Shape& candidate) {
-            return candidate.ShapeType() == TopAbs_EDGE && topology_contains(target, candidate);
-        });
-    } else if (target.ShapeType() == TopAbs_EDGE) {
-        collect([&](const TopoDS_Shape& candidate) {
-            return candidate.ShapeType() == TopAbs_FACE && topology_contains(candidate, target);
-        });
-    } else if (target.ShapeType() == TopAbs_VERTEX) {
-        collect([&](const TopoDS_Shape& candidate) {
-            return candidate.ShapeType() == TopAbs_EDGE && topology_contains(candidate, target);
-        });
-    }
-    if (sources.empty())
-        collect([&](const TopoDS_Shape& candidate) {
-            return topology_adjacent(target, candidate);
-        });
-    sort_refs(sources);
-    return sources;
-}
-
 std::vector<TopologyLineage> complete_boolean_topology_naming(
     const TopoDS_Shape& result, std::vector<NamedShape>& named,
     const std::string& feature_id) {
@@ -2108,6 +2076,7 @@ std::vector<TopologyLineage> complete_boolean_topology_naming(
     for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
         TopTools_IndexedMapOfShape final_shapes;
         TopExp::MapShapes(result, type, final_shapes);
+        std::optional<detail::NamedBoundaryIndex> boundary;
         struct Pending {
             TopoDS_Shape shape;
             std::vector<SemanticTopologyRef> sources;
@@ -2119,7 +2088,15 @@ std::vector<TopologyLineage> complete_boolean_topology_naming(
             const bool covered = covered_shapes.Contains(shape);
             if (covered)
                 continue;
-            auto sources = adjacent_naming_sources(shape, named);
+            if (!boundary) boundary.emplace(named, type);
+            std::vector<SemanticTopologyRef> sources;
+            boundary->visit(shape, [&](std::size_t i) { sources.push_back(named[i].ref); });
+            if (sources.empty()) {
+                for (const auto& entry : named)
+                    if (topology_adjacent(shape, entry.shape)) sources.push_back(entry.ref);
+            }
+            sort_refs(sources);
+            sources.erase(std::unique(sources.begin(), sources.end(), same_ref), sources.end());
             if (sources.empty())
                 throw std::runtime_error("TOPOLOGY_HISTORY_DERIVED_SOURCE_MISSING:" +
                                          derived_topology_name(type));
@@ -4306,6 +4283,7 @@ struct OcctKernel::Impl {
         uint64_t used = 0;
         bool validated = false;
         size_t charge = 0;
+        bool restored_from_brep = false;
     };
 
     // Checkpoints own immutable shapes and true history. OCCT operations remain
@@ -4388,6 +4366,33 @@ struct OcctKernel::Impl {
         return id;
     }
 
+    GeometryId load(const std::vector<uint8_t>& data, bool frozen = false) {
+        if (data.empty()) throw std::invalid_argument("B-Rep data must not be empty");
+        const auto id = make_geometry_id(data.data(), data.size());
+        auto resident = shapes.find(id);
+        if (resident != shapes.end() && (!frozen || resident->second.restored_from_brep)) {
+            resident->second.used = ++clock;
+            return id;
+        }
+        std::istringstream stream(std::string(data.begin(), data.end()), std::ios::binary);
+        BRep_Builder builder;
+        TopoDS_Shape shape;
+        BRepTools::Read(shape, stream, builder);
+        if (stream.bad() || shape.IsNull()) throw std::runtime_error("B-Rep deserialization failed");
+        if (resident != shapes.end()) {
+            // An accepted continuation depends on the frozen bytes. A native
+            // shape produced in this process can differ from reading those
+            // bytes (e.g. circle axes with signed zero components).
+            resident->second.shape = shape;
+            resident->second.used = ++clock;
+        } else {
+            adopt(id, shape, data);
+            resident = shapes.find(id);
+        }
+        resident->second.restored_from_brep = true;
+        return id;
+    }
+
     TopoDS_Shape& find(const GeometryId& id) {
         const auto iterator = shapes.find(id);
         if (iterator == shapes.end()) {
@@ -4438,22 +4443,7 @@ bool OcctKernel::is_loaded(const GeometryId& id) const noexcept {
 }
 
 GeometryId OcctKernel::loadBrepr(const std::vector<uint8_t>& data) {
-    if (data.empty()) {
-        throw std::invalid_argument("B-Rep data must not be empty");
-    }
-    const GeometryId id = make_geometry_id(data.data(), data.size());
-    const auto resident = impl_->shapes.find(id);
-    if (resident != impl_->shapes.end()) { resident->second.used=++impl_->clock; return id; }
-    const std::string bytes(data.begin(), data.end());
-    std::istringstream stream(bytes, std::ios::binary);
-    BRep_Builder builder;
-    TopoDS_Shape shape;
-    BRepTools::Read(shape, stream, builder);
-    if (stream.bad() || shape.IsNull()) {
-        throw std::runtime_error("B-Rep deserialization failed");
-    }
-    impl_->adopt(id,shape,data);
-    return id;
+    return impl_->load(data);
 }
 
 GeometryId OcctKernel::loadStep(const std::string& path) {
@@ -4672,6 +4662,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     const auto evictions_before = impl_->stage_evictions;
     const auto check_cancel = [&](){if(runtime.cancelled && runtime.cancelled())throw std::runtime_error("EVALUATION_CANCELLED");};
     const auto check_admission=[&](){const auto& probe=runtime.fresh_cancelled?runtime.fresh_cancelled:runtime.cancelled;if(probe&&probe())throw std::runtime_error("EVALUATION_CANCELLED");};
+    const bool cache_stages = !runtime.force_cold && !runtime.continuation && runtime.stage_keys.size() == specs.size();
     check_cancel();
     if(runtime.force_cold) {
         // No borrowed OCCT handles survive across a coarse request. The caller's
@@ -4691,7 +4682,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     };
     const auto freeze_tool=[&](ToolBuild tool){
         const auto began=std::chrono::steady_clock::now();
-        if(!runtime.force_cold&&!specs.empty()&&runtime.stage_keys.size()==specs.size()&&!tool.shape.IsNull()){
+        if(cache_stages&&!specs.empty()&&!tool.shape.IsNull()){
             tool.retained_charge=shape_charge(tool.shape);tool.retained_shape=tool.shape;
         }
         auto frozen=std::make_shared<const ToolBuild>(std::move(tool));
@@ -4703,7 +4694,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     std::vector<bool> needs_pattern_context(specs.size()+1,false);
     for(size_t i=specs.size();i>0;--i)
         needs_pattern_context[i-1]=needs_pattern_context[i]||specs[i-1].generator=="SOLID_PATTERN";
-    if(!runtime.force_cold && runtime.stage_keys.size()==specs.size()) {
+    if(cache_stages) {
         for(size_t i=specs.size();i>0;--i) {
             const auto found=impl_->stages.find(runtime.stage_keys[i-1]);
             if(found!=impl_->stages.end()&&(found->second->pattern_context_complete||!needs_pattern_context[i])){
@@ -4715,13 +4706,54 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     GeometryId result_id;
     std::vector<NamedShape> live_named;
     if (!restored && !base_brep.empty()) {
-        const GeometryId base_id = loadBrepr(base_brep);
-        result = impl_->find(base_id);
-        result_id = base_id;
+        if (runtime.continuation) {
+            try {
+                result_id = impl_->load(base_brep, true);
+            } catch (const Standard_Failure&) {
+                throw std::invalid_argument("PART_CONTINUATION_BREP_INVALID");
+            } catch (const std::runtime_error&) {
+                throw std::invalid_argument("PART_CONTINUATION_BREP_INVALID");
+            }
+        } else {
+            result_id = loadBrepr(base_brep);
+        }
+        result = impl_->find(result_id);
     }
     ProfileEvaluationResult evaluation;
     bool result_validated=false;
     bool topology_history_complete = base_brep.empty();
+    if (runtime.continuation && !restored) {
+        const auto& frozen = *runtime.continuation;
+        const auto& root = frozen.root;
+        if (runtime.force_cold || import_seed || specs.empty() || needs_pattern_context.front() ||
+            result.IsNull() || frozen.geometry_id != result_id || !frozen.validated ||
+            root.body_id != specs.front().body_id || root.feature_id != specs.front().input_feature_id)
+            throw std::invalid_argument("PART_CONTINUATION_MISMATCH");
+        std::array<TopTools_IndexedMapOfShape, 3> locators;
+        TopExp::MapShapes(result, TopAbs_FACE, locators[0]);
+        TopExp::MapShapes(result, TopAbs_EDGE, locators[1]);
+        TopExp::MapShapes(result, TopAbs_VERTEX, locators[2]);
+        const auto count = locators[0].Extent() + locators[1].Extent() + locators[2].Extent();
+        TopTools_IndexedMapOfShape named;
+        if (root.semantic_outputs.size() != static_cast<std::size_t>(count))
+            throw std::invalid_argument("PART_CONTINUATION_LOCATOR_COVERAGE");
+        for (const auto& output : root.semantic_outputs) {
+            check_cancel();
+            const auto type = output.topology_type;
+            const auto& shapes = locators[type == PersistentTopologyType::face ? 0 : type == PersistentTopologyType::edge ? 1 : 2];
+            if (!output.local_id || output.local_id > static_cast<std::size_t>(shapes.Extent()))
+                throw std::invalid_argument("PART_CONTINUATION_LOCATOR_RANGE");
+            const auto& shape = shapes(static_cast<int>(output.local_id));
+            if (named.Contains(shape)) throw std::invalid_argument("PART_CONTINUATION_LOCATOR_DUPLICATE");
+            named.Add(shape);
+            live_named.push_back({output.semantic_ref, shape});
+        }
+        evaluation.feature_results.push_back(root);
+        facts.materials.emplace(result, true);
+        facts.validated.insert(result);
+        topology_history_complete = root.topology_history_complete;
+        result_validated = true;
+    }
     if (import_seed && !restored) {
         const auto& seed = *import_seed;
         const std::string bytes(base_brep.begin(), base_brep.end());
@@ -4843,7 +4875,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 range_starts.insert(source.start_feature_id);
         }
     }
-    if (import_seed && !result.IsNull() && !restored) {
+    if (import_seed && !result.IsNull() && !restored &&
+        (cache_stages || required_pattern_bodies.count(import_seed->feature_id))) {
         ToolBuild stage; stage.shape=result;stage.named=live_named;
         stage.topology_history_complete=topology_history_complete;
         pattern_bodies.emplace(import_seed->feature_id,freeze_tool(std::move(stage)));
@@ -4890,7 +4923,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     }
     using FeatureHistory=Impl::FeatureHistory;
     std::shared_ptr<const FeatureHistory> history=restored?restored->history:nullptr;
-    if(!history && !runtime.force_cold && runtime.stage_keys.size()==specs.size())
+    if(!history && cache_stages)
         for(size_t i=0;i<evaluation.feature_results.size();++i)history=FeatureHistory::append(history,evaluation.feature_results.frozen(i),evaluation.feature_results.frozen(i)->charged_bytes());
     stats.base_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-base_started).count();
     for (size_t spec_index=resume;spec_index<specs.size();++spec_index) {
@@ -4911,7 +4944,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             const auto input_named = live_named;
             if (range_starts.count(spec.feature_id) && !material_range_start(spec))
                 throw std::invalid_argument("PATTERN_RANGE_INVALID");
-            if (material_range_start(spec)) {
+            if ((cache_stages || range_starts.count(spec.feature_id)) && material_range_start(spec)) {
                 ToolBuild baseline;baseline.shape=result;baseline.named=live_named;
                 baseline.feature_id=spec.input_feature_id;
                 baseline.topology_history_complete=topology_history_complete;
@@ -5086,12 +5119,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             if (required_pattern_tools.count(spec.feature_id) && !reusable_tool)
                 throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
             if (reusable_tool) {
-                // Retain the real independently constructed tool before Body
-                // application, never the already-cut stage or the whole Body.
                 validate_body_solid_set(tool.shape);
                 auto closure = complete_boolean_topology_naming(tool.shape, tool.named, spec.feature_id);
                 tool.generated.insert(tool.generated.end(), closure.begin(), closure.end());
-                pattern_tools.emplace(spec.feature_id, freeze_tool(tool));
+                // Retain the independently constructed tool only when a
+                // pattern or a future runtime checkpoint can use it.
+                if (cache_stages || required_pattern_tools.count(spec.feature_id))
+                    pattern_tools.emplace(spec.feature_id, freeze_tool(tool));
             }
             auto independent = [&]() {
                 BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);
@@ -5485,7 +5519,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 feature.semantic_outputs.push_back(std::move(output.first));
                 live_named.push_back({feature.semantic_outputs.back().semantic_ref, output.second});
             }
-            {
+            if (cache_stages || required_pattern_bodies.count(spec.feature_id)) {
                 ToolBuild stage;
                 stage.shape=result; stage.named=live_named; stage.feature_id=spec.feature_id;
                 stage.topology_history_complete=topology_history_complete;
@@ -5510,13 +5544,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             ++stats.stages_executed;stats.executed_feature_ids.push_back(spec.feature_id);
             stats.stages.push_back({spec.feature_id,runtime.stage_keys.size()==specs.size()?runtime.stage_keys[spec_index]:"",result_id,false});
             check_cancel();
-            if(!runtime.force_cold && runtime.stage_keys.size()==specs.size()) {
+            if(cache_stages) {
                 auto stage=std::make_shared<Impl::Stage>();
                 stage->shape=result;stage->geometry_id=result_id;stage->named=live_named;
                 history=FeatureHistory::append(history,evaluation.feature_results.frozen(evaluation.feature_results.size()-1),evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->charged_bytes());
                 stage->history=history;stage->history_complete=topology_history_complete;
                 stage->tools=pattern_tools;stage->bodies=pattern_bodies;stage->bases=pattern_range_bases;
-                stage->pattern_context_complete=!restored||restored->pattern_context_complete;
+                stage->pattern_context_complete=!runtime.continuation&&(!restored||restored->pattern_context_complete);
                 const auto accounting_begin=std::chrono::steady_clock::now();
                 // Reuse measured immutable roots, charging shared roots once
                 // per checkpoint. Per-root sums conservatively overcount shared
@@ -5780,6 +5814,86 @@ double OcctKernel::getVolume(const GeometryId& id) {
     return properties.Mass();
 }
 
+namespace {
+std::string mesh_seed_header(const GeometryId& geometry, double linear, double angular) {
+    std::ostringstream header;
+    header.imbue(std::locale::classic());
+    header << "OCCCCAD mesh seed 1 " << OCC_VERSION_COMPLETE << ' ' << geometry << ' '
+           << std::setprecision(std::numeric_limits<double>::max_digits10) << linear << ' ' << angular << '\n';
+    return header.str();
+}
+
+using MeshShapeMap = std::array<TopTools_IndexedMapOfShape, 3>;
+MeshShapeMap mesh_shape_map(const TopoDS_Shape& source) {
+    MeshShapeMap shapes;
+    TopExp::MapShapes(source, TopAbs_FACE, shapes[0]);
+    TopExp::MapShapes(source, TopAbs_EDGE, shapes[1]);
+    TopExp::MapShapes(source, TopAbs_VERTEX, shapes[2]);
+    return shapes;
+}
+
+std::shared_ptr<const std::vector<uint8_t>> capture_mesh_packet(const GeometryId& geometry, double linear, double angular,
+        const TopoDS_Shape& source, BRepBuilderAPI_Copy& copy) {
+    const auto original = mesh_shape_map(source), packed = mesh_shape_map(copy.Shape());
+    for (std::size_t type = 0; type < original.size(); ++type) {
+        if (original[type].Extent() != packed[type].Extent()) return {};
+        for (int id = 1; id <= original[type].Extent(); ++id) {
+            if (!copy.ModifiedShape(original[type](id)).IsSame(packed[type](id)) ||
+                original[type](id).Orientation() != packed[type](id).Orientation()) return {};
+        }
+    }
+    std::ostringstream out(std::ios::binary);
+    out << mesh_seed_header(geometry, linear, angular);
+    BinTools::Write(copy.Shape(), out);
+    if (!out.good()) return {};
+    const auto bytes = std::move(out).str();
+    if (bytes.size() > 64 * 1024 * 1024) return {};
+    return std::make_shared<const std::vector<uint8_t>>(bytes.begin(), bytes.end());
+}
+}  // namespace
+
+bool OcctKernel::hasMeshSeed(const GeometryId& id, double linear, double angular) const {
+    return impl_->mesh_reuse.has(id, linear, angular);
+}
+
+size_t OcctKernel::restoreMeshSeed(const GeometryId& id, double linear, double angular, const std::vector<uint8_t>& bytes) {
+    const auto header = mesh_seed_header(id, linear, angular);
+    if (bytes.size() <= header.size() || bytes.size() > 64 * 1024 * 1024 ||
+        !std::equal(header.begin(), header.end(), bytes.begin())) return 0;
+    try {
+        const auto& source = impl_->find(id);
+        std::istringstream input(std::string(bytes.begin() + static_cast<std::ptrdiff_t>(header.size()), bytes.end()), std::ios::binary);
+        TopoDS_Shape packed;
+        BinTools::Read(packed, input);
+        if (packed.IsNull() || input.bad()) return 0;
+        const auto original = mesh_shape_map(source), restored = mesh_shape_map(packed);
+        for (std::size_t type = 0; type < original.size(); ++type) {
+            if (original[type].Extent() != restored[type].Extent()) return 0;
+            for (int i = 1; i <= original[type].Extent(); ++i) {
+                const auto& a = original[type](i);
+                const auto& b = restored[type](i);
+                if (a.Orientation() != b.Orientation()) return 0;
+                for (int row = 1; row <= 3; ++row)
+                    for (int column = 1; column <= 4; ++column)
+                        if (a.Location().Transformation().Value(row, column) != b.Location().Transformation().Value(row, column)) return 0;
+            }
+        }
+        for (int i = 1; i <= original[0].Extent(); ++i) {
+            for (TopExp_Explorer a(original[0](i), TopAbs_EDGE), b(restored[0](i), TopAbs_EDGE); a.More() || b.More(); a.Next(), b.Next()) {
+                if (!a.More() || !b.More() || a.Current().Orientation() != b.Current().Orientation() ||
+                    original[1].FindIndex(a.Current()) != restored[1].FindIndex(b.Current())) return 0;
+            }
+        }
+        impl_->mesh_reuse.policy(linear, angular);
+        return impl_->mesh_reuse.admit(id, source, [&](const TopoDS_Shape& shape) {
+            const auto type = shape.ShapeType() == TopAbs_FACE ? 0 : 1;
+            return restored[type](original[type].FindIndex(shape));
+        });
+    } catch (const Standard_Failure&) {
+        return 0;
+    }
+}
+
 TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const double linear_deflection,
                                           const double angular_deflection, const bool parallel) {
     return tessellate(geometry_id,linear_deflection,angular_deflection,parallel,{});
@@ -5787,7 +5901,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
 
 TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const double linear_deflection,
                                           const double angular_deflection, const bool parallel,
-                                          std::function<bool()> cancelled, std::function<bool()> fresh_cancelled) {
+                                          std::function<bool()> cancelled, std::function<bool()> fresh_cancelled, bool capture_mesh_seed) {
     const auto check_cancel=[&](){if(cancelled&&cancelled())throw std::runtime_error("EVALUATION_CANCELLED");};
     const auto mesh_admission=impl_->mesh_reuse.on_failure();
     check_cancel();
@@ -5939,7 +6053,11 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             result.timings.computed_faces=face_map.Extent()-result.timings.reused_faces;
             const auto& admission=fresh_cancelled?fresh_cancelled:cancelled;
             if(admission&&admission())throw std::runtime_error("EVALUATION_CANCELLED");
-            if(!preserveBoundary)impl_->mesh_reuse.admit(geometry_id,source,copy);
+            if (!preserveBoundary) {
+                impl_->mesh_reuse.admit(geometry_id, source, [&](const auto& original) { return copy.ModifiedShape(original); });
+                if (capture_mesh_seed && result.triangles.size() >= 50'000)
+                    result.mesh_seed = capture_mesh_packet(geometry_id, linear_deflection, angular_deflection, source, copy);
+            }
             return result;
         };
         try {
@@ -5948,6 +6066,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                 if(!attempted_reuse||std::string(e.what()).rfind("VISUAL_",0)!=0)throw;
                 // Reused face packets may disagree with a newly refined shared
                 // edge. Discard reuse and run the authoritative cold mesher.
+                std::clog << "mesh stage=packet_reuse_retry cause=" << e.what() << '\n';
                 impl_->mesh_reuse.clear();return produce(false,false);
             }
         }

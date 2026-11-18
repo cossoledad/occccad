@@ -21,7 +21,7 @@
  └→ Go visual.Decode → 缩略图 prepareMesh → 光栅化 / PNG
 ```
 
-默认显示线性偏差为 **0.05 mm**，角偏差为 **0.18 rad**。唯一默认定义在内核头文件；Go 的实体、曲面、预览和交换请求不再重复填写默认值，Worker 对未指定值采用内核默认。显式请求仍可指定精度。它们约束显示离散，不改变实体建模容差、精确 BREP、Naming、单位或持久选择。较粗网格仍会影响近看轮廓和显示拾取的近似程度；法线不能补回几何轮廓，未实现屏幕误差 LOD。
+应用的默认均衡档采用 **0.15 mm** 线性偏差与 **0.30 rad** 角偏差。Worker 的未指定精度请求采用此档。精细档沿用原来的 0.05 mm 与 0.18 rad，高精细档采用 0.02 mm 与 0.10 rad。精度由[全局选项](object-scene-properties.md#场景与显示规则)选择并作用于派生显示。较粗剖分影响近看轮廓及显示拾取近似程度。屏幕误差 LOD 属于后续设计。
 
 普通节点法线为 `unit(∂S/∂u × ∂S/∂v)`，经 Face 的 Location 转到 Part 局部坐标，并按 REVERSED 朝向翻转。使用 OCCT `GeomLib::NormEstim` 的 D1 / D2 估计；奇异极点的 D2 方向符号再由同一 Face 的有向三角形核对，防止小尺度球极点反向。该核对仅决定符号，方向仍来自曲面。实现依据与当前安装的 OCCT 7.9.1 [GeomLib 源码](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_1/src/GeomLib/GeomLib.cxx)对应。
 

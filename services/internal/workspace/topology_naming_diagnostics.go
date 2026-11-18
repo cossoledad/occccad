@@ -44,6 +44,9 @@ func decodeTopologyManifest(data []byte, digest string) (*topologyManifest, erro
 	return decodeTopologyManifestContext(context.Background(), data, digest)
 }
 
+type namingTipOnlyKey struct{}
+type namingResolverOnlyKey struct{}
+
 func decodeTopologyManifestContext(ctx context.Context, data []byte, digest string, loaders ...namingHistoryLoader) (*topologyManifest, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -63,7 +66,14 @@ func decodeTopologyManifestContext(ctx context.Context, data []byte, digest stri
 	if len(loaders) > 0 {
 		loader = loaders[0]
 	}
-	manifest, err := unpackNamingRoot(ctx, stored, loader)
+	var manifest *topologyManifest
+	var err error
+	tipOnly, _ := ctx.Value(namingTipOnlyKey{}).(bool)
+	if tipOnly {
+		manifest, err = unpackNamingTip(stored)
+	} else {
+		manifest, err = unpackNamingRoot(ctx, stored, loader)
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -77,9 +87,24 @@ func decodeTopologyManifestContext(ctx context.Context, data []byte, digest stri
 	if !topologyHistoryComplete(manifest) {
 		return nil, namingError("FAILED", "TOPOLOGY_HISTORY_INCOMPLETE", "当前几何未生成完整拓扑命名，暂不支持持久面、边、点引用。")
 	}
-	manifest.search, err = buildNamingSearchIndex(ctx, manifest)
-	if err != nil {
-		return nil, err
+	if !tipOnly {
+		manifest.search, err = buildNamingSearchIndex(ctx, manifest)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if resolverOnly, _ := ctx.Value(namingResolverOnlyKey{}).(bool); resolverOnly && !tipOnly {
+		// Keep the event index and frozen terminal outputs. Cached historical
+		// records belong to the separate block budget, so a large prefix need
+		// not force a full reread for every query against its accepted tip.
+		manifest.history, manifest.historyReferences, manifest.FeatureResults = nil, nil, nil
+		for _, tip := range manifest.Tips {
+			tip.TopologyHistory = nil
+		}
+		for _, tip := range manifest.Results {
+			tip.TopologyHistory = nil
+		}
+		manifest.retainedBytes = manifest.search.retainedBytes()
 	}
 	manifest.retainedBytes += len(data) * 16
 	return manifest, nil
@@ -93,6 +118,11 @@ func (service *Service) readTopologyManifest(ctx context.Context, inline []byte,
 		return service.loadTopologyManifest(ctx, inline, objectID, digest)
 	}
 	key := namingViewKey(*objectID, strings.ToLower(strings.TrimSpace(*digest)))
+	if tipOnly, _ := ctx.Value(namingTipOnlyKey{}).(bool); tipOnly {
+		key += "\x00tip"
+	} else if resolverOnly, _ := ctx.Value(namingResolverOnlyKey{}).(bool); resolverOnly {
+		key += "\x00resolver"
+	}
 	manifest, err := service.namingViews.read(ctx, key, namingViewBudget, func() (*topologyManifest, int64, error) {
 		value, _, err := service.loadTopologyManifest(ctx, inline, objectID, digest)
 		if err != nil {

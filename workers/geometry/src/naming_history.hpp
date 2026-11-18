@@ -130,7 +130,8 @@ public:
     EncodedNamingHistory encode(const kernel::FeatureResultSequence& features,
                                 const v1::TopologyNamingPolicy& p, const std::string& geometry,
                                 const std::string& brep, bool cold = false,
-                                const std::function<bool()>& cancelled = {}) {
+                                const std::function<bool()>& cancelled = {},
+                                const v1::PartTopologyManifest* accepted = nullptr) {
         if (features.empty())
             throw std::invalid_argument("NAMING_OWNER_REQUIRED");
         EncodedNamingHistory out;
@@ -152,7 +153,14 @@ public:
         std::string previous;
         std::size_t previous_rows = 0;
         bool complete = true;
-        for (std::size_t i = 0; i < features.size(); ++i) {
+        if (accepted) {
+            *out.root.mutable_history() = accepted->history();
+            const auto& predecessor = out.root.history(out.root.history_size() - 1);
+            previous = predecessor.sha256();
+            previous_rows = predecessor.full_lineage_count();
+            out.reused = out.root.history_size();
+        }
+        for (std::size_t i = accepted ? 1 : 0; i < features.size(); ++i) {
             if (cancelled && cancelled())
                 throw std::runtime_error("EVALUATION_CANCELLED");
             const auto& source = features.frozen(i);
@@ -184,7 +192,7 @@ public:
                     [&](std::size_t) {
                         return naming_projection(*source, NamingProjection::literals);
                     },
-                    *values);
+                    *values, true);
                 values->set_geometry_id(h.result_geometry_id);
                 for (const auto& span : source->layout()) {
                     auto* row = block.add_layout();
@@ -239,7 +247,7 @@ public:
         const auto& tip = *features.frozen(features.size() - 1);
         pack_naming(
             1, [&](std::size_t) { return naming_projection(tip, NamingProjection::tip); },
-            out.root);
+            out.root, true);
         out.root.clear_transitions();
         out.root.set_geometry_id(geometry);
         out.root.set_brep_sha256(brep);
@@ -248,6 +256,9 @@ public:
             body.clear_tip_transition();
             body.set_tip_feature_id(tip.header().feature_id);
             body.set_complete(complete);
+            if (complete) {
+                for (const auto row : tip.tip_lineage_locators()) out.root.add_tip_lineage_locators(row);
+            }
         }
         for (auto& result : *out.root.mutable_results()) {
             result.clear_transitions();
@@ -258,4 +269,5 @@ public:
         return out;
     }
 };
+
 }  // namespace occccad::worker

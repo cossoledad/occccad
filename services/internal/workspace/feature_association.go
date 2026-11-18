@@ -69,8 +69,11 @@ func associationMember(ref *workerv1.SemanticTopologyRef) (FeatureAssociationMem
 	return FeatureAssociationMember{patternID, slot}, digest, ok
 }
 func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
-	index := &FeatureAssociationIndex{Features: []string{}, Elements: []FeatureTopologyAssociation{}}
-	states := map[string]FeatureTopologyAssociation{}
+	return deriveFeatureAssociationsFrom(m, map[string]FeatureTopologyAssociation{}, nil)
+}
+
+func deriveFeatureAssociationsFrom(m *topologyManifest, states map[string]FeatureTopologyAssociation, inherited []string) *FeatureAssociationIndex {
+	index := &FeatureAssociationIndex{Features: append([]string{}, inherited...), Elements: []FeatureTopologyAssociation{}}
 	// Naming v2 interns these immutable refs. Pointers only memoize their full
 	// canonical value within this call; equal refs still share a value key.
 	keys := map[*workerv1.SemanticTopologyRef]string{}

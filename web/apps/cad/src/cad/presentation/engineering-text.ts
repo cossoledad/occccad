@@ -18,6 +18,18 @@ export function topologyGeometryLabel(kind:string,type:string|undefined):string{
  if(type==='BSPLINE'||type==='BEZIER')return engineeringLabel(`${type}_${kind==='FACE'?'SURFACE':'CURVE'}`);
  return engineeringLabel(type,kind==='FACE'?'曲面类型未识别':kind==='EDGE'?'曲线类型未识别':'点');
 }
+const topologyRoles: Record<string, string> = {
+ 'import.topology': '导入元素', START_CAP: '起始端面', END_CAP: '终止端面',
+ SIDE_FROM_PROFILE_EDGE: '轮廓侧面', DERIVED_FACE_FROM_ADJACENCY: '派生面',
+ DERIVED_EDGE_FROM_ADJACENCY: '派生边', DERIVED_VERTEX_FROM_ADJACENCY: '派生顶点',
+ DRAFTED_FROM: '拔模面', LOFT_BOUNDARY_SIDE: '放样边界侧面', boundary: '边界',
+ curve: '生成曲线', point: '生成点', surface: '生成曲面', merged: '合并元素',
+};
+export function topologyRoleLabel(outputSlot: string): string {
+ const [role, slot] = outputSlot.split('/', 2);
+ if (role === 'MEMBER' && /^\d+$/.test(slot ?? '')) return `阵列成员 ${slot}`;
+ return topologyRoles[role] ?? '生成元素';
+}
 export function featureName(view:DocumentView,id?:string,fallback='引用特征已丢失'):string{
  const f=view.part?.features.find(f=>f.id===id);return f?.name|| (f?engineeringLabel(f.type,'特征'):fallback);
 }

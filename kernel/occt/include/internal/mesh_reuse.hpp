@@ -27,7 +27,6 @@ class MeshReuse {
     struct Edge {Handle(Poly_PolygonOnTriangulation) forward,reverse;};
     struct Payload {
         Handle(Poly_Triangulation) triangulation;
-        TopLoc_Location location;
         std::vector<Edge> edges;
         size_t bytes=0;
     };
@@ -84,6 +83,11 @@ public:
     FailureGuard on_failure(){return FailureGuard(*this);}
 
     void clear(){frames_.clear();pending_=Frame{};input_.clear();faces_={};edges_={};}
+    bool has(const std::string& geometry, double linear, double angular) const {
+        return linear == linear_ && angular == angular_ && std::any_of(frames_.begin(), frames_.end(), [&](const auto& frame) {
+            return frame.geometry == geometry && !frame.packets.empty();
+        });
+    }
     void policy(double linear,double angular){
         if(linear!=linear_||angular!=angular_){frames_.clear();pending_.packets.clear();linear_=linear;angular_=angular;}
     }
@@ -120,29 +124,34 @@ public:
             if(std::any_of(packet->edges.begin(),packet->edges.end(),[&](int e){return e<1||e>edges.Extent()||!boundary.Contains(edges(e));}))continue;
             const auto& payload=*packet->payload;const auto face=TopoDS::Face(copy.ModifiedShape(original));
             const auto triangulation=payload.triangulation->Copy();builder.UpdateFace(face,triangulation);
+            // The exact placement can survive a BREP reload with a different
+            // TopLoc datum stack. Bind polygons to the copied face's location.
+            const auto& location = face.Location();
             for(size_t i=0;i<packet->edges.size();++i){
                 const auto target=TopoDS::Edge(copy.ModifiedShape(edges(packet->edges[i])));const auto& edge=payload.edges[i];
-                if(!edge.forward.IsNull()&&!edge.reverse.IsNull())builder.UpdateEdge(target,edge.forward->Copy(),edge.reverse->Copy(),triangulation,payload.location);
-                else builder.UpdateEdge(target,(!edge.forward.IsNull()?edge.forward:edge.reverse)->Copy(),triangulation,payload.location);
+                if(!edge.forward.IsNull()&&!edge.reverse.IsNull())builder.UpdateEdge(target,edge.forward->Copy(),edge.reverse->Copy(),triangulation,location);
+                else builder.UpdateEdge(target,(!edge.forward.IsNull()?edge.forward:edge.reverse)->Copy(),triangulation,location);
             }
             seeded.push_back(triangulation);++count;
         }
         return count;
     }
-    void admit(const std::string& geometry,const TopoDS_Shape& source,const BRepBuilderAPI_Copy& copy){
+    template<class CorrespondingShape>
+    size_t admit(const std::string& geometry,const TopoDS_Shape& source,const CorrespondingShape& corresponding){
         Frame frame;frame.geometry=geometry;
         TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(source,TopAbs_FACE,faces);TopExp::MapShapes(source,TopAbs_EDGE,edges);
         for(int id=1;id<=faces.Extent();++id){
             const auto original=TopoDS::Face(faces(id));const auto previous=find(geometry,id);
             if(previous){frame.packets.emplace(id,previous);continue;}
             auto payload=std::make_shared<Payload>();auto packet=std::make_shared<Packet>();packet->payload=payload;packet->orientation=original.Orientation();
-            const auto face=TopoDS::Face(copy.ModifiedShape(original));const auto triangulation=BRep_Tool::Triangulation(face,payload->location);if(triangulation.IsNull())continue;
+            const auto face=TopoDS::Face(corresponding(original));TopLoc_Location location;
+            const auto triangulation=BRep_Tool::Triangulation(face,location);if(triangulation.IsNull())continue;
             payload->triangulation=triangulation->Copy();
             payload->bytes=triangulation->NbNodes()*(sizeof(gp_Pnt)+sizeof(gp_Pnt2d)+sizeof(gp_Vec3f))+triangulation->NbTriangles()*sizeof(Poly_Triangle);
             for(TopExp_Explorer uses(original.Oriented(TopAbs_FORWARD),TopAbs_EDGE);uses.More();uses.Next()){
                 const auto originalEdge=TopoDS::Edge(uses.Current());const int edgeId=edges.FindIndex(originalEdge);
-                const auto edge=TopoDS::Edge(copy.ModifiedShape(originalEdge).Oriented(originalEdge.Orientation()));
-                const auto polygon=BRep_Tool::PolygonOnTriangulation(edge,triangulation,payload->location);if(polygon.IsNull())continue;
+                const auto edge=TopoDS::Edge(corresponding(originalEdge).Oriented(originalEdge.Orientation()));
+                const auto polygon=BRep_Tool::PolygonOnTriangulation(edge,triangulation,location);if(polygon.IsNull())continue;
                 auto at=std::find(packet->edges.begin(),packet->edges.end(),edgeId);
                 if(at==packet->edges.end()){packet->edges.push_back(edgeId);payload->edges.push_back({});at=std::prev(packet->edges.end());}
                 auto& pair=payload->edges[std::distance(packet->edges.begin(),at)];auto& target=originalEdge.Orientation()==TopAbs_REVERSED?pair.reverse:pair.forward;
@@ -164,12 +173,14 @@ public:
                 else{input.used=++clock_;frames_.push_back(std::move(input));}
             }
         }
+        const auto count = frame.packets.size();
         frame.used=++clock_;
         frames_.erase(std::remove_if(frames_.begin(),frames_.end(),[&](const auto& f){return f.geometry==geometry;}),frames_.end());
         frames_.push_back(std::move(frame));pending_=Frame{};input_.clear();faces_.clear();edges_.clear();
         // LRU keeps the repeatedly used input and latest result; count shared
         // payloads once. This budget owns mesh data, never the original BREP graph.
         while(!frames_.empty()&&(frames_.size()>2||bytes()>budget_))frames_.erase(std::min_element(frames_.begin(),frames_.end(),[](const auto& a,const auto& b){return a.used<b.used;}));
+        return has(geometry, linear_, angular_) ? count : 0;
     }
 };
 } // namespace occccad::kernel::detail

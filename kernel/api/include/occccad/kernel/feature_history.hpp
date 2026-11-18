@@ -338,6 +338,19 @@ public:
     std::size_t output_count() const { return output_count_; }
     std::size_t charged_bytes() const { return charged_bytes_; }
     OutputRange outputs() const { return OutputRange(this); }
+    std::vector<std::uint32_t> tip_lineage_locators() const {
+        if (output_count_ != lineage_.size()) return {};
+        std::vector<std::uint32_t> locators(lineage_.size());
+        std::size_t cursor = 0;
+        for (std::size_t output = 0; output < output_count_; ++output) {
+            varint(cursor); // topology type
+            varint(cursor); // frozen local ID
+            const auto row = varint(cursor);
+            if (!row || row > locators.size() || locators[row - 1]) return {};
+            locators[row - 1] = static_cast<std::uint32_t>(output + 1);
+        }
+        return locators;
+    }
     template <class Visit>
     void visit_outputs(Visit visit) const {
         std::size_t cursor = 0, extra = 0;

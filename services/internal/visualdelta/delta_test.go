@@ -12,6 +12,20 @@ import (
 
 func digest(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
+func TestSparseAlignedDisplayOnlyTransmitsChangedSpans(t *testing.T) {
+	base := make([]byte, 32*block+13)
+	for i := range base {
+		base[i] = byte(i*27 + i/1027)
+	}
+	target := bytes.Clone(base)
+	target[3*block+12] ^= 0xfa
+	target[len(target)-1] ^= 0xab
+	patch, err := Encode(t.Context(), base, target, digest(base), digest(target))
+	if err != nil || len(patch) >= 2*block || !bytes.Equal(decode(t, base, patch), target) {
+		t.Fatal("sparse payload did not restore exact target bytes", len(patch), err)
+	}
+}
+
 // Independent wire decoder verifies the encoder without reusing its matching.
 func decode(t *testing.T, base, patch []byte) []byte {
 	t.Helper()

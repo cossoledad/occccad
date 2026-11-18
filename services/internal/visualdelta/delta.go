@@ -78,6 +78,48 @@ func Encode(ctx context.Context, base, target []byte, baseDigest, targetDigest s
 		}
 		operations++
 	}
+	// A local edit with the same binary layout needs no rolling indexes. A
+	// run is admitted only after exact equality, and dense edits switch back
+	// to the shifted/translated matcher before allocating a patch payload.
+	if len(base) == len(target) && len(target) >= block {
+		type span struct {
+			start, end int
+			equal      bool
+		}
+		var spans []span
+		changed := 0
+		for start := 0; start < len(target); start += block {
+			if start%(256<<10) == 0 {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+			}
+			end := min(start+block, len(target))
+			equal := bytes.Equal(base[start:end], target[start:end])
+			if !equal {
+				changed += end - start
+				if changed > len(target)/8 {
+					break
+				}
+			}
+			if n := len(spans); n > 0 && spans[n-1].equal == equal {
+				spans[n-1].end = end
+			} else {
+				spans = append(spans, span{start, end, equal})
+			}
+		}
+		if changed <= len(target)/8 {
+			for _, span := range spans {
+				if span.equal {
+					copyRange(span.start, span.end-span.start, 0)
+				} else {
+					literal(target[span.start:span.end])
+				}
+			}
+			binary.LittleEndian.PutUint32(patch[76:80], operations)
+			return patch, ctx.Err()
+		}
+	}
 	byteIndex := make(map[uint32][]int)
 	wordIndex := make(map[uint64][]int)
 	for i := 0; i+block <= len(base); i += block {

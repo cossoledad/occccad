@@ -40,14 +40,16 @@ GeometryFeatureSpec source_line(std::string id, Vec3 a = {0, 0, 0}, Vec3 b = {50
 }
 GeometryFeatureInput source_input(OcctKernel& k, const ProfileEvaluationResult& result) {
     GeometryFeatureInput input;
+    auto source = std::make_shared<BodyToolInput>();
+    input.source = source;
     const auto& feature = result.feature_results.back();
-    input.source.feature_id = feature.feature_id;
-    input.source.body_id = feature.body_id;
-    input.source.result_id = feature.result_id;
-    input.source.geometry_id = result.geometry_id;
-    input.source.brep = k.serializeBrepr(result.geometry_id);
+    source->feature_id = feature.feature_id;
+    source->body_id = feature.body_id;
+    source->result_id = feature.result_id;
+    source->geometry_id = result.geometry_id;
+    source->brep = k.serializeBrepr(result.geometry_id);
     for (const auto& o : feature.semantic_outputs)
-        input.source.topology.push_back(
+        source->topology.push_back(
             {o.semantic_ref.feature_id, o.semantic_ref.output_slot, o.semantic_ref.source_ids,
              o.topology_type == PersistentTopologyType::face   ? TopologyType::FACE
              : o.topology_type == PersistentTopologyType::edge ? TopologyType::EDGE
@@ -335,12 +337,12 @@ TEST(SurfaceFeature, ImportedWireAndPointUseFrozenIdentityAndRejectDigestMismatc
     const auto line = k.evaluateGeometryFeature(source_line("source"));
     auto input = source_input(k, line);
     auto s = surface_spec("import", "IMPORTED", {});
-    s.import_brep = input.source.brep;
+    s.import_brep = input.source->brep;
     ImportTopologySeed seed;
     seed.feature_id = "import";
     seed.result_id = "result";
     seed.brep_sha256 = make_geometry_id(s.import_brep.data(), s.import_brep.size()).substr(7);
-    for (const auto& n : input.source.topology)
+    for (const auto& n : input.source->topology)
         seed.identities.push_back({n.output_slot,
                                    n.type == TopologyType::EDGE ? PersistentTopologyType::edge
                                                                 : PersistentTopologyType::vertex,

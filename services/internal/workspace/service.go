@@ -25,12 +25,14 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
 const geometryValidationPolicy = "occccad.geometry.brep-valid.v1"
 
-const evaluatorVersion = "part-solid-generators-v80-deferred-properties"
+const evaluatorVersion = "part-solid-generators-v82-frozen-prefix"
 
 // Display algorithm changes qualify newly evaluated representations separately
 // from exact/Naming semantics and the accepted dependency manifest.
@@ -1822,6 +1824,7 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 	return result, err
 }
 func (service *Service) buildBody(ctx context.Context, reqID string, model PartModel, fullModels ...PartModel) (string, error) {
+	compiled := perf.Start(ctx, "part-compile")
 	normalizePartModel(&model)
 	fullModel := model
 	if len(fullModels) > 0 {
@@ -1832,9 +1835,19 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 	baseKey := ""
 	var importSeed *workerv1.ImportTopologySeed
 	bodyTipFeatureID := ""
+	checkpoint, err := service.partCheckpoint(ctx, model)
+	if err != nil {
+		return "", err
+	}
+	if checkpoint.continuation != nil {
+		baseKey, bodyTipFeatureID = checkpoint.key, checkpoint.continuation.FeatureId
+	}
 	visualization := bodyDisplayMetadata(model)
-	for _, feature := range model.Features {
+	for position, feature := range model.Features {
 		if feature.Suppressed {
+			continue
+		}
+		if checkpoint.continuation != nil && position <= checkpoint.position && isBodyFeature(feature.Type) {
 			continue
 		}
 		switch strings.ToUpper(feature.Type) {
@@ -2040,6 +2053,9 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 		sum := sha256.Sum256(append([]byte(baseKey+"|"+importPolicy+"|"), seedJSON...))
 		cacheBaseKey = "sha256:" + hex.EncodeToString(sum[:])
 	}
+	if checkpoint.continuation != nil {
+		cacheBaseKey += "|accepted-prefix|" + checkpoint.continuation.Naming.Sha256
+	}
 	keyVisualization := visualization
 	if geometry.PartRuntime(ctx).ExactOnly {
 		keyVisualization = VisualizationManifest{}
@@ -2048,6 +2064,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 	if err != nil {
 		return "", err
 	}
+	compiled()
 	var exists bool
 	if err := service.database.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).
@@ -2074,11 +2091,17 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 		attempt := reqID + "/" + newID("artifact-attempt")
 		options := geometry.PartRuntime(ctx)
 		options.Affinity = "body-runtime:" + model.ActiveBodyID
+		options.Continuation = checkpoint.continuation
+		if baseKey != "" && !options.ForceCold && !options.ExactOnly {
+			if object, e := service.representationObject(ctx, baseKey, "MESH_SEED"); e == nil {
+				options.BaseMeshSeed = &workerv1.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType}
+			}
+		}
 		options.BaseStage, err = service.importBaseStage(ctx, baseKey, base, importSeed, fullModel)
 		if err != nil {
 			return "", err
 		}
-		if plan := executionPlan(ctx); plan != nil && !options.ForceCold {
+		if plan := executionPlan(ctx); plan != nil && !options.ForceCold && options.Continuation == nil {
 			if sourceKey := plan.acceptedBodies[model.ActiveBodyID]; sourceKey != "" {
 				object, e := service.representationObject(ctx, sourceKey, "NAMING")
 				if e != nil && !errors.Is(e, database.ErrNoRows) {
@@ -2096,11 +2119,20 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 		return "", fmt.Errorf("persistent evaluation requires ArtifactStore")
 	}
 	if err != nil {
+		// A missing or rejected derived checkpoint can be rebuilt from
+		// immutable Feature inputs. Failures in the new Feature still surface.
+		if ctx.Err() == nil && checkpoint.continuation != nil && status.Code(err) == codes.FailedPrecondition {
+			return service.buildBody(context.WithValue(ctx, skipPartCheckpointKey{}, true), reqID, model, fullModels...)
+		}
 		return "", err
 	}
 	recordWorkerEvaluation(ctx, evaluation)
 	if ctx.Err() != nil {
 		return "", ctx.Err()
+	}
+	defer perf.Start(ctx, "part-adopt")()
+	if checkpoint.naming != nil && !geometry.PartRuntime(ctx).ExactOnly {
+		ctx = context.WithValue(ctx, namingContinuationKey{}, checkpoint)
 	}
 	if err := service.storeEvaluation(ctx, key, evaluation, visualization); err != nil {
 		return "", err
@@ -2561,11 +2593,22 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	sketches := make(map[string]Feature)
 	uses := make(map[string][]Feature)
 	consumed := make(map[string]bool)
-	dependents := make(map[string]bool)
-	for _, feature := range model.Features {
-		for _, id := range featureInputIDs(feature) {
-			dependents[id] = true
+	features := make(map[string]*Feature, len(model.Features))
+	featuresByBody := map[string][]*Feature{}
+	sourcesByFeature := map[string]map[string]modelcore.ValueSource{}
+	for _, parameter := range model.Parameters {
+		owner := parameter.OwnerFeatureID
+		if owner != "" {
+			if sourcesByFeature[owner] == nil {
+				sourcesByFeature[owner] = map[string]modelcore.ValueSource{}
+			}
+			sourcesByFeature[owner][parameter.PropertySlot] = parameter.Source
 		}
+	}
+	for i := range model.Features {
+		feature := model.Features[i]
+		features[feature.ID] = &model.Features[i]
+		featuresByBody[feature.BodyID] = append(featuresByBody[feature.BodyID], &model.Features[i])
 		if strings.Contains(strings.ToUpper(feature.Type), "SKETCH") {
 			sketches[feature.ID] = feature
 		}
@@ -2588,6 +2631,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			}
 		}
 	}
+	canMove := movableFeatures(model)
 	bodies := []DocumentStructureNode{}
 	for _, definition := range model.Bodies {
 		body := DocumentStructureNode{ID: path + "/body:" + definition.ID, Kind: "BODY", Consumed: definition.Consumed, Name: definition.Name, EntityID: definition.ID, GeometryKey: definition.GeometryKey,
@@ -2597,11 +2641,12 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		if editable {
 			body.Capabilities = []string{"DELETE"}
 		}
-		for _, feature := range model.Features {
-			if feature.BodyID != definition.ID || consumed[feature.ID] {
+		for _, entry := range featuresByBody[definition.ID] {
+			feature := *entry
+			if consumed[feature.ID] {
 				continue
 			}
-			digest, _ := featureDefinitionDigest(model, feature.ID)
+			digest, _ := normalizedFeatureDefinitionDigest(feature, sourcesByFeature[feature.ID])
 			node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable, editable)
 			if editable && feature.Sketch != nil {
 				node.Capabilities = append(node.Capabilities, "MOVE")
@@ -2609,7 +2654,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			if editable && (isBodyFeature(feature.Type) || feature.Sketch != nil) && !feature.Suppressed && feature.EvaluationStatus == "" {
 				node.Capabilities = append(node.Capabilities, "INSERT_AFTER")
 			}
-			if editable && movableFeature(model, feature.ID) {
+			if editable && canMove[feature.ID] {
 				node.Capabilities = append(node.Capabilities, "MOVE")
 			}
 			collected := map[string]bool{}
@@ -2657,12 +2702,8 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 					} else {
 						node.Children = append(node.Children, DocumentStructureNode{ID: fmt.Sprintf("%s/input:%d", node.ID, order), Kind: "SKETCH_INPUT_REFERENCE", Name: sketch.Name, EntityID: sketch.ID, BodyID: sketch.BodyID, DocumentID: documentID, VersionID: versionID, OwnerEntityID: feature.ID, PresentationRole: "INPUT_REFERENCE", InputRole: input.Role, InputEntityID: input.EntityID, InputOrder: inputOrder, PatternMemberSlot: input.MemberSlot})
 					}
-				} else {
-					for _, source := range model.Features {
-						if source.ID == input.FeatureID {
-							node.Children = append(node.Children, DocumentStructureNode{ID: fmt.Sprintf("%s/input:%d", node.ID, order), Kind: "FEATURE_INPUT_REFERENCE", Name: source.Name, EntityID: source.ID, EntityType: source.Type, BodyID: source.BodyID, DocumentID: documentID, VersionID: versionID, OwnerEntityID: feature.ID, PresentationRole: "INPUT_REFERENCE", InputRole: input.Role, InputOrder: inputOrder})
-						}
-					}
+				} else if source := features[input.FeatureID]; source != nil {
+					node.Children = append(node.Children, DocumentStructureNode{ID: fmt.Sprintf("%s/input:%d", node.ID, order), Kind: "FEATURE_INPUT_REFERENCE", Name: source.Name, EntityID: source.ID, EntityType: source.Type, BodyID: source.BodyID, DocumentID: documentID, VersionID: versionID, OwnerEntityID: feature.ID, PresentationRole: "INPUT_REFERENCE", InputRole: input.Role, InputOrder: inputOrder})
 				}
 			}
 			body.Children = append(body.Children, node)
@@ -2702,7 +2743,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		DocumentID: documentID, VersionID: versionID}
 	groups := map[string]int{}
 	for _, parameter := range model.Parameters {
-		name := parameterPresentation(model, parameter).QualifiedDisplayPath
+		name := presentPartParameter(model, parameter, features[parameter.OwnerFeatureID]).QualifiedDisplayPath
 		capabilities := []string{"EDIT"}
 		if parameter.Lifecycle == "USER" {
 			capabilities = append(capabilities, "DELETE")
@@ -2711,12 +2752,10 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		group, indexed := groups[owner]
 		if !indexed {
 			label := "用户参数"
-			for _, f := range model.Features {
-				if f.ID == owner {
-					label = f.Name
-					if label == "" {
-						label = f.ID
-					}
+			if f := features[owner]; f != nil {
+				label = f.Name
+				if label == "" {
+					label = f.ID
 				}
 			}
 			for _, p := range model.DatumPlanes {
@@ -2771,7 +2810,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			OwnerEntityID: input.Target.TargetID, DocumentID: documentID, VersionID: versionID,
 			Capabilities: []string{"EDIT", "DELETE"}, ContextInput: &copy})
 	}
-	result := append(referenceStructure(model, origin.Children, path, documentID, versionID, editable), bodies...)
+	result := append(referenceStructure(model, origin.Children, path, documentID, versionID, editable, sourcesByFeature), bodies...)
 
 	if len(inputs.Children) > 0 {
 		result = append(result, inputs)

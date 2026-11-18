@@ -252,10 +252,12 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 		clearMeasurementProjection(model.Measurements)
 		pruneRetiredReferences(&model)
 		addPropertyChange(&changes, "part", "part.retired-references", beforeModel.RetiredReferences, model.RetiredReferences)
+		finishManifest := perf.Start(ctx, "part-manifest")
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
 		attachEvaluationRuntime(ctx, &manifest)
+		finishManifest()
 		if err != nil {
 			return err
 		}

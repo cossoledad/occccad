@@ -438,6 +438,16 @@ message EvaluatePartRequest {
     GeometryFeatureSpec geometry_feature = 17;
     PartBaseStage base_stage = 18; // frozen upstream evidence; never a cached result of this operation
     ArtifactReference naming_source = 19; // qualified prior root; publication reuse hint only
+    PartContinuation continuation = 20; // accepted Body prefix with a separately prepared suffix
+    ArtifactReference base_mesh_seed = 21; // optional derived mesh for the exact base and display policy
+}
+
+message PartContinuation {
+    ArtifactReference naming = 1;
+    string feature_id = 2;
+    string body_id = 3;
+    string validation_policy = 4;
+    uint32 stage_count = 5; // executable stages in the accepted prefix (excluding import)
 }
 
 // Produced from an accepted immutable geometry artifact. The naming snapshot
@@ -587,6 +597,9 @@ message PartRuntimeStats {
     uint64 naming_full_lineage_rows = 40;
     uint64 naming_literal_lineage_rows = 41;
     uint64 naming_carried_lineage_rows = 42;
+    uint32 frozen_prefix_stages = 43;
+    uint64 restored_mesh_faces = 44;
+    double mesh_seed_ms = 45;
 }
 
 message ProfileCurve {
@@ -1116,6 +1129,20 @@ message NamingHistoryBlock {
     repeated NamingHistorySpan layout = 6;
 }
 
+// Storage-local dictionary. Expanding a row restores the exact ordered
+// SemanticTopologyRef. These indices never escape into a persistent selection.
+message NamingSourceList { repeated uint32 symbols = 1; }
+message NamingReferenceRow {
+    uint32 feature = 1;
+    uint32 slot = 2;
+    uint32 sources = 3; // 0 means the empty list
+}
+message NamingReferenceDictionary {
+    repeated string symbols = 1; // 1-based, including empty strings if present
+    repeated NamingSourceList source_lists = 2;
+    repeated NamingReferenceRow rows = 3;
+}
+
 message PartTopologyManifest {
     uint32 schema_version = 1;
     string policy_id = 2;
@@ -1132,6 +1159,10 @@ message PartTopologyManifest {
     string brep_sha256 = 13; // Exact frozen Body BREP artifact association.
     string policy_digest = 5;
     repeated NamingHistoryReference history = 15; // v3 root: ordered immutable blocks; no inline transitions
+    NamingReferenceDictionary reference_dictionary = 16; // alternative encoding of semantic_refs
+    // One-based tip locator ordinal for each expanded tip lineage row, in row
+    // order. Present only for a proven bijection with identical typed evidence.
+    repeated uint32 tip_lineage_locators = 17;
 }
 
 message ArtifactReference {
@@ -1252,6 +1283,8 @@ message EvaluatePartResponse {
     uint64 triangle_count = 15;
     uint64 display_vertex_count = 16;
     PartRuntimeStats runtime_stats = 17;
+    string visual_precision = 19; // display policy only, outside exact shape identity
+    ArtifactReference mesh_seed_artifact = 20;
 }
 
 message Mesh {
@@ -1387,6 +1420,8 @@ message TessellateRequest {
     string geometry_id = 1;
     double linear_deflection = 2;
     double angular_deflection = 3;
+    ArtifactReference brep = 4;
+    string visual_output_key = 5;
 }
 
 message TessellateResponse {
@@ -1394,6 +1429,9 @@ message TessellateResponse {
     ArtifactReference visual_artifact = 4;
     BoundingBox bbox = 5;
     TopologySummary topology = 6;
+    uint64 triangle_count = 7;
+    uint64 display_vertex_count = 8;
+    PartRuntimeStats runtime_stats = 9;
 }
 
 // ---------------------------------------------------------------------------

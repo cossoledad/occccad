@@ -303,6 +303,7 @@ struct VisualStageTimings {
 };
 
 struct TessellationResult {
+    std::shared_ptr<const std::vector<uint8_t>> mesh_seed;
     std::vector<Vec3> normals;
     VisualStageTimings timings;
     std::vector<Vec3> vertices;

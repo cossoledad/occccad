@@ -53,23 +53,25 @@ func (service *Service) Put(ctx context.Context, kind Kind, contentType string, 
 }
 
 func (service *Service) Open(ctx context.Context, objectID string) (Object, io.ReadCloser, error) {
-	var result Object
-	err := service.database.QueryRow(ctx, `SELECT id::text,kind,sha256,storage_backend,object_key,
-		content_type,size_bytes FROM occccad.artifact_objects WHERE id=$1 AND state='READY'`, objectID).
-		Scan(&result.ID, &result.Kind, &result.SHA256, &result.Backend, &result.Key,
-			&result.ContentType, &result.Size)
+	result, err := service.Get(ctx, objectID)
 	if err != nil {
 		return Object{}, nil, err
 	}
+	reader, err := service.OpenReadyObject(ctx, result)
+	return result, reader, err
+}
+
+// OpenReadyObject uses metadata already obtained from a READY object query.
+// The caller retains the same expected digest when reading the payload.
+func (service *Service) OpenReadyObject(ctx context.Context, object Object) (io.ReadCloser, error) {
 	backend := service.store
-	if result.Backend != backend.Backend() {
+	if object.Backend != backend.Backend() {
 		backend = service.staging
-		if result.Backend != backend.Backend() {
-			return Object{}, nil, fmt.Errorf("unconfigured artifact backend %s", result.Backend)
+		if object.Backend != backend.Backend() {
+			return nil, fmt.Errorf("unconfigured artifact backend %s", object.Backend)
 		}
 	}
-	reader, err := backend.Open(ctx, result.Key)
-	return result, reader, err
+	return backend.Open(ctx, object.Key)
 }
 
 func (service *Service) Get(ctx context.Context, objectID string) (Object, error) {

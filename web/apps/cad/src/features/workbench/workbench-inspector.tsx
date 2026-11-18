@@ -7,7 +7,7 @@ import {formatDisplayNumber as number} from '../../utils/display-number';
 import {Button,Descriptions,List,Space,Spin,Tag,Typography} from 'antd';
 import type {DocumentProperties,DocumentView,Feature,HistoryEntry,Selection,SketchPlane,TopologyElementProperties} from '../../types';
 import {parameterDisplayValue,parameterSourceText} from './parameter-editor';
-import {engineeringLabel,geometryFeatureNames,topologyGeometryLabel,featureName,historyAction,objectName,selectionName} from '../../cad/presentation/engineering-text';
+import {engineeringLabel,geometryFeatureNames,topologyGeometryLabel,topologyRoleLabel,featureName,historyAction,objectName,selectionName} from '../../cad/presentation/engineering-text';
 import {engineeringInstanceName,engineeringConstraintName} from '../../cad/assembly/assembly-engineering-state';
 import {describeAssemblyReference} from '../../cad/assembly/assembly-reference-presentation';
 import {engineeringProblem} from '../../cad/command/operation-feedback';
@@ -36,6 +36,7 @@ export function Properties(p:PropertiesProps){
   if(p.topologyLoading||!topology)return <Spin size="small" tip="正在读取几何属性…"/>;
   if(topology.element)add('element','元素',[s.instancePath?.display||view.document.name,topology.element.path].filter(Boolean).join(' / '));
   add('type','类型',engineeringLabel(topology.kind,'几何元素'));add('geometry','几何形状',topologyGeometryLabel(topology.kind,topology.geometryType));add('owner','所属对象',objectName(view,s.result?.featureId??s.bodyId,s.result?'几何结果':'实体'));if(s.instancePath?.display)add('path','所属位置',s.instancePath.display);if(topology.persistentSelection)add('feature','生成步骤',definition&&s.associatedFeatureIds?.length?s.associatedFeatureIds.map(id=>objectName(view,id,'生成步骤暂不可用')).join('、'):'生成步骤暂不可用');
+  if(topology.persistentSelection)add('role','拓扑角色',topologyRoleLabel(topology.persistentSelection.anchor.outputSlot));
   if(topology.point)add('point','位置 (mm)',topology.point.map(v=>number(v)).join(', '));
   const props:Record<string,string>={area:'面积 (mm²)',length:'长度 (mm)',radius:'半径 (mm)',diameter:'直径 (mm)',volume:'体积 (mm³)',center:'中心 (mm)',centroid:'形心 (mm)',normal:'法向',direction:'方向',axis:'轴线方向',axisOrigin:'轴线上一点 (mm)',axisPoint:'轴线上一点 (mm)',origin:'原点 (mm)',closed:'闭合',periodic:'周期曲线',majorRadius:'主半径 (mm)',minorRadius:'次半径 (mm)',referenceRadius:'参考半径 (mm)',semiAngle:'半锥角 (°)',apex:'顶点 (mm)',axisDirection:'轴线方向',xDirection:'X 方向',yDirection:'Y 方向'};
   for(const [key,value] of Object.entries(topology.properties??{}))if(props[key])add(key,props[key],Array.isArray(value)?value.map(v=>typeof v==='number'?number(v):'—').join(', '):typeof value==='number'?number(key==='semiAngle'?value*180/Math.PI:value):typeof value==='boolean'?value?'是':'否':'—');

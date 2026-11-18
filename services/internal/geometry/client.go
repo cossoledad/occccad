@@ -958,6 +958,15 @@ func (client *Client) EvaluateRectangularPad(
 	}}, nil)
 }
 
+func (client *Client) Tessellate(ctx context.Context, id string, brep ArtifactReference, linear, angular float64, output string) (*workerv1.TessellateResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	finish := perf.Start(ctx, "visual-rpc")
+	defer finish()
+	return client.worker.Tessellate(ctx, &workerv1.TessellateRequest{GeometryId: id, Brep: artifactProto(brep),
+		LinearDeflection: linear, AngularDeflection: angular, VisualOutputKey: output})
+}
+
 func (client *Client) EvaluatePart(
 	ctx context.Context,
 	requestID string,
@@ -1043,6 +1052,8 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 	request.RuntimeAffinity = options.Affinity
 	request.BaseStage = options.BaseStage
 	request.NamingSource = options.NamingSource
+	request.Continuation = options.Continuation
+	request.BaseMeshSeed = options.BaseMeshSeed
 	if options.ExactOnly {
 		request.GlbOutputKey = ""
 	}

@@ -19,8 +19,22 @@ try{
  a.release();a.release();assert.equal(disposed,0,'releasing one sibling cannot delete a live shared GPU attribute');
  const c=pool.acquire(mesh);assert.equal(c.geometry,a.geometry,'a released wrapper/BVH is reused while other leases live');
  c.geometry.addGroup(0,6,0);assert.equal(b.geometry.groups.length,1);
- c.release();b.release();assert.equal(disposed,2,'all wrappers dispose exactly once at last release');
+ c.release();b.release();await Promise.resolve();assert.equal(disposed,2,'all wrappers dispose exactly once after reconciliation');
  assert.equal(a.geometry.boundsTree,null);assert.deepEqual([...mesh.buffers.indices],[0,1,2,1,3,2]);
  const fresh=pool.acquire(mesh);assert.notEqual(fresh.geometry.getAttribute('position'),a.geometry.getAttribute('position'));fresh.release();
  const raw=makeSurfaceGeometry({vertices:[[0,0,0],[1,0,0],[0,1,0]],triangles:[[0,1,2]],faceIds:[1]});assert.equal(raw.getAttribute('normal').getZ(0),1);raw.disposeBoundsTree();raw.dispose();
+ const positions=new Float32Array(9300);positions.set([0,0,0,1,0,0,0,1,0]);
+ const initial={vertices:[],triangles:[],buffers:{positions,normals:new Float32Array(positions.length),indices:new Uint32Array([0,1,2]),faceIds:new Uint32Array([17])}};
+ const moved=positions.slice();moved[2]=moved[5]=moved[8]=2;
+ const old=pool.acquire(initial),bounds=old.geometry.boundsTree,attr=old.geometry.getAttribute('position');old.release();
+ const next={...initial,previousSurface:new WeakRef(initial),buffers:{...initial.buffers,positions:moved}};
+ const local=pool.acquire(next);await Promise.resolve();
+ assert.equal(local.geometry.getAttribute('position'),attr);assert.equal(local.geometry.boundsTree,bounds);
+ assert.deepEqual(attr.updateRanges,[{start:0,count:1024}]);assert.equal(positions[2],0);
+ const movedObject=new T.Mesh(local.geometry,new T.MeshBasicMaterial());movedObject.raycast=acceleratedRaycast;
+ const picked=new T.Raycaster(new T.Vector3(.2,.2,5),new T.Vector3(0,0,-1)).intersectObject(movedObject)[0];
+ assert.equal(picked.point.z,2);assert.equal(next.buffers.faceIds[picked.faceIndex],17);
+ local.release();
+ const changedLayout=pool.acquire({...next,previousSurface:new WeakRef(next),buffers:{...next.buffers,positions:moved.slice(),faceIds:new Uint32Array([23])}});
+ assert.notEqual(changedLayout.geometry.boundsTree,bounds);changedLayout.release();
 }finally{await server.close()}

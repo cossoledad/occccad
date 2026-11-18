@@ -20,6 +20,7 @@ type topologyManifest struct {
 	retainedBytes     int
 	history           []*decodedNamingBlock
 	historyReferences []*workerv1.NamingHistoryReference
+	associations      *FeatureAssociationIndex
 }
 
 type namingLocator struct {
@@ -36,7 +37,43 @@ func (m *topologyManifest) GetFeatureResults() []*workerv1.FeatureResult {
 }
 func (m *topologyManifest) bodyTips() map[string]*workerv1.FeatureResult { return m.Tips }
 
+func namingReferences(m *workerv1.PartTopologyManifest) ([]*workerv1.SemanticTopologyRef, error) {
+	table := m.ReferenceDictionary
+	if table == nil {
+		return m.SemanticRefs, nil
+	}
+	if len(m.SemanticRefs) != 0 {
+		return nil, fmt.Errorf("ambiguous naming reference encoding")
+	}
+	lists := make([][]string, len(table.SourceLists)+1)
+	for i, list := range table.SourceLists {
+		if len(list.Symbols) == 0 {
+			return nil, fmt.Errorf("empty naming source list")
+		}
+		values := make([]string, len(list.Symbols))
+		for j, id := range list.Symbols {
+			if id == 0 || int(id) > len(table.Symbols) {
+				return nil, fmt.Errorf("invalid naming source symbol %d", id)
+			}
+			values[j] = table.Symbols[id-1]
+		}
+		lists[i+1] = values
+	}
+	refs := make([]*workerv1.SemanticTopologyRef, len(table.Rows))
+	for i, row := range table.Rows {
+		if row.Feature == 0 || int(row.Feature) > len(table.Symbols) || row.Slot == 0 || int(row.Slot) > len(table.Symbols) || int(row.Sources) >= len(lists) {
+			return nil, fmt.Errorf("invalid naming reference row %d", i+1)
+		}
+		refs[i] = &workerv1.SemanticTopologyRef{FeatureId: table.Symbols[row.Feature-1], OutputSlot: table.Symbols[row.Slot-1], SourceIds: lists[row.Sources]}
+	}
+	return refs, nil
+}
+
 func unpackNamingValues(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
+	return unpackNamingValuesWithEvidence(m, true)
+}
+
+func unpackNamingValuesWithEvidence(m *workerv1.PartTopologyManifest, includeEvidence bool) (*topologyManifest, error) {
 	if len(m.Bodies)+len(m.Results) != 1 || m.GeometryId == "" || m.SchemaVersion != 3 || m.CoordinateSpace != "PART_LOCAL" || m.LengthUnit != "mm" {
 		return nil, fmt.Errorf("unsupported naming artifact contract")
 	}
@@ -68,79 +105,90 @@ func unpackNamingValues(m *workerv1.PartTopologyManifest) (*topologyManifest, er
 		return body == ownerBody && ((ownerResult == nil && r == nil) || (ownerResult != nil && r != nil && ownerResult.FeatureId == r.FeatureId && ownerResult.ResultId == r.ResultId))
 	}
 	out := &topologyManifest{GeometryID: m.GeometryId, BRepSHA256: m.BrepSha256, Locators: map[string]namingLocator{}, Tips: map[string]*workerv1.FeatureResult{}, Results: map[modelcore.GeometryResultReference]*workerv1.FeatureResult{}}
+	refs, err := namingReferences(m)
+	if err != nil {
+		return nil, err
+	}
 	var failure error
 	ref := func(id uint32) *workerv1.SemanticTopologyRef {
-		if id == 0 || uint64(id) > uint64(len(m.SemanticRefs)) {
+		if id == 0 || uint64(id) > uint64(len(refs)) {
 			failure = fmt.Errorf("invalid naming semantic table index %d", id)
 			return nil
 		}
-		return m.SemanticRefs[id-1]
+		return refs[id-1]
 	}
-	evidence := make([]*workerv1.SelectionEvidence, len(m.Evidence))
+	var evidence []*workerv1.SelectionEvidence
+	if includeEvidence {
+		evidence = make([]*workerv1.SelectionEvidence, len(m.Evidence))
+	}
 	for i, e := range m.Evidence {
-		v := &workerv1.SelectionEvidence{Centroid: e.Centroid, MeasureSi: e.MeasureSi, MeasureDimension: e.MeasureDimension, EvidenceDigest: e.EvidenceDigest, EndpointRole: e.EndpointRole}
-		v.MinorRadiusMm = e.MinorRadiusMm
-		v.RadiusMm, v.HalfAngleRadians, v.ConeLeaf, v.MaterialSide, v.XDirection = e.RadiusMm, e.HalfAngleRadians, e.ConeLeaf, e.MaterialSide, e.XDirection
-		for _, id := range e.Adjacent {
-			v.Adjacent = append(v.Adjacent, ref(id))
-		}
 		var frame *workerv1.NamingFrame
+		var point *workerv1.Vec3
 		var r *workerv1.NamingCurveRange
+		var kind string
+		isPoint := false
 		switch g := e.Geometry.(type) {
 		case *workerv1.NamingEvidence_Plane:
-			v.GeometryType = "PLANE"
-			frame = g.Plane
+			kind, frame = "PLANE", g.Plane
 		case *workerv1.NamingEvidence_Cylinder:
-			v.GeometryType = "CYLINDER"
-			frame = g.Cylinder
+			kind, frame = "CYLINDER", g.Cylinder
 		case *workerv1.NamingEvidence_Point:
-			v.GeometryType = "POINT"
-			v.Origin = g.Point.Position
-			v.Direction = &workerv1.Vec3{}
+			kind, point = "POINT", g.Point.Position
+			isPoint = true
 		case *workerv1.NamingEvidence_Line:
-			v.GeometryType = "LINE"
-			frame = g.Line.Frame
-			r = g.Line.Range
+			kind, frame, r = "LINE", g.Line.Frame, g.Line.Range
 		case *workerv1.NamingEvidence_Circle:
-			v.GeometryType = "CIRCLE"
-			frame = g.Circle.Frame
-			r = g.Circle.Range
+			kind, frame, r = "CIRCLE", g.Circle.Frame, g.Circle.Range
 		case *workerv1.NamingEvidence_Spline:
-			v.GeometryType = g.Spline.Family
-			frame = g.Spline.Frame
-			r = g.Spline.Range
+			kind, frame, r = g.Spline.Family, g.Spline.Frame, g.Spline.Range
 		case *workerv1.NamingEvidence_Other:
-			v.GeometryType = g.Other.Family
-			frame = g.Other.Frame
-			r = g.Other.Range
+			kind, frame, r = g.Other.Family, g.Other.Frame, g.Other.Range
 		default:
 			return nil, fmt.Errorf("missing typed naming evidence")
 		}
-		if frame != nil {
-			v.Origin = frame.Origin
-			v.Direction = frame.Direction
-		}
 		if r != nil {
 			expected := "NATIVE_CURVE_PARAMETER"
-			if v.GeometryType == "LINE" {
+			if kind == "LINE" {
 				expected = "LINE_MM"
-			} else if v.GeometryType == "CIRCLE" || v.GeometryType == "ELLIPSE" {
+			} else if kind == "CIRCLE" || kind == "ELLIPSE" {
 				expected = "ANGLE_RADIANS"
 			}
 			if r.Convention != expected {
 				return nil, fmt.Errorf("unknown curve parameter convention")
 			}
-			v.ParameterStart = r.Start
-			v.ParameterEnd = r.End
+		}
+		if !includeEvidence {
+			for _, id := range e.Adjacent {
+				ref(id)
+			}
+			continue
+		}
+		v := &workerv1.SelectionEvidence{Centroid: e.Centroid, MeasureSi: e.MeasureSi, MeasureDimension: e.MeasureDimension, EvidenceDigest: e.EvidenceDigest, EndpointRole: e.EndpointRole, GeometryType: kind}
+		v.MinorRadiusMm = e.MinorRadiusMm
+		v.RadiusMm, v.HalfAngleRadians, v.ConeLeaf, v.MaterialSide, v.XDirection = e.RadiusMm, e.HalfAngleRadians, e.ConeLeaf, e.MaterialSide, e.XDirection
+		for _, id := range e.Adjacent {
+			v.Adjacent = append(v.Adjacent, ref(id))
+		}
+		if isPoint {
+			v.Origin, v.Direction = point, &workerv1.Vec3{}
+		}
+		if frame != nil {
+			v.Origin, v.Direction = frame.Origin, frame.Direction
+		}
+		if r != nil {
+			v.ParameterStart, v.ParameterEnd = r.Start, r.End
 		}
 		evidence[i] = v
 	}
 	ev := func(id uint32) *workerv1.SelectionEvidence {
-		if id == 0 || uint64(id) > uint64(len(evidence)) {
+		if id == 0 || uint64(id) > uint64(len(m.Evidence)) {
 			failure = fmt.Errorf("invalid naming evidence table index %d", id)
 			return nil
 		}
-		return evidence[id-1]
+		if includeEvidence {
+			return evidence[id-1]
+		}
+		return nil
 	}
 	for _, t := range m.Transitions {
 		if !matchesOwner(t.BodyId, t.Result) {

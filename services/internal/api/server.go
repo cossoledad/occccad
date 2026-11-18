@@ -1160,6 +1160,7 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 			}
 			writer.Header().Set("Access-Control-Allow-Origin", origin)
 			writer.Header().Set("Access-Control-Allow-Credentials", "true")
+			writer.Header().Set("Access-Control-Expose-Headers", "ETag, Server-Timing")
 			writer.Header().Add("Vary", "Origin")
 		}
 		if request.Method == http.MethodOptions {

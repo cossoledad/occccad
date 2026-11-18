@@ -36,23 +36,28 @@ func featureOrderDigest(model PartModel) string {
 }
 
 func movableFeature(model PartModel, id string) bool {
+	return movableFeatures(model)[id]
+}
+
+func movableFeatures(model PartModel) map[string]bool {
+	creators := map[string]bool{}
 	for _, body := range model.Bodies {
-		if body.CreatedByFeatureID == id {
-			return false
+		if body.CreatedByFeatureID != "" {
+			creators[body.CreatedByFeatureID] = true
 		}
 	}
-	first := map[string]bool{}
+	first, result := map[string]bool{}, map[string]bool{}
 	for _, f := range model.Features {
 		if !isBodyFeature(f.Type) {
 			continue
 		}
 		base := !first[f.BodyID]
 		first[f.BodyID] = true
-		if f.ID == id {
-			return !base && (isSolidGenerator(f.Type) || f.Type == "HOLE" || f.Type == "LOFT" || isLocalModifier(f.Type))
+		if !base && !creators[f.ID] && (isSolidGenerator(f.Type) || f.Type == "HOLE" || f.Type == "LOFT" || isLocalModifier(f.Type)) {
+			result[f.ID] = true
 		}
 	}
-	return false
+	return result
 }
 
 func moveBlocked(f Feature, reason string) error {

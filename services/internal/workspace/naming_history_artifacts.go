@@ -13,6 +13,7 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -21,7 +22,7 @@ func (s *Service) readNamingBlock(ctx context.Context, object artifactstore.Obje
 		return nil, namingError("CORRUPT", "TOPOLOGY_HISTORY_METADATA_INVALID", "命名历史块元数据不匹配。")
 	}
 	load := func() (*decodedNamingBlock, int64, error) {
-		_, reader, err := s.artifacts.Open(ctx, object.ID)
+		reader, err := s.artifacts.OpenReadyObject(ctx, object)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, database.ErrNoRows) {
 				return nil, 0, namingError("CORRUPT", "TOPOLOGY_HISTORY_BLOCK_MISSING", "命名历史块缺失。")
@@ -36,14 +37,13 @@ func (s *Service) readNamingBlock(ctx context.Context, object artifactstore.Obje
 		if closeErr != nil {
 			return nil, 0, closeErr
 		}
-		block, err := decodeNamingBlock(ctx, data, reference)
+		block, err := decodeNamingBlock(ctx, data, reference, false)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, 0, ctx.Err()
 			}
 			return nil, 0, namingError("CORRUPT", "TOPOLOGY_HISTORY_BLOCK_INVALID", err.Error())
 		}
-		block = namingBlockForQueries(block)
 		return block, int64(block.retainedBytes), nil
 	}
 	if geometry.PartRuntime(ctx).ForceCold {
@@ -62,7 +62,7 @@ func (s *Service) namingHistoryLoader(ctx context.Context, parent *string) namin
 			return nil, fmt.Errorf("topology artifact store is not configured")
 		}
 		if !initialized && parent != nil {
-			children, err := s.artifacts.Dependencies(ctx, *parent)
+			children, err := s.artifacts.NamingHistoryObjects(ctx, *parent, "")
 			if err != nil {
 				return nil, err
 			}
@@ -91,6 +91,7 @@ func (s *Service) namingHistoryLoader(ctx context.Context, parent *string) namin
 }
 
 func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvaluationManifest, geometryID, brep string) (artifactstore.Object, *topologyManifest, error) {
+	defer perf.Start(ctx, "naming-adopt")()
 	root, err := s.adoptEvaluationObject(ctx, m.TopologyManifestArtifact, artifactstore.KindTopologyManifest)
 	if err != nil {
 		return root, nil, err
@@ -98,7 +99,7 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 	if err = validateTopologyManifestDigests(m.TopologyManifestDigest, m.GetTopologyManifestArtifact().GetSha256(), root.SHA256); err != nil {
 		return root, nil, err
 	}
-	_, reader, err := s.artifacts.Open(ctx, root.ID)
+	reader, err := s.artifacts.OpenReadyObject(ctx, root)
 	if err != nil {
 		return root, nil, err
 	}
@@ -123,7 +124,18 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 		wanted[ref.Sha256] = ref
 		digests = append(digests, ref.Sha256)
 	}
-	objects, err := s.artifacts.ReadyByDigests(ctx, artifactstore.KindNamingHistory, digests)
+	checkpoint, continuing := ctx.Value(namingContinuationKey{}).(partCheckpoint)
+	prefix := 0
+	if continuing && len(checkpoint.naming.History) < len(stored.History) {
+		prefix = len(checkpoint.naming.History)
+		for i, ref := range checkpoint.naming.History {
+			if !proto.Equal(ref, stored.History[i]) {
+				prefix = 0
+				break
+			}
+		}
+	}
+	objects, err := s.artifacts.ReadyByDigests(ctx, artifactstore.KindNamingHistory, digests[prefix:])
 	if err != nil {
 		return root, nil, err
 	}
@@ -139,6 +151,22 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 			return root, nil, err
 		}
 		objects[object.SHA256] = object
+	}
+	if stored.GeometryId != geometryID || stored.BrepSha256 != brep {
+		return root, nil, fmt.Errorf("feature association snapshot mismatch")
+	}
+	if prefix > 0 {
+		view, err := s.adoptNamingContinuation(ctx, checkpoint, root, stored, objects)
+		if view != nil || err != nil {
+			return root, view, err
+		}
+		older, err := s.artifacts.ReadyByDigests(ctx, artifactstore.KindNamingHistory, digests[:prefix])
+		if err != nil {
+			return root, nil, err
+		}
+		for digest, object := range older {
+			objects[digest] = object
+		}
 	}
 	view, err := decodeTopologyManifestContext(ctx, data, root.SHA256, func(ctx context.Context, ref *workerv1.NamingHistoryReference) (*decodedNamingBlock, error) {
 		object, ok := objects[ref.Sha256]
@@ -180,7 +208,7 @@ func namingViewCharge(view *topologyManifest, key string) int64 {
 }
 
 func (s *Service) historyArtifactReference(ctx context.Context, parent, digest string) (*workerv1.ArtifactReference, error) {
-	objects, err := s.artifacts.Dependencies(ctx, parent)
+	objects, err := s.artifacts.NamingHistoryObjects(ctx, parent, digest)
 	if err != nil {
 		return nil, err
 	}

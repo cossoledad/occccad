@@ -8,6 +8,7 @@ import { DEFAULT_CAPTURE_SETTINGS, normalizeCaptureSettings, type CaptureSetting
   type SelectionCaptureKind, type SketchSnapCaptureKind } from "../cad/interaction/capture-settings";
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import { migrateTreeVisibilityOverrides, type TreeVisibilityOverrides } from "../cad/interaction/tree-visibility";
+import { DEFAULT_VISUAL_PRECISION, normalizeVisualPrecision, type VisualPrecision } from "../cad/visual/visual-precision";
 
 export type ToolbarOrientation = "horizontal" | "vertical";
 export type ToolbarLayout = { x?: number; y?: number; orientation: ToolbarOrientation };
@@ -27,6 +28,7 @@ type UIPreferences = {
   setGridVisibility: (value: GridVisibility) => void;
   referenceVisibility: ReferenceVisibility;
   solidDisplay: SolidDisplaySettings;
+  visualPrecision: VisualPrecision;
   setReferenceVisibility: (value: ReferenceVisibility) => void;
   setSolidDisplay: (value: SolidDisplaySettings) => void;
   inspectorOpen: boolean;
@@ -113,6 +115,7 @@ export function migrateUIPreferences(persisted:unknown,version:number) {
       navigationProfile: value.navigationProfile === "catia" || value.navigationProfile === "solidworks" ? value.navigationProfile : "default",
       catiaRotationSphereVisible: value.catiaRotationSphereVisible === true,
       captureSettings: normalizeCaptureSettings(value.captureSettings),
+      visualPrecision: normalizeVisualPrecision(value.visualPrecision),
       displayLengthUnit: normalizeDisplayLengthUnit(value.displayLengthUnit), documentLengthUnits } as UIPreferences;
 }
 
@@ -121,7 +124,7 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   creationDefaults:structuredClone(DEFAULT_CREATION_DEFAULTS),
   applyGlobalOptions:value=>set({...value,sceneSettings:normalizeSceneSettings(value.sceneSettings),creationDefaults:normalizeCreationDefaults(value.creationDefaults),
     solidDisplay:normalizeSolidDisplaySettings(value.solidDisplay),referenceVisibility:normalizeReferenceVisibility(value.referenceVisibility),
-    gridVisibility:normalizeGridVisibility(value.gridVisibility),captureSettings:normalizeCaptureSettings(value.captureSettings),displayLengthUnit:normalizeDisplayLengthUnit(value.displayLengthUnit)}),
+    gridVisibility:normalizeGridVisibility(value.gridVisibility),captureSettings:normalizeCaptureSettings(value.captureSettings),visualPrecision:normalizeVisualPrecision(value.visualPrecision),displayLengthUnit:normalizeDisplayLengthUnit(value.displayLengthUnit)}),
   sketchLabelPositions: {},
   setSketchLabelPosition: (documentId,sketchId,constraintId,position,anchor) => {
     if(!documentId||!sketchId||!constraintId||!Number.isFinite(position.x)||!Number.isFinite(position.y))return;
@@ -131,6 +134,7 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   setGridVisibility: value => set({gridVisibility:normalizeGridVisibility(value)}),
   referenceVisibility: { ...DEFAULT_REFERENCE_VISIBILITY },
   solidDisplay: { ...DEFAULT_SOLID_DISPLAY },
+  visualPrecision: DEFAULT_VISUAL_PRECISION,
   setReferenceVisibility: (value) => set({ referenceVisibility: normalizeReferenceVisibility(value) }),
   setSolidDisplay: (value) => set({ solidDisplay: normalizeSolidDisplaySettings(value) }),
   inspectorOpen: false,
@@ -175,10 +179,10 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   }),
 }), {
   name: "occccad.ui-preferences.v1",
-  version: 14,
+  version: 15,
   migrate: migrateUIPreferences,
   partialize: (state) => ({ sceneSettings:state.sceneSettings,creationDefaults:state.creationDefaults, sketchLabelPositions:state.sketchLabelPositions, gridVisibility:state.gridVisibility, referenceVisibility: state.referenceVisibility, solidDisplay: state.solidDisplay, commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
     treeVisibilityOverrides: state.treeVisibilityOverrides, structureTreeWidth: state.structureTreeWidth,
     navigationProfile: state.navigationProfile, catiaRotationSphereVisible: state.catiaRotationSphereVisible, captureSettings: state.captureSettings,
-    displayLengthUnit: state.displayLengthUnit, documentLengthUnits: state.documentLengthUnits }),
+    displayLengthUnit: state.displayLengthUnit, documentLengthUnits: state.documentLengthUnits, visualPrecision: state.visualPrecision }),
 }));

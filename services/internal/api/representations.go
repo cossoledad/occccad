@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -124,18 +125,41 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	id := r.PathValue("objectID")
+	precision := r.URL.Query().Get("precision")
+	if precision != "" {
+		object, err := s.workspace.VisualizationPrecision(r.Context(), r.URL.Query().Get("geometryKey"), id, precision)
+		if err != nil {
+			status := http.StatusServiceUnavailable
+			if errors.Is(err, workspace.ErrValidation) {
+				status = http.StatusBadRequest
+			} else if errors.Is(err, workspace.ErrNotFound) {
+				status = http.StatusNotFound
+			}
+			writeError(w, status, "display precision unavailable")
+			return
+		}
+		id = object.ID
+	}
 	object, reader, err := s.artifacts.Open(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "representation unavailable")
 		return
 	}
 	defer reader.Close()
+	if object.ContentType == "application/vnd.occccad.mesh-seed.v1" {
+		writeError(w, http.StatusNotFound, "representation unavailable")
+		return
+	}
 	etag := `"` + object.SHA256 + `"`
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache")
-	payload, served := s.serveVisualDelta(w, r, object, reader)
-	if served {
-		return
+	var payload io.Reader = reader
+	if precision == "" {
+		var served bool
+		payload, served = s.serveVisualDelta(w, r, object, reader)
+		if served {
+			return
+		}
 	}
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)

@@ -9,6 +9,33 @@
 #include "naming_value_access.hpp"
 
 namespace occccad::worker {
+inline void expand_naming_references(v1::PartTopologyManifest& manifest) {
+    if (!manifest.has_reference_dictionary()) return;
+    if (manifest.semantic_refs_size()) throw std::invalid_argument("NAMING_REFERENCE_ENCODING_AMBIGUOUS");
+    const auto& table = manifest.reference_dictionary();
+    const auto symbol = [&](uint32_t id) -> const std::string& {
+        if (!id || id > static_cast<uint32_t>(table.symbols_size()))
+            throw std::invalid_argument("NAMING_REFERENCE_SYMBOL_INVALID");
+        return table.symbols(id - 1);
+    };
+    for (const auto& list : table.source_lists()) {
+        if (list.symbols().empty()) throw std::invalid_argument("NAMING_REFERENCE_LIST_EMPTY");
+        for (const auto id : list.symbols()) symbol(id);
+    }
+    for (const auto& row : table.rows()) {
+        auto& ref = *manifest.add_semantic_refs();
+        ref.set_feature_id(symbol(row.feature()));
+        ref.set_output_slot(symbol(row.slot()));
+        if (row.sources() > static_cast<uint32_t>(table.source_lists_size()))
+            throw std::invalid_argument("NAMING_REFERENCE_LIST_INVALID");
+        if (row.sources()) {
+            for (const auto id : table.source_lists(row.sources() - 1).symbols())
+                ref.add_source_ids(symbol(id));
+        }
+    }
+    manifest.clear_reference_dictionary();
+}
+
 // Restore typed geometry evidence from the immutable v2 artifact. This is the
 // inverse of pack_naming, not a reconstruction from display coordinates.
 inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& source,
@@ -50,7 +77,7 @@ inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& 
 // representation is retained; IDs still follow first occurrence, never hash
 // table iteration. Full wire keys retain exact equality, including unknowns.
 template<class ReadFeature>
-inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest& out) {
+inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest& out, bool compact = false) {
     if (!count) throw std::invalid_argument("NAMING_OWNER_REQUIRED");
     const auto& first=read(0);
     const bool geometric=naming_detail::has_result(first);
@@ -63,11 +90,35 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
     out.set_coordinate_space("PART_LOCAL");
     out.set_length_unit("mm");
     std::unordered_map<std::string, uint32_t> refs, evidence;
+    auto* dictionary = compact ? out.mutable_reference_dictionary() : nullptr;
+    std::unordered_map<std::string_view, uint32_t> symbols;
+    std::unordered_map<std::string, uint32_t> source_lists;
+    const auto symbol = [&](const std::string& value) {
+        if (const auto found = symbols.find(value); found != symbols.end()) return found->second;
+        const auto id = static_cast<uint32_t>(symbols.size() + 1);
+        auto& stored = *dictionary->add_symbols();
+        stored = value;
+        symbols.emplace(stored, id);
+        return id;
+    };
     auto wire_ref = [&](const v1::SemanticTopologyRef& value) {
         const auto key = value.SerializeAsString();
         auto [it, added] = refs.emplace(key, refs.size() + 1);
-        if (added)
+        if (!added) return it->second;
+        if (!dictionary) {
             *out.add_semantic_refs() = value;
+            return it->second;
+        }
+        auto& row = *dictionary->add_rows();
+        row.set_feature(symbol(value.feature_id()));
+        row.set_slot(symbol(value.output_slot()));
+        if (!value.source_ids().empty()) {
+            v1::NamingSourceList sources;
+            for (const auto& source : value.source_ids()) sources.add_symbols(symbol(source));
+            const auto [list, inserted] = source_lists.emplace(sources.SerializeAsString(), source_lists.size() + 1);
+            if (inserted) dictionary->add_source_lists()->Swap(&sources);
+            row.set_sources(list->second);
+        }
         return it->second;
     };
     // Native keys borrow immutable records, but hash/compare complete values.

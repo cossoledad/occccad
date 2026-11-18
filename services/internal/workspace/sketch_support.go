@@ -235,7 +235,8 @@ func (service *Service) frozenSketchDependency(ctx context.Context, previous, re
 
 func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, documentID, sourceVersionID, geometryKey string,
 	selection modelcore.PersistentSelection) (modelcore.SelectionResolution, string, error) {
-	source, _, _, err := service.selectionManifestForVersion(ctx, documentID, sourceVersionID, selection)
+	sourceCtx := context.WithValue(ctx, namingTipOnlyKey{}, true)
+	source, _, _, err := service.selectionManifestForVersion(sourceCtx, documentID, sourceVersionID, selection)
 	if err != nil {
 		return modelcore.SelectionResolution{}, "", err
 	}
@@ -247,7 +248,8 @@ func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, doc
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch,
 			SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "CREATION_EVIDENCE_MISMATCH"}, "", nil
 	}
-	target, digest, err := service.topologyManifestForGeometryKey(ctx, geometryKey)
+	targetCtx := context.WithValue(ctx, namingResolverOnlyKey{}, true)
+	target, digest, err := service.topologyManifestForGeometryKey(targetCtx, geometryKey)
 	if err != nil {
 		return modelcore.SelectionResolution{}, "", err
 	}
