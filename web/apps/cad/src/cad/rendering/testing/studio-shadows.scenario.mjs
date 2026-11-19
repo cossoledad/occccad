@@ -29,5 +29,44 @@ try {
  presentation.update(settings,bounds,-15,false);assert.equal(prepare(),true);consume();
  presentation.setShadowCaching(false);assert.equal(prepare(),true);consume();assert.equal(prepare(),true);consume();presentation.setShadowCaching(true);prepare();consume();assert.equal(prepare(),false);
  renderer.domElement.dispatchEvent(new Event('webglcontextrestored'));assert.equal(prepare(),true);consume();assert.equal(prepare(),false);
+
+ const key=lights.children[1],floor=environment.children[0],viewSettings={...settings,lightingFrame:'VIEW'};
+ camera.position.set(200,-200,200);camera.up.set(0,0,1);camera.lookAt(0,0,0);
+ const iso=camera.quaternion.clone();
+ const keyDirection=()=>key.position.clone().sub(key.target.position).normalize();
+ presentation.update(settings,bounds,-15);prepare();consume();
+ const fixed=keyDirection(),groundHeight=floor.position.z;
+ presentation.update(viewSettings,bounds,-15);
+ assert.equal(prepare(),false,'the ISO reference preserves the existing light and shadow map');
+ const turn=new T.Quaternion().setFromAxisAngle(new T.Vector3(1,2,3).normalize(),.43);
+ camera.quaternion.copy(turn).multiply(iso);
+ assert.equal(prepare(),true,'a new light orientation invalidates the map');
+ assert.ok(keyDirection().distanceTo(fixed.clone().applyQuaternion(turn))<1e-12);
+ assert.ok(lights.children[2].position.distanceTo(new T.Vector3(0,1,0).applyQuaternion(turn))<1e-12);
+ const euler=scene.environmentRotation;
+ const shaderRotation=new T.Quaternion().setFromEuler(new T.Euler(-euler.x,-euler.y,-euler.z,euler.order));
+ assert.ok(1-Math.abs(shaderRotation.dot(turn.clone().invert()))<1e-12,'PMREM uses the inverse of the same mixed-axis rotation');
+ assert.equal(floor.position.z,groundHeight);
+ consume();assert.equal(prepare(),false);
+ camera.position.x+=40;camera.zoom*=2;camera.updateProjectionMatrix();
+ assert.equal(prepare(),false,'panning and zooming reuse the view-following shadow map');
+ const setKeyElevation=(angle)=>{
+  const a=T.MathUtils.degToRad(angle),target=new T.Vector3(Math.cos(a),0,Math.sin(a));
+  camera.quaternion.setFromUnitVectors(fixed,target).multiply(iso);
+  assert.equal(prepare(),true);consume();
+ };
+ setKeyElevation(10);
+ assert.equal(floor.visible,true);assert.ok(floor.material.opacity>0&&floor.material.opacity<.55);
+ assert.ok(floor.scale.toArray().every(Number.isFinite));
+ setKeyElevation(-10);
+ assert.equal(floor.visible,false);assert.equal(key.castShadow,true,'light below the ground can still cast object shadows');
+ presentation.update({...viewSettings,shadows:false},bounds,-15);
+ camera.quaternion.copy(iso);
+ assert.equal(prepare(),false);assert.equal(key.castShadow,false);
+ assert.ok(keyDirection().distanceTo(fixed)<1e-12,'illumination still follows the view with shadows off');
+ camera.quaternion.copy(turn).multiply(iso);prepare();
+ presentation.update(settings,bounds,-15);prepare();consume();
+ assert.ok(keyDirection().distanceTo(fixed)<1e-12);assert.deepEqual(euler.toArray().slice(0,3),[0,0,0]);
+ assert.equal(prepare(),false,'switching back restores the fixed rig and its steady-state cache');
  presentation.dispose();renderer.domElement.dispatchEvent(new Event('webglcontextrestored'));assert.equal(renderer.shadowMap.needsUpdate,false,'disposed view releases the restore listener');mesh.geometry.dispose();mesh.material.dispose();
 } finally {await server.close()}

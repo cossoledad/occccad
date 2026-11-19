@@ -49,7 +49,7 @@ test("native curved highlights keep visible strokes and occlusion", async ({ pag
             m.onBeforeCompile=(shader:any)=>{original(shader);if(mode==="prior-coverage")shader.fragmentShader=shader.fragmentShader
               .replace("#define CAD_ANALYTIC_LINE_COVERAGE\n","").replaceAll("CAD_ANALYTIC_LINE_COVERAGE","USE_ALPHA_TO_COVERAGE")
               .replace("float alpha = 1.0;","float alpha = opacity;").replace("gl_FragColor.a *= opacity;\n","")
-              .replace("max(max(uCadLineDepthBias,0.5*fwidth(lineDepth)),vCadHighlightDepthBias)","max(uCadLineDepthBias,0.5*fwidth(lineDepth))");};
+              .replace("max(max(uCadLineDepthBias,0.5*fwidth(lineDepth)),vCadLineSupportDepthBias)","max(uCadLineDepthBias,0.5*fwidth(lineDepth))");};
             m.customProgramCacheKey=()=>m.userData.acceptanceKey()+"/"+mode;m.needsUpdate=true;
           }
           return (await frame()).calls;

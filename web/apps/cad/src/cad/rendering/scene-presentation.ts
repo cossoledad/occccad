@@ -3,6 +3,14 @@ import type { SceneSettings } from "./scene-settings";
 import { CATIA_VISUAL_THEME } from "./cad-visual-theme";
 import {forEachVisibleMesh} from "./scene-render-index";
 
+// Match the workbench's standard ISO view so its existing studio is the
+// reference pose for view-following light and reflection.
+const ISO_VIEW_INVERSE = new THREE.Quaternion().setFromRotationMatrix(
+  new THREE.Matrix4().lookAt(new THREE.Vector3(1, -1, 1), new THREE.Vector3(), new THREE.Vector3(0, 0, 1)),
+).invert();
+const GROUND_LIGHT_MIN_Z = Math.sin(THREE.MathUtils.degToRad(5));
+const GROUND_LIGHT_FULL_Z = Math.sin(THREE.MathUtils.degToRad(15));
+
 /** Only geometry above the viewing plane can cast onto it. Cover its projection
  * along the light, with a filter guard and outward-rounded world-space edges.
  * The large viewing grid has its own fixed footprint; no camera enters here. */
@@ -25,6 +33,16 @@ export class ScenePresentation {
   private readonly key:THREE.DirectionalLight;
   private readonly fill:THREE.DirectionalLight;
   private readonly rim:THREE.DirectionalLight;
+  private readonly hemisphereDirection:THREE.Vector3;
+  private readonly fillPosition:THREE.Vector3;
+  private readonly rimPosition:THREE.Vector3;
+  private readonly keyDirection = new THREE.Vector3();
+  private readonly direction = new THREE.Vector3();
+  private readonly lightFrame = new THREE.Quaternion();
+  private readonly cameraFrame = new THREE.Quaternion();
+  private readonly environmentSampleFrame = new THREE.Quaternion();
+  private readonly bounds = new THREE.Box3();
+  private radius = 100;
   private settings?:SceneSettings;
   private height=0;
   private editing=false;
@@ -37,6 +55,9 @@ export class ScenePresentation {
   constructor(private readonly scene:THREE.Scene,lights:THREE.Group,environment:THREE.Group,private readonly renderer:THREE.WebGLRenderer){
     this.hemisphere=lights.children[0] as THREE.HemisphereLight;
     [this.key,this.fill,this.rim]=lights.children.slice(1) as THREE.DirectionalLight[];
+    this.hemisphereDirection = this.hemisphere.position.clone();
+    this.fillPosition = this.fill.position.clone();
+    this.rimPosition = this.rim.position.clone();
     this.floor.name="场景地面";this.floor.receiveShadow=true;this.floor.renderOrder=-10;
     this.floor.userData.sceneEnvironment=true;environment.add(this.floor);
     this.key.shadow.mapSize.set(2048,2048);this.key.shadow.bias=-.00045;
@@ -49,34 +70,79 @@ export class ScenePresentation {
   }
   update(settings:SceneSettings,bounds:THREE.Box3,height:number,sketchEditing=false):void {
     this.settings=settings;this.height=height;this.editing=sketchEditing;
+    this.bounds.copy(bounds);
     const theme=CATIA_VISUAL_THEME;
     this.hemisphere.intensity=theme.hemisphereIntensity*settings.ambient*settings.brightness;
     this.key.intensity=theme.keyIntensity*settings.brightness;
     this.fill.intensity=theme.fillIntensity*settings.fill*settings.brightness;
     this.rim.intensity=theme.rimIntensity*settings.brightness;
     this.scene.environmentIntensity=settings.reflection*settings.brightness;
-    const center=bounds.isEmpty()?new THREE.Vector3():bounds.getCenter(new THREE.Vector3());
-    const radius=bounds.isEmpty()?100:Math.max(.001,bounds.getSize(new THREE.Vector3()).length()*.5);
+    this.radius=bounds.isEmpty()?100:Math.max(.001,bounds.getSize(this.direction).length()*.5);
     const a=THREE.MathUtils.degToRad(settings.azimuth),e=THREE.MathUtils.degToRad(settings.elevation);
-    const direction=new THREE.Vector3(Math.cos(a)*Math.cos(e),Math.sin(a)*Math.cos(e),Math.sin(e));
-    this.key.target.position.copy(center);this.key.position.copy(center).addScaledVector(direction,radius*3);
+    this.keyDirection.set(Math.cos(a)*Math.cos(e),Math.sin(a)*Math.cos(e),Math.sin(e));
+    if(settings.lightingFrame==="WORLD")this.lightFrame.identity();
+    bounds.getCenter(this.key.target.position);
     const shadows=!sketchEditing&&settings.shadows&&!bounds.isEmpty();
-    this.floor.material.opacity=.55;
+    this.floor.position.z=height-1e-5;
     this.key.shadow.intensity=settings.shadowOpacity;
     this.renderer.shadowMap.enabled=shadows;this.key.castShadow=shadows;
+    const radius=this.radius;
     const camera=this.key.shadow.camera;
     camera.left=camera.bottom=-radius*1.15;camera.right=camera.top=radius*1.15;camera.near=Math.max(radius*.001,.00001);camera.far=radius*6;camera.updateProjectionMatrix();
     this.key.shadow.normalBias=radius/2048*2;
+    this.applyLightFrame(settings);
+  }
+
+  private syncLightFrame(camera:THREE.Camera, settings:SceneSettings):void {
+    if(settings.lightingFrame!=="VIEW")return;
+    camera.getWorldQuaternion(this.cameraFrame).multiply(ISO_VIEW_INVERSE);
+    // Position, zoom and projection are not part of the light frame.
+    if(Math.abs(this.lightFrame.dot(this.cameraFrame))>=1-1e-13)return;
+    this.lightFrame.copy(this.cameraFrame);
+    this.applyLightFrame(settings);
+  }
+
+  private applyLightFrame(settings:SceneSettings):void {
+    const rotation=this.lightFrame;
+    this.hemisphere.position.copy(this.hemisphereDirection).applyQuaternion(rotation);
+    this.fill.position.copy(this.fillPosition).applyQuaternion(rotation);
+    this.rim.position.copy(this.rimPosition).applyQuaternion(rotation);
+    const direction=this.direction.copy(this.keyDirection).applyQuaternion(rotation);
+    const center=this.key.target.position,radius=this.radius;
+    this.key.position.copy(center).addScaledVector(direction,radius*3);
+    const camera=this.key.shadow.camera;
+    // Rotate the light's image plane too, so the shadow frame stays defined
+    // when the view-following direction passes through the world's up axis.
+    camera.up.set(0,1,0).applyQuaternion(rotation);
+
+    if(settings.lightingFrame==="VIEW"){
+      // r179's PMREM path negates the three Euler components before sampling.
+      // Encode the inverse as a rotation first so mixed-axis turns use R^-1.
+      const euler=this.scene.environmentRotation;
+      euler.setFromQuaternion(this.environmentSampleFrame.copy(rotation).invert());
+      euler.set(-euler.x,-euler.y,-euler.z);
+    }else this.scene.environmentRotation.set(0,0,0);
+
+    const shadows=this.key.castShadow;
+    const fade=settings.lightingFrame==="VIEW"
+      ? THREE.MathUtils.smoothstep(direction.z,GROUND_LIGHT_MIN_Z,GROUND_LIGHT_FULL_Z) : 1;
+    this.floor.material.opacity=.55*fade;
+    this.floor.visible=false;
+    if(shadows&&fade>0)this.updateShadowReceiver(direction,settings.groundMode);
+    // A rotating view rig changes the shadow map, a fixed rig does not. Store
+    // light-space inputs rather than the viewing camera's projection/position.
+    const definition=shadows?JSON.stringify([center.toArray(),radius,direction.toArray(),camera.up.toArray(),this.height,this.key.shadow.mapSize.toArray(),this.key.shadow.bias,this.key.shadow.normalBias,this.key.shadow.radius]):'';
+    if(definition!==this.shadowDefinition){this.shadowDefinition=definition;if(shadows)this.requestShadowUpdate();}
+  }
+
+  private updateShadowReceiver(direction:THREE.Vector3,groundMode:SceneSettings["groundMode"]):void {
+    const radius=this.radius,camera=this.key.shadow.camera;
     const texel=radius*2.3/this.key.shadow.mapSize.x;
     const margin=(texel*(this.key.shadow.radius+2)+this.key.shadow.normalBias+Math.abs(this.key.shadow.bias)*(camera.far-camera.near))/direction.z;
-    const receiverHeight=height-1e-5;
-    const receiver=shadowReceiverBounds(bounds,receiverHeight,direction,margin,texel);
-    this.floor.visible=shadows&&settings.groundMode!=="OFF"&&!!receiver;
+    const receiverHeight=this.floor.position.z;
+    const receiver=shadowReceiverBounds(this.bounds,receiverHeight,direction,margin,texel);
+    this.floor.visible=groundMode!=="OFF"&&!!receiver;
     if(receiver){const center=receiver.getCenter(new THREE.Vector2()),size=receiver.getSize(new THREE.Vector2());this.floor.position.set(center.x,center.y,receiverHeight);this.floor.scale.set(size.x,size.y,1);}
-    // Camera, background colour, exposure and shadow strength do not change
-    // directional-light depth. Only the definition of that depth map does.
-    const definition=JSON.stringify([shadows,center.toArray(),radius,direction.toArray(),height,this.key.shadow.mapSize.toArray(),this.key.shadow.bias,this.key.shadow.normalBias,this.key.shadow.radius]);
-    if(definition!==this.shadowDefinition){this.shadowDefinition=definition;this.requestShadowUpdate();}
   }
   private requestShadowUpdate():void {
     this.renderer.shadowMap.needsUpdate=true;this.key.shadow.needsUpdate=true;
@@ -87,10 +153,12 @@ export class ScenePresentation {
 
   /** Check object state, never vertices/edges. This also covers animated poses,
    * visibility, previews and clipping without trusting every UI event to dirty
-   * a shadow. The framebuffer and camera are deliberately absent from the key. */
+   * a shadow. Follow the camera orientation even when shadows are disabled. */
   prepareShadows(camera:THREE.Camera):boolean {
+    if(!this.settings)return false;
+    this.syncLightFrame(camera,this.settings);
     this.surfaces.length=0;
-    if(!this.settings?.shadows||this.editing){this.casters.clear();return false;}
+    if(!this.settings.shadows||this.editing){this.casters.clear();return false;}
     let changed=false;const epoch=++this.epoch;
     forEachVisibleMesh(this.scene,object=>{
       const materials:THREE.Material[]=Array.isArray(object.material)?object.material:[object.material];

@@ -1,10 +1,22 @@
 import * as THREE from "three";
 import type { SolidDisplaySettings } from "./display-settings";
+import { NATURAL_EDGE_DEFAULTS } from "./natural-edges";
 
 /** Apply only to a solid's primitives, leaving its parent/tree visibility intact.
  * Wireframe uses CAD edges, not the triangles of the display tessellation. */
 export function applySolidDisplaySettings(group: THREE.Group, settings: SolidDisplaySettings, topologyPick?:'VERTEX'|'EDGE'): void {
   const curve=group.userData.geometryDomain==='WIRE_SET',point=group.userData.geometryDomain==='POINT_SET',sheet=group.userData.geometryDomain==='SHEET_SET'||group.userData.geometryDomain==='MIXED_SET';
+  let opaqueBounds: THREE.Box3 | null = null;
+  if (group.userData.geometryDomain === 'SOLID_SET' && settings.mode === 'shaded' && topologyPick !== 'EDGE') {
+    const surface = group.children.find((child): child is THREE.Mesh => child instanceof THREE.Mesh && !child.userData.cadWideEdges);
+    if (surface) {
+      const materials = Array.isArray(surface.material) ? surface.material : [surface.material];
+      if (materials.every(material => !material.transparent && material.opacity >= 1 && material.depthWrite)) {
+        if (!surface.geometry.boundingBox) surface.geometry.computeBoundingBox();
+        opaqueBounds = surface.geometry.boundingBox;
+      }
+    }
+  }
   for (const object of group.children) {
     if(object.userData.cadWideEdges){
       object.visible=curve||topologyPick==='EDGE'||settings.mode==="wireframe"||(group.userData.appearanceEdges??settings.edges);
@@ -13,8 +25,13 @@ export function applySolidDisplaySettings(group: THREE.Group, settings: SolidDis
         const uniforms=(material as import('three/addons/lines/LineMaterial.js').LineMaterial).uniforms;
         if(uniforms?.uCadEdgeNatural){
           uniforms.uCadEdgeNatural.value=!curve&&settings.mode!=='wireframe'&&topologyPick!=='EDGE'&&settings.edgeStyle!=='uniform'&&group.userData.edgePresentation!=='uniform'?1:0;
-          uniforms.uCadEdgeOpacity.value.set(settings.smoothEdgeOpacity??.12,.88);
-          uniforms.uCadEdgeAngles.value.set(Math.cos(5*Math.PI/180),Math.cos((settings.sharpEdgeAngle??35)*Math.PI/180));
+          const defaults = NATURAL_EDGE_DEFAULTS;
+          const sharpOpacity = uniforms.uCadEdgeExplicitColor.value ? defaults.explicitSharpOpacity : defaults.sharpOpacity;
+          uniforms.uCadEdgeOpacity.value.set(settings.smoothEdgeOpacity??defaults.smoothOpacity,sharpOpacity);
+          uniforms.uCadEdgeAngles.value.set(Math.cos(defaults.smoothAngle*Math.PI/180),Math.cos((settings.sharpEdgeAngle??defaults.sharpAngle)*Math.PI/180));
+          const span = uniforms.uCadEdgeSolidSpan.value as THREE.Vector3;
+          if (opaqueBounds) opaqueBounds.getSize(span);
+          else span.set(0,0,0);
         }
       }
     }

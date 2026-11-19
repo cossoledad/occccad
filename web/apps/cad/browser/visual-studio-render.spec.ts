@@ -66,3 +66,128 @@ test('studio surfaces, shadows and material contrast use native geometry under f
  const environment=await page.evaluate(()=>{const e=(window as any).edgeHarness.engine,gl=e.renderer.getContext(),d=gl.getExtension('WEBGL_debug_renderer_info');return {renderer:d?gl.getParameter(d.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER),pixelRatio:e.renderer.getPixelRatio(),size:[1280,900]}});
  fs.writeFileSync(path.join(output,'viewport-measurements.json'),JSON.stringify({phase,environment,conditions:'serial samples; gl.finish and synchronous 1px readback after each renderer call; submit and completion wait separate; neither is isolated GPU time; RAF wall time inclusive',reports},null,2));
 });
+
+test('view-following lighting moves the real shadow and reuses the PMREM', async ({ page }, info) => {
+ const errors:string[]=[];
+ page.on('pageerror',error=>errors.push(error.message));
+ page.on('console',message=>{if(/Shader Error|THREE.WebGLProgram/.test(message.text()))errors.push(message.text());});
+ const file='fillet-balanced',payload=fs.readFileSync(path.join(fixtures,file+'.glb'));
+ const digest=createHash('sha256').update(payload).digest('hex');
+ await page.route('**/edge-fixtures/*.glb',route=>route.fulfill({body:payload,contentType:'model/gltf-binary'}));
+ await page.goto('/browser/natural-edges.html');
+ await page.waitForFunction(()=>Boolean((window as any).edgeHarness));
+ await page.evaluate(args=>(window as any).edgeHarness.load(...args),[file,digest,payload.length,'#98a8b8',1,'natural',{materialDefaults:true}]);
+ await page.evaluate(async () => {
+  const {engine,frame}=(window as any).edgeHarness;
+  const key=engine.lighting.children[1],update=key.shadow.updateMatrices.bind(key.shadow);
+  engine.shadowPassCount=0;
+  key.shadow.updateMatrices=(light:any)=>{engine.shadowPassCount++;update(light);};
+  engine.setSceneSettings({...engine.sceneSettings,groundMode:'AUTO',shadows:true});
+  await frame();
+ });
+ const sample=async(orientationDelta=0)=>page.evaluate(async orientationDelta=>{
+  const {engine,frame}= (window as any).edgeHarness;
+  const start=engine.shadowPassCount,stats=await frame(orientationDelta),key=engine.lighting.children[1];
+  const direction=key.position.clone().sub(key.target.position).normalize();
+  const floor=engine.environment.children.find((object:any)=>object.name==='场景地面');
+  return {
+   ...stats,shadowPasses:engine.shadowPassCount-start,direction:direction.toArray(),
+   viewDirection:direction.clone().applyQuaternion(engine.camera.quaternion.clone().invert()).toArray(),
+   ground:floor.position.toArray(),environment:engine.scene.environment.uuid,
+   shadowMatrix:key.shadow.matrix.toArray(),floorVisible:floor.visible,
+  };
+ },orientationDelta);
+ const world=await sample(.85);
+ const fixed=await page.screenshot({path:info.outputPath('lighting-fixed.png')});
+ const fixedTurn=await sample(.2);
+ expect(fixedTurn.direction).toEqual(world.direction);
+ expect(fixedTurn.shadowMatrix).toEqual(world.shadowMatrix);
+ expect(fixedTurn.shadowPasses).toBe(0);
+ await sample(-.2);
+ await page.evaluate(()=>{
+  const e=(window as any).edgeHarness.engine;
+  e.setSceneSettings({...e.sceneSettings,lightingFrame:'VIEW'});
+ });
+ const view=await sample();
+ const follow=await page.screenshot({path:info.outputPath('lighting-follow.png')});
+ expect(fixed.equals(follow)).toBe(false);
+ expect(view.environment).toBe(world.environment);
+ expect(view.shadowMatrix).not.toEqual(world.shadowMatrix);
+ expect(view.ground[2]).toBe(world.ground[2]);
+ expect(view.floorVisible).toBe(true);
+ const stationary=await sample();
+ expect(stationary.shadowPasses).toBe(0);
+ expect((await page.screenshot()).equals(follow)).toBe(true);
+ const viewTurn=await sample(.2);
+ expect(viewTurn.shadowPasses).toBe(1);
+ expect(viewTurn.calls).toBeGreaterThan(stationary.calls);
+ expect(viewTurn.viewDirection).toEqual(view.viewDirection.map((c:number)=>expect.closeTo(c,10)));
+ expect(viewTurn.shadowMatrix).not.toEqual(view.shadowMatrix);
+ await page.evaluate(()=>{
+  const {engine,THREE}=(window as any).edgeHarness;
+  engine.camera.position.add(new THREE.Vector3(2,0,0));
+  engine.camera.zoom*=1.1;
+  engine.camera.updateProjectionMatrix();
+ });
+ const panZoom=await sample();
+ expect(panZoom.shadowPasses).toBe(0);
+ expect(panZoom.shadowMatrix).toEqual(viewTurn.shadowMatrix);
+ await page.evaluate(()=>{
+  const e=(window as any).edgeHarness.engine;
+  e.setSceneSettings({...e.sceneSettings,shadows:false});
+ });
+ const shadowDisabled=await sample(.2);
+ expect(shadowDisabled.shadowPasses).toBe(0);
+ expect(shadowDisabled.direction).not.toEqual(panZoom.direction);
+ expect(shadowDisabled.environment).toBe(world.environment);
+ expect(shadowDisabled.floorVisible).toBe(false);
+ await page.screenshot({path:info.outputPath('lighting-follow-no-shadow.png')});
+
+ // With only the environment contributing, turn the fixture and camera
+ // together. Their projection is identical and the following PMREM should
+ // produce the same lighting under a combined, non-axis-aligned rotation.
+ await page.evaluate(async()=>{
+  const {engine,frame}=(window as any).edgeHarness;
+  engine.lighting.visible=false;
+  engine.setDisplaySettings({points:false,planes:false,axes:false,coordinateSystems:false},{...engine.solidDisplay,edges:false});
+  await frame();
+ });
+ const reflectionBefore=await page.screenshot();
+ await page.evaluate(async()=>{
+  const {engine,frame,THREE}=(window as any).edgeHarness;
+  const binding=[...engine.solidBindings.values()][0] as any;
+  const center=engine.navigation.target,rotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,2,3).normalize(),.8);
+  for(const object of [binding.group,engine.camera]){
+   object.position.sub(center).applyQuaternion(rotation).add(center);
+   object.quaternion.premultiply(rotation);
+  }
+  engine.refreshContentBounds();
+  await frame();
+ });
+ const reflectionAfter=await page.screenshot();
+ await page.evaluate(async()=>{
+  const {engine,frame}=(window as any).edgeHarness;
+  engine.setSceneSettings({...engine.sceneSettings,lightingFrame:'WORLD'});
+  await frame();
+ });
+ const reflectionWorld=await page.screenshot();
+ const reflectionError=await page.evaluate(async images=>{
+  const buffers=await Promise.all(images.map(async source=>{
+   const image=new Image();image.src=source;await image.decode();
+   const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+   const ctx=canvas.getContext('2d')!;ctx.drawImage(image,0,0);
+   return ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  }));
+  return buffers.slice(1).map(data=>{
+   let error=0;
+   for(let i=0;i<data.length;i+=4)for(let c=0;c<3;c++)error+=Math.abs(data[i+c]-buffers[0][i+c]);
+   return error/(data.length*.75);
+  });
+ },[reflectionBefore,reflectionAfter,reflectionWorld].map(bytes=>'data:image/png;base64,'+bytes.toString('base64')));
+ expect(reflectionError[1]).toBeGreaterThan(.5);
+ expect(reflectionError[0]).toBeLessThan(reflectionError[1]*.1);
+ fs.writeFileSync(info.outputPath('lighting-orbit.json'),JSON.stringify({
+  digest,world,fixedTurn,view,stationary,viewTurn,panZoom,shadowDisabled,reflectionError,
+ },null,2));
+ expect(errors).toEqual([]);
+});

@@ -1,5 +1,6 @@
 import {confirmCommandName} from "./command-labels";
 import {expect,test} from "@playwright/test";
+import {observeViewport} from "./camera-helpers";
 
 test("tree-only properties, consolidated object menu and no viewport context menu",async({page})=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
@@ -30,4 +31,30 @@ test("one global options entry previews, cancels and persists across documents",
  await open();await dialog.getByRole("tab",{name:"地面与网格",exact:true}).click();await dialog.getByRole("spinbutton",{name:"地面高度（mm）",exact:true}).fill("12");await expect(dialog.getByLabel("当前场景地面")).toContainText("12 mm");await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await settings()).groundHeight).toBe(-42);
  await page.goto("/documents/mock-product-frame");await expect(page.locator("canvas")).toBeVisible();await open();await dialog.getByRole("tab",{name:"地面与网格",exact:true}).click();await expect(dialog.getByRole("spinbutton",{name:"地面高度（mm）",exact:true})).toHaveValue("-42");await dialog.getByRole("button",{name:/取\s*消/}).click();
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect((await settings()).groundHeight).toBe(-42);expect(errors).toEqual([]);
+});
+
+test("lighting reference applies immediately and survives a reload",async({page})=>{
+ const errors:string[]=[];
+ page.on("pageerror",error=>errors.push(error.message));
+ page.on("console",message=>{if(/Shader Error|THREE.WebGLProgram/.test(message.text()))errors.push(message.text());});
+ await page.goto("/documents/mock-part-bracket");
+ await observeViewport(page);
+ const lightingFrame=()=>page.evaluate(()=>(window as any).__cameraEngine.sceneSettings.lightingFrame);
+ await expect.poll(lightingFrame).toBe("WORLD");
+ const choose=async(label:string)=>{
+  await page.getByRole("button",{name:"选项",exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"选项",exact:true});
+  await dialog.getByRole("tab",{name:"光照",exact:true}).click();
+  await dialog.getByRole("combobox",{name:"光源基准",exact:true}).click();
+  await page.getByTitle(label,{exact:true}).click();
+  await dialog.getByRole("button",{name:"关闭",exact:true}).click();
+ };
+ const revision=()=>page.evaluate(()=>(window as any).__cameraEngine.view?.document.versionId);
+ const originalRevision=await revision();
+ await choose("跟随视角");await expect.poll(lightingFrame).toBe("VIEW");
+ expect(await revision()).toBe(originalRevision);
+ await page.reload();await observeViewport(page);await expect.poll(lightingFrame).toBe("VIEW");
+ await choose("固定于场景");await expect.poll(lightingFrame).toBe("WORLD");
+ expect(await revision()).toBe(originalRevision);
+ expect(errors).toEqual([]);
 });

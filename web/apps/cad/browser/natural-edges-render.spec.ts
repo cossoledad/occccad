@@ -1,4 +1,4 @@
-import {expect,test} from '@playwright/test';
+import {expect,test,type Page} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
@@ -11,16 +11,17 @@ test.beforeAll(async()=>{test.setTimeout(180_000);await prepareEdgeFixtures()});
 async function compare(page:any,first:Buffer,second:Buffer,region?:number[]){
  return page.evaluate(async({a,b,region}:any)=>{
   async function pixels(url:string){const image=new Image();image.src=url;await image.decode();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;const x=c.getContext('2d')!;x.drawImage(image,0,0);return {data:x.getImageData(0,0,c.width,c.height).data,width:c.width,height:c.height}}
-  const a1=await pixels(a),b1=await pixels(b);let changed=0,total=0,maxDelta=0,brightened=0,ratioError=0;
+  const a1=await pixels(a),b1=await pixels(b);let changed=0,total=0,maxDelta=0,brightened=0,ratioError=0,darkening=0;
   const [left,top,right,bottom]=region??[0,0,a1.width,a1.height];
   for(let y=Math.max(0,Math.floor(top));y<Math.min(a1.height,Math.ceil(bottom));y++)for(let x=Math.max(0,Math.floor(left));x<Math.min(a1.width,Math.ceil(right));x++){
    const i=(y*a1.width+x)*4,d=[0,1,2].map(k=>b1.data[i+k]-a1.data[i+k]);
    const delta=Math.max(...d.map(Math.abs));total++;maxDelta=Math.max(maxDelta,delta);if(delta)changed++;
    if(d.some(v=>v>1))brightened++;
+   darkening+=Math.max(0,-(d[0]+d[1]+d[2])/3);
    const ratios=[0,1,2].filter(k=>a1.data[i+k]>30).map(k=>b1.data[i+k]/a1.data[i+k]);
    if(ratios.length>1)ratioError=Math.max(ratioError,Math.max(...ratios)-Math.min(...ratios));
   }
-  return {changed,total,maxDelta,brightened,ratioError};
+  return {changed,total,maxDelta,brightened,ratioError,darkening};
  },{a:`data:image/png;base64,${first.toString('base64')}`,b:`data:image/png;base64,${second.toString('base64')}`,region});
 }
 
@@ -38,6 +39,69 @@ async function setup(page:any){
  });
  await page.goto('/browser/natural-edges.html');await page.waitForFunction(()=>Boolean((window as any).edgeHarness));return errors;
 }
+
+async function setStrokeSupport(page:Page, enabled:boolean) {
+ return page.evaluate(async enabled => {
+   const {engine,frame}=(window as any).edgeHarness;
+   const binding=[...engine.solidBindings.values()][0] as any;
+   const line=binding.group.children.find((child:any)=>child.userData.cadWideEdges);
+   const material=line.material;
+   const {compile,cacheKey}=line.userData.strokeComparison??={
+    compile:material.onBeforeCompile,cacheKey:material.customProgramCacheKey,
+   };
+   material.onBeforeCompile=enabled?compile:(shader:any)=>{
+    compile(shader);
+    const support='max(max(uCadLineDepthBias,0.5*fwidth(lineDepth)),vCadLineSupportDepthBias)';
+    if(!shader.fragmentShader.includes(support))throw new Error('The baseline must exclude stroke support');
+    shader.fragmentShader=shader.fragmentShader.replace(
+     support,'max(uCadLineDepthBias,0.5*fwidth(lineDepth))',
+    );
+   };
+   material.customProgramCacheKey=enabled?cacheKey:()=>cacheKey()+'/without-support';
+   material.needsUpdate=true;
+   return frame();
+ }, enabled);
+}
+
+test('support depth restores sharp curved ink while keeping smooth joins and occlusion', async ({page}, info) => {
+ const errors=await setup(page),reports=[];
+ for (const name of ['fillet','cylinder']) {
+  const fixture=await load(page,name,'#c1cddd');
+  const baseline=await setStrokeSupport(page,false);
+  const before=await page.screenshot({path:info.outputPath(name+'-before.png')});
+  const current=await setStrokeSupport(page,true);
+  const after=await page.screenshot({path:info.outputPath(name+'-after.png')});
+  const pixels=await compare(page,before,after);
+  expect(current.calls).toBe(baseline.calls);
+  expect(current.triangles).toBe(baseline.triangles);
+  if (name==='cylinder') {
+   expect(pixels.changed).toBeGreaterThan(50);
+   expect(pixels.brightened).toBe(0);
+  } else expect(pixels.changed).toBe(0);
+  reports.push({name,fixture,pixels,baseline,current});
+ }
+ await page.evaluate(async () => {
+  const {engine,frame,THREE}=(window as any).edgeHarness;
+  const bounds=engine.visibleContentBounds(),center=bounds.getCenter(new THREE.Vector3());
+  const span=bounds.getSize(new THREE.Vector3()).length();
+  const cover=new THREE.Mesh(new THREE.BoxGeometry(span*2,span*2,span*.04),engine.materials.surface(0x718294));
+  cover.position.copy(center).addScaledVector(engine.camera.position.clone().sub(center).normalize(),span*.65);
+  cover.quaternion.copy(engine.camera.quaternion);
+  engine.content.add(cover);
+  engine.refreshContentBounds();
+  await frame();
+ });
+ const covered=await page.screenshot();
+ await page.evaluate(async () => {
+  const {engine,frame}=(window as any).edgeHarness;
+  const binding=[...engine.solidBindings.values()][0] as any;
+  binding.group.children.find((child:any)=>child.userData.cadWideEdges).visible=false;
+  await frame();
+ });
+ expect((await page.screenshot()).equals(covered),'a separate opaque surface still occludes the ordinary strokes').toBe(true);
+ fs.writeFileSync(info.outputPath('sharp-edge-comparison.json'),JSON.stringify(reports,null,2));
+ expect(errors).toEqual([]);
+});
 
 test('native CAD GLBs show topology-aware edges under fixed materials, cameras and lights',async({page})=>{
  fs.mkdirSync(output,{recursive:true});const errors=await setup(page);
@@ -70,6 +134,60 @@ test('native CAD GLBs show topology-aware edges under fixed materials, cameras a
  expect(errors).toEqual([]);
 });
 
+test('smooth joins have a softer stroke profile while right-angle edges keep their contrast', async ({page}, info) => {
+ const errors=await setup(page),reports=[];
+ for(const [name,color] of [['fillet','#fafafa'],['fillet','#2877cf'],['cube','#fafafa']] as const){
+  const key=`${name}-${color.slice(1)}`;
+  await load(page,name,color);
+  const reference=await page.evaluate(async ()=>{
+   const {engine,frame,THREE}=(window as any).edgeHarness;
+   const binding=[...engine.solidBindings.values()][0] as any;
+   const line=binding.group.children.find((object:any)=>object.userData.cadWideEdges),material=line.material;
+   const sample=new THREE.Vector3(10,3,20).project(engine.camera);
+   const x=(sample.x+1)*640,y=(1-sample.y)*450;
+   line.userData.profileComparison={compile:material.onBeforeCompile,key:material.customProgramCacheKey};
+   line.visible=false;await frame();
+   return [x-6,y-6,x+6,y+6];
+  });
+  const unlined=await page.screenshot();
+  const captures={before:unlined,after:unlined},calls=[];
+  for(const mode of ['before','after'] as const){
+   calls.push(await page.evaluate(async mode=>{
+    const {engine,frame}=(window as any).edgeHarness;
+    const binding=[...engine.solidBindings.values()][0] as any;
+    const line=binding.group.children.find((object:any)=>object.userData.cadWideEdges),material=line.material;
+    const {compile,key}=line.userData.profileComparison;
+    line.visible=true;
+    material.onBeforeCompile=mode==='after'?compile:(shader:any)=>{
+     compile(shader);
+     const feathered='uCadEdgeOpacity.x*smoothCoverage';
+     if(!shader.fragmentShader.includes(feathered))throw Error('The reference must use the full smooth stroke');
+     shader.fragmentShader=shader.fragmentShader.replace(feathered,'uCadEdgeOpacity.x');
+    };
+    material.customProgramCacheKey=mode==='after'?key:()=>key()+'/full-smooth-stroke';
+    material.needsUpdate=true;
+    return (await frame()).calls;
+   },mode));
+   captures[mode]=await page.screenshot({path:info.outputPath(`${key}-${mode}.png`)});
+  }
+  const before=await compare(page,unlined,captures.before,name==='fillet'?reference:undefined);
+  const after=await compare(page,unlined,captures.after,name==='fillet'?reference:undefined);
+  expect(calls[1]).toBe(calls[0]);
+  if(name==='fillet'){
+   expect(after.darkening).toBeGreaterThan(0);
+   expect(after.darkening).toBeLessThan(before.darkening*.8);
+   expect(after.changed,'the feathered join retains its pixel coverage').toBeGreaterThanOrEqual(before.changed*.8);
+   expect(after.brightened).toBe(0);
+  }else{
+   expect(before.darkening).toBeGreaterThan(0);
+   expect(captures.after.equals(captures.before)).toBe(true);
+  }
+  reports.push({name,color,before,after,calls});
+ }
+ fs.writeFileSync(info.outputPath('smooth-edge-comparison.json'),JSON.stringify(reports,null,2));
+ expect(errors).toEqual([]);
+});
+
 test('camera, scale, occlusion, DPR and exact-edge interactions remain stable',async({page})=>{
  const errors=await setup(page),report:any={};
  await load(page,'cube');
@@ -86,10 +204,18 @@ test('camera, scale, occlusion, DPR and exact-edge interactions remain stable',a
  });
  expect((await compare(page,before,await page.screenshot())).changed,'a false seam tag cannot suppress a right-angle edge').toBe(0);
  await page.evaluate(async()=>{
+  const {engine:e,frame}=(window as any).edgeHarness,b:any=[...e.solidBindings.values()][0],wide=b.group.children.find((o:any)=>o.userData.cadWideEdges);
+  const quality=wide.geometry.getAttribute('instanceEdgeQuality');
+  quality.array.fill(1);quality.needsUpdate=true;await frame();
+ });
+ const fallbackReference=await page.screenshot();
+ await page.evaluate(async()=>{
   const {engine:e,frame,THREE}=(window as any).edgeHarness,b:any=[...e.solidBindings.values()][0],wide=b.group.children.find((o:any)=>o.userData.cadWideEdges),count=wide.geometry.getAttribute('instanceEdgeKind').count;
+  const quality=wide.geometry.getAttribute('instanceEdgeQuality');
+  quality.array.fill(0);quality.needsUpdate=true;
   for(const side of ['A','B'])for(const end of ['Start','End'])wide.geometry.setAttribute(`instanceEdge${side}${end}`,new THREE.InstancedBufferAttribute(new Float32Array(count*3),3));await frame();
  });
- expect((await compare(page,before,await page.screenshot())).changed,'a missing normal cannot make a tagged edge disappear').toBe(0);
+ expect((await compare(page,fallbackReference,await page.screenshot())).changed,'zero normals and a missing-evidence flag both fall back to a structural stroke').toBe(0);
  await page.evaluate(async()=>{const {engine:e,frame}=(window as any).edgeHarness,b:any=[...e.solidBindings.values()][0],wide=b.group.children.find((o:any)=>o.userData.cadWideEdges);wide.geometry.dispose();wide.geometry=wide.userData.acceptanceOriginal;delete wide.userData.acceptanceOriginal;await frame()});
  await page.evaluate(async()=>{const {engine:e,frame}=(window as any).edgeHarness;e.setDisplaySettings({points:false,planes:false,axes:false,coordinateSystems:false},{mode:'shaded',edges:false,vertices:false});await frame()});
  const unlined=await page.screenshot();
@@ -155,11 +281,128 @@ test('camera, scale, occlusion, DPR and exact-edge interactions remain stable',a
  fs.writeFileSync(path.join(output,'stability.json'),JSON.stringify(report,null,2));expect(errors).toEqual([]);
 });
 
+test('shaded solids retain visible structure and hide edges behind thin walls', async ({page}, info) => {
+ const errors=await setup(page);
+ await load(page,'cube','#c1cddd');
+ const rearCount=await page.evaluate(async () => {
+  const {engine,THREE}=(window as any).edgeHarness;
+  const {buildEdgeBuffers,edgeLineGeometry}=await import('/src/cad/rendering/natural-edges.ts');
+  const binding=[...engine.solidBindings.values()][0] as any;
+  const line=binding.group.children.find((child:any)=>child.userData.cadWideEdges);
+  const bounds=engine.visibleContentBounds(),center=bounds.getCenter(new THREE.Vector3());
+  const direction=engine.camera.position.clone().sub(center).normalize();
+  const data=buildEdgeBuffers(binding.artifact.mesh,true),normals=data.direct!;
+  const rear:number[]=[];
+  for(let i=0;i<data.kinds.length;i++){
+   const a=new THREE.Vector3().fromArray(normals.a,i*6),b=new THREE.Vector3().fromArray(normals.b,i*6);
+   if(a.dot(direction)<-.1&&b.dot(direction)<-.1)rear.push(i);
+  }
+  const take=(values:Float32Array,stride:number)=>new Float32Array(rear.flatMap(i=>Array.from(values.subarray(i*stride,(i+1)*stride))));
+  // The cube fixture has planar faces. Isolate the three far edges so their
+  // pixels cannot be mistaken for antialiasing on a nearby visible edge.
+  const rearGeometry=edgeLineGeometry({...data,positions:take(data.positions,6),kinds:take(data.kinds,1),quality:take(data.quality,1),
+   direct:{a:take(normals.a,6),b:take(normals.b,6)}});
+  (window as any).edgeOcclusion={line,fullGeometry:line.geometry,rearGeometry,center,direction,bounds,
+   span:line.material.uniforms.uCadEdgeSolidSpan.value.clone()};
+  return rear.length;
+ });
+ expect(rearCount).toBe(3);
+ const capture=async (mode:'hidden'|'original'|'rear'|'all'|'previous')=>{
+  const frame=await page.evaluate(async mode=>{
+   const {frame,engine}=(window as any).edgeHarness;
+   const {line,span,fullGeometry,rearGeometry}=(window as any).edgeOcclusion;
+   line.visible=mode!=='hidden';
+   line.geometry=mode==='original'||mode==='rear'?rearGeometry:fullGeometry;
+   const spanUniform=line.material.uniforms.uCadEdgeSolidSpan.value;
+   if(mode==='original')spanUniform.set(0,0,0);else spanUniform.copy(span);
+   const previous=mode==='original'||mode==='previous';
+   for(const object of [line,...engine.selectedOverlays]){
+    if(object!==line)object.visible=mode!=='hidden';
+    const material=object.material;
+    const {compile,key}=material.userData.occlusionComparison??={compile:material.onBeforeCompile,key:material.customProgramCacheKey};
+    material.onBeforeCompile=previous?(shader:any)=>{
+     compile(shader);
+     const limit=/lineBias=min\(lineBias,max\(uCadLineDepthBias,vCadLinePixelDepth\*.*\)\);/;
+     if(!limit.test(shader.fragmentShader))throw Error('The previous shader must exclude the footprint limit');
+     shader.fragmentShader=shader.fragmentShader.replace(limit,'');
+     shader.vertexShader=shader.vertexShader.replace('span*depthPerUnit/256.0','span*depthPerUnit/16.0');
+     shader.uniforms.uCadLineDepthBias={value:16/(2**24-1)};
+    }:compile;
+    material.customProgramCacheKey=previous?()=>key()+'/previous-depth':key;
+    material.needsUpdate=true;
+   }
+   return frame();
+  },mode);
+  return {image:await page.screenshot(),frame};
+ };
+ const report=[];
+ for(const projection of ['ORTHOGRAPHIC','PERSPECTIVE']){
+  for(const [size,dpr] of [[12,1],[4,2]]){
+   await page.evaluate(async ({projection,size,dpr})=>{
+    const {engine,frame,THREE}=(window as any).edgeHarness;
+    const {bounds,center,direction}=(window as any).edgeOcclusion;
+    engine.setSceneSettings({...engine.sceneSettings,projection});
+    engine.renderer.setPixelRatio(dpr);
+    const camera=engine.camera;
+    const span=bounds.getSize(new THREE.Vector3()).length(),height=engine.renderer.domElement.clientHeight;
+    camera.zoom=1;
+    camera.position.copy(center).addScaledVector(direction,span*1.8);
+    if(camera.isOrthographicCamera)camera.zoom=size*(camera.top-camera.bottom)/(height*span);
+    else camera.position.copy(center).addScaledVector(direction,span*height/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*size));
+    camera.lookAt(center);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+    engine.navigation.syncCamera(false);engine.updateCameraClipping();await frame();
+   },{projection,size,dpr});
+   const hidden=await capture('hidden'),original=await capture('original'),rear=await capture('rear'),all=await capture('all');
+   const originalPixels=await compare(page,hidden.image,original.image),rearPixels=await compare(page,hidden.image,rear.image);
+   const visiblePixels=await compare(page,hidden.image,all.image);
+   expect(originalPixels.changed,'the former offset exposes rear stroke pixels').toBeGreaterThan(0);
+   expect(rearPixels.changed,'rear strokes leave no mark').toBe(0);
+   expect(visiblePixels.changed,'the visible structure remains drawn').toBeGreaterThan(5);
+   expect(rear.frame.calls).toBe(original.frame.calls);
+   report.push({projection,size,dpr,originalPixels,rearPixels,visiblePixels});
+  }
+ }
+ await page.evaluate(async ()=>{
+  const {engine,frame,THREE}=(window as any).edgeHarness,{bounds,center}=(window as any).edgeOcclusion;
+  engine.setSceneSettings({...engine.sceneSettings,projection:'ORTHOGRAPHIC'});
+  engine.renderer.setPixelRatio(1);
+  const camera=engine.camera;
+  camera.up.set(0,1,0);camera.position.copy(center).add(new THREE.Vector3(0,0,100));camera.lookAt(center);
+  camera.zoom=360*(camera.top-camera.bottom)/(engine.renderer.domElement.clientHeight*(bounds.max.x-bounds.min.x));
+  camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+  const cover=new THREE.Mesh(new THREE.PlaneGeometry(40,40),engine.materials.surface(0x718294));
+  cover.position.set(center.x,center.y,bounds.max.z+.08);
+  engine.content.add(cover);engine.refreshContentBounds();await frame();
+ });
+ const hidden=await capture('hidden'),before=await capture('previous'),after=await capture('all');
+ const beforePixels=await compare(page,hidden.image,before.image),afterPixels=await compare(page,hidden.image,after.image);
+ expect(beforePixels.changed,'the bounding-box limit alone lets strokes reach through the wall').toBeGreaterThan(5);
+ expect(afterPixels.changed,'the thin cover occludes the front-facing strokes behind it').toBe(0);
+ expect(after.frame.calls).toBe(before.frame.calls);
+ await page.evaluate(async()=>{
+  const {engine,frame}=(window as any).edgeHarness;
+  const binding=[...engine.solidBindings.values()][0] as any;
+  const z=binding.mesh.geometry.boundingBox.max.z;
+  const edge=binding.artifact.mesh.edges.find((edge:any)=>edge.points.every((point:number[])=>Math.abs(point[2]-z)<1e-5));
+  engine.select({...binding.context,kind:'edge',topologyId:edge.localId,id:`root:${binding.artifact.geometryKey}:edge:${edge.localId}`},false);
+  await frame();
+ });
+ const beforeHighlight=await capture('previous'),afterHighlight=await capture('all');
+ const highlightPixels=await compare(page,before.image,beforeHighlight.image);
+ expect(highlightPixels.changed,'the old shift also reaches through the cover with a selected edge').toBeGreaterThan(0);
+ expect((await compare(page,hidden.image,afterHighlight.image)).changed,'selection remains behind the cover').toBe(0);
+ fs.writeFileSync(info.outputPath('zoom-occlusion.json'),JSON.stringify({rearEdges:report,cover:{beforePixels,afterPixels,highlightPixels}},null,2));
+ await page.evaluate(()=>(window as any).edgeOcclusion.rearGeometry.dispose());
+ expect(errors).toEqual([]);
+});
+
 test('the real decode Worker transfers edge evidence without cloning its typed arrays',async({page})=>{
  const errors=await setup(page);
  const result=await page.evaluate(async()=>{
   const {VisualDecoder}=await import('/src/cad/visual/visual-decoder.ts');
   const original=await(await fetch('/edge-fixtures/fillet.glb')).arrayBuffer(),v=new DataView(original),jsonLength=v.getUint32(12,true),padding=512*1024;
+  const gltf=JSON.parse(new TextDecoder().decode(new Uint8Array(original,20,jsonLength)));
+  const sourceSegments=gltf.accessors[gltf.extensions.OCCCCAD_cad.edgeProfile.metadata].count;
   // JSON whitespace crosses the production 512 KiB Worker threshold while
   // preserving every original OCCT position, accessor and topology locator.
   const padded=new ArrayBuffer(original.byteLength+padding),bytes=new Uint8Array(padded),header=new DataView(padded);
@@ -167,8 +410,10 @@ test('the real decode Worker transfers edge evidence without cloning its typed a
   bytes.set(new Uint8Array(original,20+jsonLength),20+jsonLength+padding);header.setUint32(8,padded.byteLength,true);header.setUint32(12,jsonLength+padding,true);
   const decoder=new VisualDecoder(),loaded=await decoder.decode(padded,true,new AbortController().signal);
   const p=loaded.decoded.mesh.edgeProfile!;
-  const result={transferred:padded.byteLength===0,segments:p.metadata.length/4,sameA:p.normalA.buffer===loaded.buffer,sameB:p.normalB.buffer===loaded.buffer,samePositions:p.positions.buffer===loaded.buffer,source:p.source,contours:Boolean((loaded.decoded.mesh as any).contourIncidence)};
+  const result={transferred:padded.byteLength===0,segments:p.metadata.length/4,sourceSegments,sameA:p.normalA.buffer===loaded.buffer,sameB:p.normalB.buffer===loaded.buffer,samePositions:p.positions.buffer===loaded.buffer,source:p.source,contours:Boolean((loaded.decoded.mesh as any).contourIncidence)};
   decoder.dispose();return result;
  });
- expect(result).toEqual({transferred:true,segments:672,sameA:true,sameB:true,samePositions:true,source:'OCCT_EDGE_USE_V1',contours:true});expect(errors).toEqual([]);
+ const {segments,sourceSegments,...transfer}=result;
+ expect(sourceSegments).toBeGreaterThan(0);expect(segments).toBe(sourceSegments);
+ expect(transfer).toEqual({transferred:true,sameA:true,sameB:true,samePositions:true,source:'OCCT_EDGE_USE_V1',contours:true});expect(errors).toEqual([]);
 });

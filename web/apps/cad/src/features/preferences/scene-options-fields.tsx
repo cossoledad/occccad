@@ -28,6 +28,7 @@ export function SceneOptionsFields({value,onChange,metrics}:{value:SceneSettings
   <Checkbox checked={value.worldGrid} onChange={e=>patch({worldGrid:e.target.checked})}>同时显示世界基准网格（Z=0）</Checkbox><Checkbox checked={value.shadows} onChange={e=>patch({shadows:e.target.checked})}>零件与地面阴影</Checkbox>{value.shadows&&slider("shadowOpacity","阴影强度",0,1)}
  </Space>;
  const lighting=<Space orientation="vertical" className="global-options-fields">
+  <CommandField label="光源基准" width="enum"><Select<SceneSettings["lightingFrame"]> aria-label="光源基准" value={value.lightingFrame} onChange={lightingFrame=>patch({lightingFrame})} options={[{value:"WORLD",label:"固定于场景"},{value:"VIEW",label:"跟随视角"}]}/></CommandField>
   <CommandField label="光照预设" width="enum"><Select aria-label="光照预设" value={value.lighting} onChange={v=>patch(lightingPreset(v))} options={[{value:"ENGINEERING",label:"工程"},{value:"SOFT",label:"柔和"},{value:"CONTOUR",label:"轮廓强调"}]}/></CommandField>
   {slider("brightness","整体亮度")}{slider("ambient","环境补光")}{slider("fill","侧向补光")}{slider("reflection","环境反射强度")}
   <Checkbox checked={value.ambientOcclusion} onChange={e=>patch({ambientOcclusion:e.target.checked})}>轻量环境遮蔽（AO）</Checkbox>{value.ambientOcclusion&&slider("aoIntensity","遮蔽强度",0,.8)}

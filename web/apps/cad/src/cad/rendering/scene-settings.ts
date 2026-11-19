@@ -7,6 +7,7 @@ export type SceneSettings = {
   shadows: boolean; shadowOpacity: number;
   ambientOcclusion:boolean;aoIntensity:number;
   lighting: "ENGINEERING" | "SOFT" | "CONTOUR";
+  lightingFrame: "WORLD" | "VIEW";
   brightness: number; ambient: number; fill: number; reflection: number;
   azimuth: number; elevation: number;
   background: "THEME" | "SOLID" | "GRADIENT"; backgroundTop: string; backgroundBottom: string;
@@ -15,7 +16,7 @@ export type SceneSettings = {
 export const DEFAULT_SCENE_SETTINGS: Readonly<SceneSettings> = {
   projection:"PERSPECTIVE",groundMode:"AUTO",groundHeight:0,groundOffset:0,groundLocked:false,
   grid:false,worldGrid:false,gridSpacing:10,gridOpacity:0.55,gridColor:"#8c979f",gridAutoColor:true,
-  shadows:true,shadowOpacity:0.28,lighting:"ENGINEERING",brightness:1,ambient:1,fill:1,reflection:1,
+  shadows:true,shadowOpacity:0.28,lighting:"ENGINEERING",lightingFrame:"WORLD",brightness:1,ambient:1,fill:1,reflection:1,
   ambientOcclusion:false,aoIntensity:.35,
   azimuth:-155,elevation:32,background:"THEME",backgroundTop:"#e1e6ec",backgroundBottom:"#f4f6f8",
 };
@@ -32,6 +33,7 @@ export function normalizeSceneSettings(value:unknown):SceneSettings {
     shadows:v.shadows!==false,shadowOpacity:number(v.shadowOpacity,d.shadowOpacity,0,1),
     ambientOcclusion:v.ambientOcclusion===true,aoIntensity:number(v.aoIntensity,d.aoIntensity,0,.8),
     lighting:["ENGINEERING","SOFT","CONTOUR"].includes(v.lighting??"")?v.lighting!:d.lighting,
+    lightingFrame:v.lightingFrame==="VIEW"?"VIEW":"WORLD",
     brightness:number(v.brightness,1,0,3),ambient:number(v.ambient,1,0,3),fill:number(v.fill,1,0,3),reflection:number(v.reflection,1,0,3),
     azimuth:number(v.azimuth,d.azimuth,-180,180),elevation:number(v.elevation,d.elevation,5,90),
     background:["THEME","SOLID","GRADIENT"].includes(v.background??"")?v.background!:d.background,

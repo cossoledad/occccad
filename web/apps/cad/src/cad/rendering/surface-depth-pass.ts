@@ -5,6 +5,9 @@ import {forEachVisibleMesh} from './scene-render-index';
 import {SurfaceDepthInputs} from './surface-depth-inputs';
 import {analyticLineCoverage,HIGHLIGHT_DEPTH_VERTEX} from './line-coverage';
 
+const DEPTH_STEP_24 = 1/(2**24-1);
+const EDGE_DEPTH_LIMIT_CSS_PIXELS = 0.25;
+
 type OpaqueDraw={groupOrder:number;renderOrder:number;object:THREE.Object3D;material:{id:number};z:number;id:number};
 /** Preserve explicit layers; CAD opaque ties use stable occurrence/Body keys.
  * Transparent sorting, geometry and model-selection identity remain untouched. */
@@ -78,7 +81,7 @@ export class SurfaceDepthPass {
   setCaching(enabled: boolean): void { if (enabled !== this.caching) { this.caching = enabled; this.invalidate(); } }
   // Bounded raster-depth tie, not a model-space weld tolerance. Covers float
   // transform/interpolation differences between coincident tessellations.
-  readonly opaqueUniforms={uCadOpaqueDepth:{value:this.target.depthTexture as THREE.DepthTexture|null},uCadOpaqueResolve:{value:false},uCadDepthEpsilon:{value:16/(2**24-1)}};
+  readonly opaqueUniforms={uCadOpaqueDepth:{value:this.target.depthTexture as THREE.DepthTexture|null},uCadOpaqueResolve:{value:false},uCadDepthEpsilon:{value:16*DEPTH_STEP_24}};
   readonly aoUniforms={uCadAOEnabled:{value:false},uCadAOIntensity:{value:.35},uCadAOScale:{value:1},uCadAONearFar:{value:new THREE.Vector2(.1,10000)},uCadAOPerspective:{value:1},uCadAOPixelRadius:{value:12}};
   readonly uniforms:{uCadSurfaceDepth:THREE.IUniform;uCadDepthSize:THREE.IUniform<THREE.Vector2>;uCadDepthEnabled:THREE.IUniform<boolean>};
   constructor(){
@@ -105,9 +108,12 @@ export class SurfaceDepthPass {
     if(material.userData.cadEdgeAppearance){
       // Keep analytic cap coverage, but avoid quantizing weak opacity into MSAA
       // sample masks. Strength is applied once through ordinary alpha blending.
-      material.alphaToCoverage=false;
+      const defaults=material.defaultAttributeValues as Record<string,number[]>;
+      for(const side of ['A','B'])for(const end of ['Start','End'])defaults[`instanceEdge${side}${end}`]=[0,0,0];
+      defaults.instanceEdgeKind=[0];
+      defaults.instanceEdgeQuality=[0];
       Object.assign(material.uniforms,{
-        uCadEdgeNatural:{value:1},uCadEdgeInteraction:{value:0},uCadEdgeExplicitColor:{value:0},
+        uCadEdgeNatural:{value:1},uCadEdgeInteraction:{value:0},uCadEdgeExplicitColor:{value:0},uCadEdgeSolidSpan:{value:new THREE.Vector3()},
         uCadEdgeAngles:{value:new THREE.Vector2(Math.cos(NATURAL_EDGE_DEFAULTS.smoothAngle*Math.PI/180),Math.cos(NATURAL_EDGE_DEFAULTS.sharpAngle*Math.PI/180))},
         uCadEdgeOpacity:{value:new THREE.Vector2(NATURAL_EDGE_DEFAULTS.smoothOpacity,NATURAL_EDGE_DEFAULTS.sharpOpacity)},
       });
@@ -115,16 +121,18 @@ export class SurfaceDepthPass {
     material.onBeforeCompile=shader=>{
       Object.assign(shader.uniforms,this.uniforms);
       if(material.userData.cadContour||material.userData.cadEdgeAppearance){
-        shader.uniforms.uCadLineDepthBias=this.opaqueUniforms.uCadDepthEpsilon;
-        shader.vertexShader='varying vec2 vCadLineClipZW;\n'+shader.vertexShader.replace('#include <clipping_planes_vertex>','vCadLineClipZW=gl_Position.zw;\n#include <clipping_planes_vertex>');
-        // Ordinary edges keep their established bias. Highlight strokes also
-        // account for transverse support slope, absent from fwidth(lineDepth)
-        // precisely where a curved line turns along a depth contour.
-        const highlight=Boolean(material.userData.cadContour);
-        if(highlight)shader.vertexShader=shader.vertexShader.replace('void main() {',HIGHLIGHT_DEPTH_VERTEX+'\nvoid main() { cadHighlightDepth();');
-        shader.fragmentShader=(highlight?'varying float vCadHighlightDepthBias;\n':'')+'varying vec2 vCadLineClipZW; uniform float uCadLineDepthBias;\n'+shader.fragmentShader.replace('#include <clipping_planes_fragment>',`#include <clipping_planes_fragment>
+        // A thin wall can be much thinner than its body's bounding box. Keep
+        // the forward raster bias within a fraction of one CSS pixel of depth.
+        const depthLimit=material.userData.cadContour?'(0.5*linewidth)':EDGE_DEPTH_LIMIT_CSS_PIXELS;
+        shader.uniforms.uCadLineDepthBias={value:2*DEPTH_STEP_24};
+        shader.vertexShader='varying vec2 vCadLineClipZW;\n'+shader.vertexShader.replace('#include <clipping_planes_vertex>','vCadLineClipZW=gl_Position.zw;\nvCadLinePixelDepth=cadLinePixelDepth(gl_Position.w);\n#include <clipping_planes_vertex>');
+        if(material.userData.cadContour)shader.vertexShader=shader.vertexShader.replace('void main() {',HIGHLIGHT_DEPTH_VERTEX+'\nvoid main() { cadHighlightDepth();');
+        shader.fragmentShader='varying float vCadLineSupportDepthBias,vCadLinePixelDepth;\nvarying vec2 vCadLineClipZW; uniform float uCadLineDepthBias;\n'+shader.fragmentShader.replace('#include <clipping_planes_fragment>',`#include <clipping_planes_fragment>
           float lineDepth=0.5*vCadLineClipZW.x/vCadLineClipZW.y+0.5;
-          gl_FragDepth=max(0.0,lineDepth-${highlight?'max(max(uCadLineDepthBias,0.5*fwidth(lineDepth)),vCadHighlightDepthBias)':'max(uCadLineDepthBias,0.5*fwidth(lineDepth))'});`);
+          float lineBias=max(max(uCadLineDepthBias,0.5*fwidth(lineDepth)),vCadLineSupportDepthBias);
+          lineBias=min(lineBias,max(uCadLineDepthBias,vCadLinePixelDepth*${depthLimit}));
+          ${material.userData.cadEdgeAppearance?'if(vCadEdgeFacing<=0.0)discard;\nlineBias=min(lineBias,vCadEdgeDepthLimit);':''}
+          gl_FragDepth=max(0.0,lineDepth-lineBias);`);
       }
       if(material.userData.cadSilhouette)shader.vertexShader='attribute vec3 instanceEdgeNormalA,instanceEdgeNormalB; varying float vCadContour;\n'+shader.vertexShader.replace('void main() {',`void main() {
         vec3 a=normalMatrix*instanceEdgeNormalA,b=normalMatrix*instanceEdgeNormalB;
@@ -133,15 +141,14 @@ export class SurfaceDepthPass {
         vCadContour=${material.userData.cadSilhouette?'length(b)<0.1?1.0:step(fa*fb,0.0)':'length(a)<0.1?0.65:(fa*fb<0.0?1.0:1.0-smoothstep(0.0,0.45,min(abs(fa),abs(fb))))'};`);
       if(material.userData.cadEdgeAppearance){
         Object.assign(shader.uniforms,material.uniforms);
-        shader.vertexShader=NATURAL_EDGE_VERTEX+shader.vertexShader.replace('void main() {','void main() { cadNaturalEdge();');
-        shader.fragmentShader='#define CAD_ANALYTIC_COVERAGE\n'+NATURAL_EDGE_FRAGMENT+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replaceAll('USE_ALPHA_TO_COVERAGE','CAD_ANALYTIC_COVERAGE')
-          .replace('float alpha = opacity;','float alpha = 1.0;')
-          .replace('gl_FragColor = vec4( diffuseColor.rgb, alpha );','gl_FragColor = cadNaturalEdgeColor(diffuseColor.rgb, alpha * opacity * cadEdgeVisibility());');
+        shader.vertexShader=shader.vertexShader.replace('void main() {',NATURAL_EDGE_VERTEX+'\nvoid main() { cadNaturalEdge();');
+        shader.fragmentShader=NATURAL_EDGE_FRAGMENT+EDGE_OCCLUSION_GLSL+shader.fragmentShader
+          .replace('gl_FragColor = vec4( diffuseColor.rgb, alpha );','gl_FragColor = cadNaturalEdgeColor(diffuseColor.rgb, alpha * cadEdgeVisibility(), vUv);');
       }else shader.fragmentShader=(material.userData.cadSilhouette?'varying float vCadContour;\n':'')+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replace("gl_FragColor = vec4( diffuseColor.rgb, alpha );",`gl_FragColor = vec4( diffuseColor.rgb, alpha * ${material.userData.cadContour?'1.0':'cadEdgeVisibility()'} ${material.userData.cadSilhouette?'* vCadContour':''} );`);
       if(material.userData.cadSilhouette)shader.fragmentShader=shader.fragmentShader.replace('void main() {','void main() { if(vCadContour<0.5)discard;');
-      if(material.userData.cadHighlightCoverage)shader.fragmentShader=analyticLineCoverage(shader.fragmentShader);
+      if(material.userData.cadEdgeAppearance||material.userData.cadHighlightCoverage)shader.fragmentShader=analyticLineCoverage(shader.fragmentShader);
     };
-    material.customProgramCacheKey=()=>"cad-edge-natural-v3-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour)+'-'+Boolean(material.userData.cadHighlightCoverage);
+    material.customProgramCacheKey=()=>"cad-edge-natural-v7-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour)+'-'+Boolean(material.userData.cadHighlightCoverage);
   }
   configureSurface(material:THREE.MeshStandardMaterial):void{
     material.onBeforeCompile=shader=>{

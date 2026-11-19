@@ -12,22 +12,31 @@ export function analyticLineCoverage(fragment: string): string {
  * One view-space pixel, converted to window depth, times the support slope
  * and stroke radius. Clamp the slope to 4: grazing normals cannot grant an
  * unbounded depth offset. Inverse-transpose normalMatrix handles instances. */
-export const HIGHLIGHT_DEPTH_VERTEX = `
-attribute vec3 instanceSupportAStart,instanceSupportAEnd,instanceSupportBStart,instanceSupportBEnd;
-varying float vCadHighlightDepthBias;
+export const LINE_SUPPORT_DEPTH_VERTEX = `
+varying float vCadLineSupportDepthBias;
+varying float vCadLinePixelDepth;
+float cadLinePixelDepth(float clipW){
+  float depth=projectionMatrix[2][3]==-1.0?
+    abs(projectionMatrix[3][2])/max(abs(clipW),1.0e-6):abs(projectionMatrix[2][2]);
+  return depth/max(abs(projectionMatrix[1][1])*resolution.y,1.0);
+}
 float cadSupportSlope(vec3 n){
   if(!(dot(n,n)>1.0e-24))return 0.0;
   float transverse=length(n.xy),z=abs(n.z);
   return z>0.25*transverse?transverse/z:4.0;
 }
-void cadHighlightDepth(){
+float cadLineSupportDepth(vec3 a,vec3 b){
   vec3 p=(modelViewMatrix*vec4(position.y<0.5?instanceStart:instanceEnd,1.0)).xyz;
+  float slope=max(cadSupportSlope(a),cadSupportSlope(b));
+  return cadLinePixelDepth(p.z)*slope*(0.5*linewidth+0.5);
+}
+`;
+
+export const HIGHLIGHT_DEPTH_VERTEX = LINE_SUPPORT_DEPTH_VERTEX + `
+attribute vec3 instanceSupportAStart,instanceSupportAEnd,instanceSupportBStart,instanceSupportBEnd;
+void cadHighlightDepth(){
   vec3 a=normalMatrix*(position.y<0.5?instanceSupportAStart:instanceSupportAEnd);
   vec3 b=normalMatrix*(position.y<0.5?instanceSupportBStart:instanceSupportBEnd);
-  float slope=max(cadSupportSlope(a),cadSupportSlope(b));
-  float pixelDepth=projectionMatrix[2][3]==-1.0?
-    abs(projectionMatrix[3][2])/max(abs(p.z),1.0e-6):abs(projectionMatrix[2][2]);
-  pixelDepth/=max(abs(projectionMatrix[1][1])*resolution.y,1.0);
-  vCadHighlightDepthBias=pixelDepth*slope*(0.5*linewidth+0.5);
+  vCadLineSupportDepthBias=cadLineSupportDepth(a,b);
 }
 `;

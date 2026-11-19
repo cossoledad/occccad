@@ -6,11 +6,11 @@ try {
  const {globalOptionsSnapshot}=await server.ssrLoadModule("/src/features/preferences/global-options-model.ts");
  const {sceneGridColor,sceneBackgroundIsLight,DEFAULT_SCENE_SETTINGS,engineeringScenePreset}=await server.ssrLoadModule("/src/cad/rendering/scene-settings.ts");
  const before=globalOptionsSnapshot(useUIPreferences.getState()),draft=globalOptionsSnapshot(before);
- draft.sceneSettings.backgroundTop="#001122";draft.creationDefaults.solid.color="#ff7700";
+ draft.sceneSettings.backgroundTop="#001122";draft.sceneSettings.lightingFrame="VIEW";draft.creationDefaults.solid.color="#ff7700";
  assert.deepEqual(globalOptionsSnapshot(useUIPreferences.getState()),before,"preview draft must not persist");
  useUIPreferences.getState().applyGlobalOptions(draft);
  const saved=globalOptionsSnapshot(useUIPreferences.getState());
- assert.equal(saved.sceneSettings.backgroundTop,"#001122");assert.equal(saved.creationDefaults.solid.color,"#ff7700");
+ assert.equal(saved.sceneSettings.backgroundTop,"#001122");assert.equal(saved.sceneSettings.lightingFrame,"VIEW");assert.equal(saved.creationDefaults.solid.color,"#ff7700");
  assert.equal(before.creationDefaults.solid.color,"#8e9faf","creation defaults are copied, not shared with open drafts");
  assert.equal(typeof migrate,"function");
  if(migrate){
@@ -22,6 +22,9 @@ try {
   const kept=await migrate(custom,13);assert.equal(kept.sceneSettings.azimuth,22);assert.equal(kept.sceneSettings.backgroundTop,'#123456');assert.deepEqual(kept.creationDefaults,custom.creationDefaults);
  }
  if(migrate){const migrated=await migrate({documentSceneSettings:{a:{backgroundTop:"#ff0000"}},displayLengthUnit:"cm"},9);assert.deepEqual(migrated.sceneSettings,DEFAULT_SCENE_SETTINGS);assert.equal(migrated.displayLengthUnit,"cm")}
+ const fifteen=structuredClone(saved);delete fifteen.sceneSettings.lightingFrame;
+ const upgraded=migrate(fifteen,15);
+ assert.equal(upgraded.sceneSettings.lightingFrame,"WORLD");assert.equal(upgraded.sceneSettings.backgroundTop,"#001122");
  assert.notEqual(sceneGridColor({...DEFAULT_SCENE_SETTINGS,...engineeringScenePreset("DARK")}),sceneGridColor(DEFAULT_SCENE_SETTINGS),"light and dark backgrounds need distinct grid colors");
  assert.equal(sceneGridColor({...DEFAULT_SCENE_SETTINGS,gridAutoColor:false,gridColor:"#112233"}),"#112233");
  assert.equal(sceneBackgroundIsLight({...DEFAULT_SCENE_SETTINGS,background:"SOLID",backgroundTop:"#ffffff",gridAutoColor:false,gridColor:"#ffffff"}),true,"tree contrast follows the background even with a custom grid colour");

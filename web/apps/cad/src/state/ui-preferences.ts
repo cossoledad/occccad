@@ -179,7 +179,7 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   }),
 }), {
   name: "occccad.ui-preferences.v1",
-  version: 15,
+  version: 16,
   migrate: migrateUIPreferences,
   partialize: (state) => ({ sceneSettings:state.sceneSettings,creationDefaults:state.creationDefaults, sketchLabelPositions:state.sketchLabelPositions, gridVisibility:state.gridVisibility, referenceVisibility: state.referenceVisibility, solidDisplay: state.solidDisplay, commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
     treeVisibilityOverrides: state.treeVisibilityOverrides, structureTreeWidth: state.structureTreeWidth,

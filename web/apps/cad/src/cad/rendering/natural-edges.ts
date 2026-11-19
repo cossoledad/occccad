@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import type {MeshData} from '../../types';
 import {LineSegmentsGeometry} from 'three/addons/lines/LineSegmentsGeometry.js';
+import {LINE_SUPPORT_DEPTH_VERTEX} from './line-coverage';
 
-export const NATURAL_EDGE_DEFAULTS={smoothAngle:5,sharpAngle:35,smoothOpacity:.12,sharpOpacity:.88} as const;
+export const NATURAL_EDGE_DEFAULTS={smoothAngle:5,sharpAngle:35,smoothOpacity:.12,sharpOpacity:.46,explicitSharpOpacity:.88} as const;
 export type EdgePresentation='uniform'|'basic'|'natural';
 export type EdgeBuffers={positions:Float32Array;aStart:Float32Array;aEnd:Float32Array;bStart:Float32Array;bEnd:Float32Array;kinds:Float32Array;quality:Float32Array;metadata?:Uint32Array;direct?:{a:Float32Array;b:Float32Array}};
 const preparation={builds:0,sharedHits:0,attributeBytes:0,buildMs:0};
@@ -68,29 +69,69 @@ export function acquireEdgeGeometry(mesh:MeshData,shared:boolean):{geometry:Line
   return {geometry,release:()=>{if(released)return;released=true;if(--owner.references===0){geometry.dispose();owner.geometry=undefined;}}};
 }
 
-export const NATURAL_EDGE_VERTEX=`
+export const NATURAL_EDGE_VERTEX=LINE_SUPPORT_DEPTH_VERTEX+`
 attribute vec3 instanceEdgeAStart,instanceEdgeAEnd,instanceEdgeBStart,instanceEdgeBEnd;
 attribute float instanceEdgeKind,instanceEdgeQuality;
 varying float vCadEdgeSharp,vCadEdgeSuppressed;
+varying float vCadEdgeDepthLimit,vCadEdgeFacing;
 uniform vec2 uCadEdgeAngles;
+uniform vec3 uCadEdgeSolidSpan;
+uniform float uCadEdgeInteraction;
 void cadNaturalEdge() {
   vec3 a=normalMatrix*(position.y<0.5?instanceEdgeAStart:instanceEdgeAEnd);
   vec3 b=normalMatrix*(position.y<0.5?instanceEdgeBStart:instanceEdgeBEnd);
-  bool valid=dot(a,a)>1.0e-24&&dot(b,b)>1.0e-24&&mod(instanceEdgeQuality,2.0)<0.5;
-  float c=valid?clamp(dot(normalize(a),normalize(b)),-1.0,1.0):0.0;
+  bool complete=mod(instanceEdgeQuality,2.0)<0.5;
+  bool valid=dot(a,a)>1.0e-24&&dot(b,b)>1.0e-24&&complete;
+  vec3 na=valid?normalize(a):vec3(0.0),nb=valid?normalize(b):vec3(0.0);
+  float c=clamp(dot(na,nb),-1.0,1.0);
   bool paired=instanceEdgeKind>2.5&&instanceEdgeKind<5.5;
   vCadEdgeSharp=paired&&valid?1.0-smoothstep(uCadEdgeAngles.y,uCadEdgeAngles.x,c):1.0;
   // Validate continuity from normals even when a seam/coplanar tag is present.
   vCadEdgeSuppressed=(instanceEdgeKind>3.5&&instanceEdgeKind<5.5&&valid&&c>0.999998)?1.0:0.0;
+  // Reuse decoded normals and the highlight raster tolerance. Free curves,
+  // unknown profiles and tangent/seam edges keep their previous depth rule.
+  vCadLineSupportDepthBias=0.0;
+  if(complete&&instanceEdgeKind>1.5&&vCadEdgeSharp>0.0&&vCadEdgeSuppressed<0.5){
+    vCadLineSupportDepthBias=cadLineSupportDepth(a,b)*vCadEdgeSharp;
+  }
+  vCadEdgeDepthLimit=1.0;
+  vCadEdgeFacing=1.0;
+  #if NUM_CLIPPING_PLANES == 0
+    if(uCadEdgeInteraction<0.5&&any(greaterThan(uCadEdgeSolidSpan,vec3(0.0)))){
+      vec3 p=(modelViewMatrix*vec4(position.y<0.5?instanceStart:instanceEnd,1.0)).xyz;
+      bool perspective=projectionMatrix[2][3]==-1.0;
+      vec3 viewZ=vec3(modelViewMatrix[0].z,modelViewMatrix[1].z,modelViewMatrix[2].z);
+      float span=dot(abs(viewZ),uCadEdgeSolidSpan);
+      // A perspective eye near or inside the bounds can see the two-sided
+      // interior. Only use outward-facing evidence when the body is ahead.
+      if(!perspective||-p.z>max(span,1.0e-6)){
+        // Keep the remaining offset small relative to this occurrence even
+        // when the CSS pixel footprint grows past the thickness of its walls.
+        float depthPerUnit=0.5*(perspective?abs(projectionMatrix[3][2])/(p.z*p.z):abs(projectionMatrix[2][2]));
+        vCadEdgeDepthLimit=span*depthPerUnit/256.0;
+        if(paired&&valid&&instanceEdgeQuality<0.5){
+          vec3 eye=perspective?normalize(-p):vec3(0.0,0.0,1.0);
+          float facing=max(dot(na,eye),dot(nb,eye));
+          vCadEdgeFacing=smoothstep(-0.025,0.0,facing);
+        }
+      }
+    }
+  #endif
 }`;
 export const NATURAL_EDGE_FRAGMENT=`
 varying float vCadEdgeSharp,vCadEdgeSuppressed;
+varying float vCadEdgeDepthLimit,vCadEdgeFacing;
 uniform float uCadEdgeNatural,uCadEdgeInteraction,uCadEdgeExplicitColor;
 uniform vec2 uCadEdgeOpacity;
-vec4 cadNaturalEdgeColor(vec3 hardColor,float coverage) {
+vec4 cadNaturalEdgeColor(vec3 hardColor,float coverage,vec2 strokeUv) {
+  coverage*=vCadEdgeFacing;
   if(uCadEdgeNatural<0.5||uCadEdgeInteraction>0.5)return vec4(hardColor,coverage);
   float sharp=clamp(vCadEdgeSharp,0.0,1.0);
-  float strength=mix(uCadEdgeOpacity.x,uCadEdgeOpacity.y,sharp)*(1.0-clamp(vCadEdgeSuppressed,0.0,1.0));
+  // Leave a faint shoulder so a subpixel shift cannot erase the smooth
+  // stroke between samples. The center retains the configured opacity.
+  vec2 strokeOffset=vec2(strokeUv.x,max(abs(strokeUv.y)-1.0,0.0));
+  float smoothCoverage=mix(1.0,0.35,smoothstep(0.15*0.15,0.80*0.80,dot(strokeOffset,strokeOffset)));
+  float strength=mix(uCadEdgeOpacity.x*smoothCoverage,uCadEdgeOpacity.y,sharp)*(1.0-clamp(vCadEdgeSuppressed,0.0,1.0));
   // Black alpha blending gently multiplies the already-lit framebuffer colour.
   // Structural edges retain the explicit/theme contrast, including on dark parts.
   vec3 ink=hardColor*mix(sharp,1.0,uCadEdgeExplicitColor);
