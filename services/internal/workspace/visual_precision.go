@@ -46,7 +46,7 @@ func (s *Service) VisualizationPrecision(ctx context.Context, key, originalID, p
 	if a.Representations["BREP"].ObjectID == "" || current == precision {
 		return s.artifacts.Get(ctx, originalID)
 	}
-	variant := "sha256:" + modelcore.ValueDigest([]byte("visual-precision-v1\x00"+original.Digest+"\x00"+precision))
+	variant := "sha256:" + modelcore.ValueDigest([]byte("visual-precision-v1\x00"+displayStrategyVersion+"\x00"+original.Digest+"\x00"+precision))
 	if object, err := s.representationObject(ctx, variant, "VISUAL"); !errors.Is(err, sql.ErrNoRows) {
 		return object, err
 	}
@@ -86,56 +86,85 @@ func (s *Service) VisualizationPrecision(ctx context.Context, key, originalID, p
 	return s.representationObject(ctx, variant, "VISUAL")
 }
 
+type frozenVisualHeader struct {
+	Extensions struct {
+		CAD    struct{ Association visual.Association } `json:"OCCCCAD_cad"`
+		Visual json.RawMessage                          `json:"OCCCCAD_visualization"`
+	}
+	BufferViews []struct{ Buffer, ByteOffset, ByteLength, ByteStride int }
+	Accessors   []struct {
+		BufferView, ByteOffset, Count, ComponentType int
+		Type                                         string
+	}
+}
+
+func readFrozenVisualHeader(source io.Reader, size int64, geometryID, namingDigest string) (frozenVisualHeader, int, error) {
+	var doc frozenVisualHeader
+	chunk, err := readVisualizationJSON(source, size)
+	if err != nil {
+		return doc, 0, err
+	}
+	if err := json.Unmarshal(chunk, &doc); err != nil {
+		return doc, 0, err
+	}
+	association := doc.Extensions.CAD.Association
+	if association.GeometryID != geometryID || association.NamingDigest != namingDigest {
+		return doc, 0, fmt.Errorf("visualization source association mismatch")
+	}
+	return doc, len(chunk), nil
+}
+
+// Continuation needs the display index only. This leaves all GLB buffers and
+// other visualization projections unread.
+func readFrozenAssociations(source io.Reader, size int64, geometryID, namingDigest string) (*FeatureAssociationIndex, error) {
+	doc, _, err := readFrozenVisualHeader(source, size, geometryID, namingDigest)
+	if err != nil {
+		return nil, err
+	}
+	var wire struct {
+		Index *FeatureAssociationIndex `json:"featureAssociations"`
+		Table *featureAssociationTable `json:"featureAssociationTable"`
+	}
+	if err := json.Unmarshal(doc.Extensions.Visual, &wire); err != nil {
+		return nil, err
+	}
+	if wire.Table != nil {
+		return wire.Table.unpack()
+	}
+	return wire.Index, nil
+}
+
 // Read only the metadata and the auxiliary sketch/annotation suffix. The
 // original shaded mesh has no role in producing a different precision.
 func frozenVisualization(source io.Reader, size int64, geometryID, namingDigest string) (VisualizationManifest, error) {
 	var v VisualizationManifest
-	chunk, err := readVisualizationJSON(source, size)
+	doc, chunkSize, err := readFrozenVisualHeader(source, size, geometryID, namingDigest)
 	if err != nil {
 		return v, err
 	}
-	var doc struct {
-		Extensions struct {
-			CAD    struct{ Association visual.Association } `json:"OCCCCAD_cad"`
-			Visual json.RawMessage                          `json:"OCCCCAD_visualization"`
-		}
-		BufferViews []struct{ Buffer, ByteOffset, ByteLength, ByteStride int }
-		Accessors   []struct {
-			BufferView, ByteOffset, Count, ComponentType int
-			Type                                         string
-		}
-	}
-	if err = json.Unmarshal(chunk, &doc); err != nil {
-		return v, err
-	}
-	if doc.Extensions.CAD.Association.GeometryID != geometryID || doc.Extensions.CAD.Association.NamingDigest != namingDigest {
-		return v, fmt.Errorf("visualization source association mismatch")
-	}
 	var fields struct {
+		visualizationJSON
 		BufferStart int64
 		Primitives  []map[string]json.RawMessage
 	}
+	fields.visualizationManifestJSON = (*visualizationManifestJSON)(&v)
 	if err = json.Unmarshal(doc.Extensions.Visual, &fields); err != nil {
 		return v, err
 	}
-	var metadata map[string]json.RawMessage
-	if err = json.Unmarshal(doc.Extensions.Visual, &metadata); err != nil {
-		return v, err
+	if fields.Table != nil {
+		if v.FeatureAssociations, err = fields.Table.unpack(); err != nil {
+			return v, err
+		}
 	}
-	delete(metadata, "primitives")
-	raw, err := json.Marshal(metadata)
-	if err != nil {
-		return v, err
-	}
-	if err = json.Unmarshal(raw, &v); err != nil || len(fields.Primitives) == 0 {
-		return v, err
+	if len(fields.Primitives) == 0 {
+		return v, nil
 	}
 	var header [8]byte
 	if _, err = io.ReadFull(source, header[:]); err != nil {
 		return v, err
 	}
 	binarySize := int64(binary.LittleEndian.Uint32(header[:4]))
-	if binary.LittleEndian.Uint32(header[4:]) != 0x004e4942 || binarySize != size-28-int64(len(chunk)) || fields.BufferStart < 0 || fields.BufferStart > binarySize || binarySize-fields.BufferStart > 64<<20 {
+	if binary.LittleEndian.Uint32(header[4:]) != 0x004e4942 || binarySize != size-28-int64(chunkSize) || fields.BufferStart < 0 || fields.BufferStart > binarySize || binarySize-fields.BufferStart > 64<<20 {
 		return v, fmt.Errorf("invalid visualization suffix length")
 	}
 	if seeker, ok := source.(io.Seeker); ok {

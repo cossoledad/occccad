@@ -297,6 +297,7 @@ struct TopologyPoint {
 
 struct VisualStageTimings {
     uint32_t reused_faces = 0, computed_faces = 0;
+    uint32_t reused_edge_profiles = 0, computed_edge_profiles = 0;
     double meshing_ms = 0, faces_ms = 0, edges_ms = 0, normals_ms = 0, edge_profile_ms = 0;
     uint64_t edge_normal_evaluations = 0, edge_sampling_limits = 0;
     uint64_t surface_normal_evaluations = 0, surface_normal_fallbacks = 0;

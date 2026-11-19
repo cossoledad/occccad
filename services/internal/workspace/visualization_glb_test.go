@@ -4,13 +4,21 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"github.com/occccad/occccad/internal/visual"
 	"io"
+	"slices"
 	"testing"
+
+	"github.com/occccad/occccad/internal/visual"
 )
 
 func TestVisualV2BinaryAuxiliaryAndReplacement(t *testing.T) {
-	v := VisualizationManifest{FeatureAssociations: &FeatureAssociationIndex{Features: []string{"feature"}}, FeatureContributions: map[string]string{"feature": "NO_CURRENT_CONTRIBUTION"}, SchemaVersion: 1, Primitives: []VisualPrimitive{{ID: "wire", Kind: "POLYLINE", Positions: [][3]float64{{1, 2, 3}, {4, 5, 6}}, Indices: []uint32{0, 1}}, {ID: "label", Kind: "POINTS", Positions: [][3]float64{}}}}
+	row := FeatureTopologyAssociation{Kind: "FACE", LocalID: 1, Status: "MAPPED",
+		Origins: []string{"feature"}, Primary: []string{"feature"}, Modifiers: []string{"modifier"}, Supports: []string{"support"},
+		Members: []FeatureAssociationMember{{PatternID: "pattern", Slot: 0}}}
+	otherRow := row
+	otherRow.Kind = "EDGE"
+	index := &FeatureAssociationIndex{Features: []string{"feature", "modifier", "pattern"}, Elements: []FeatureTopologyAssociation{row, otherRow}}
+	v := VisualizationManifest{FeatureAssociations: index, FeatureContributions: map[string]string{"feature": "NO_CURRENT_CONTRIBUTION"}, SchemaVersion: 1, Primitives: []VisualPrimitive{{ID: "wire", Kind: "POLYLINE", Positions: [][3]float64{{1, 2, 3}, {4, 5, 6}}, Indices: []uint32{0, 1}}, {ID: "label", Kind: "POINTS", Positions: [][3]float64{}}}}
 	data, err := glbWithVisualization(nil, v, map[string]string{"geometryId": "geometry", "namingDigest": "naming"})
 	if err != nil {
 		t.Fatal(err)
@@ -21,6 +29,10 @@ func TestVisualV2BinaryAuxiliaryAndReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := doc["extensions"].(map[string]any)[visualizationExtension].(map[string]any)
+	table, ok := metadata["featureAssociationTable"].(map[string]any)
+	if !ok || metadata["featureAssociations"] != nil || len(table["lists"].([]any)) != 3 || len(table["members"].([]any)) != 1 {
+		t.Fatal("display ownership lists were not shared in the GLB")
+	}
 	p := metadata["primitives"].([]any)[0].(map[string]any)
 	if _, ok := p["positions"].(float64); !ok {
 		t.Fatal("JSON positions retained")
@@ -51,6 +63,31 @@ func TestVisualV2BinaryAuxiliaryAndReplacement(t *testing.T) {
 	if restored.FeatureAssociations == nil || restored.FeatureContributions["feature"] != "NO_CURRENT_CONTRIBUTION" {
 		t.Fatal("association not paired with GLB")
 	}
+	compare := func(got *FeatureAssociationIndex) {
+		t.Helper()
+		if got == nil || !slices.Equal(got.Features, index.Features) || len(got.Elements) != len(index.Elements) {
+			t.Fatal("display association shape changed")
+		}
+		for i, want := range index.Elements {
+			e := got.Elements[i]
+			if e.Kind != want.Kind || e.LocalID != want.LocalID || e.Status != want.Status || !slices.Equal(e.Origins, want.Origins) ||
+				!slices.Equal(e.Primary, want.Primary) || !slices.Equal(e.Modifiers, want.Modifiers) ||
+				!slices.Equal(e.Supports, want.Supports) || !slices.Equal(e.Members, want.Members) {
+				t.Fatal("display ownership changed", e, want)
+			}
+		}
+	}
+	compare(restored.FeatureAssociations)
+	// Read a frozen prefix using only the metadata chunk. An attempt to read the
+	// mesh or auxiliary payload would hit EOF with this source.
+	frozen, err := readFrozenAssociations(bytes.NewReader(data[:20+n]), int64(len(data)), "geometry", "naming")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compare(frozen)
+	if _, err := readFrozenAssociations(bytes.NewReader(data[:20+n]), int64(len(data)), "geometry", "other"); err == nil {
+		t.Fatal("association reader accepted a different Naming binding")
+	}
 	// Repeated variants replace owned buffers, so unchanged payloads do not grow.
 	v.FeatureAssociations = nil
 	v.FeatureContributions = nil
@@ -68,11 +105,20 @@ func TestVisualV2BinaryAuxiliaryAndReplacement(t *testing.T) {
 	if restored.FeatureAssociations == nil || restored.FeatureContributions["feature"] != "NO_CURRENT_CONTRIBUTION" {
 		t.Fatal("metadata variant lost associations")
 	}
+	compare(restored.FeatureAssociations)
 	if len(again) != len(data) {
 		t.Fatalf("retained stale auxiliary data: %d -> %d", len(data), len(again))
 	}
 	if _, _, err = visual.Decode(again); err != nil {
 		t.Fatal(err)
+	}
+	table["rows"].([]any)[0].([]any)[5] = float64(99)
+	corrupt, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(corrupt, &restored); err == nil {
+		t.Fatal("accepted an invalid shared list ordinal")
 	}
 }
 

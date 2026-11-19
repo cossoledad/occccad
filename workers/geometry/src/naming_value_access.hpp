@@ -96,7 +96,7 @@ inline void encode_ref(const kernel::SemanticTopologyRef& source,v1::SemanticTop
     for(const auto& id:source.source_ids)target->add_source_ids(id);
 }
 inline void encode_vec(const kernel::Vec3& source,v1::Vec3* target) {target->set_x(source.x);target->set_y(source.y);target->set_z(source.z);}
-inline void encode_evidence(const kernel::SelectionEvidence& source,v1::SelectionEvidence* target) {
+inline void encode_evidence(const kernel::SelectionEvidence& source,v1::SelectionEvidence* target,bool include_adjacency=true) {
     target->set_geometry_type(source.geometry_type);
     if(source.radius_mm)target->set_radius_mm(*source.radius_mm);
     if(source.minor_radius_mm)target->set_minor_radius_mm(*source.minor_radius_mm);
@@ -112,7 +112,8 @@ inline void encode_evidence(const kernel::SelectionEvidence& source,v1::Selectio
     if(source.measure_si || source.centroid.x!=0 || source.centroid.y!=0 || source.centroid.z!=0)
         encode_vec(source.centroid,target->mutable_centroid());
     encode_vec(source.origin,target->mutable_origin());encode_vec(source.direction,target->mutable_direction());
-    for(const auto& adjacent:source.adjacent)encode_ref(adjacent,target->add_adjacent());
+    if(include_adjacency)
+        for(const auto& adjacent:source.adjacent)encode_ref(adjacent,target->add_adjacent());
     target->set_evidence_digest(source.evidence_digest);
 }
 

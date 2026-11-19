@@ -10,12 +10,15 @@
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <exception>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include <internal/edge_profile.hpp>
 
 namespace occccad::kernel::detail {
 
@@ -35,9 +38,33 @@ class MeshReuse {
         std::vector<int> edges;
         TopAbs_Orientation orientation;
     };
+    struct EdgeUseValues {
+        TopAbs_Orientation orientation;
+        bool reversed;
+        std::vector<gp_Pnt2d> uv;
+        std::vector<double> parameters;
+    };
+    struct EdgeProfileValues {
+        std::vector<Vec3> boundary;
+        std::vector<EdgeUseValues> uses;
+        std::vector<EdgeDisplaySegment> segments;
+        size_t bytes = 0;
+    };
+    struct EdgeProfilePacket {
+        std::shared_ptr<const EdgeProfileValues> values;
+        std::array<uint32_t, 2> faces{};
+    };
+public:
+    // The producer owns these records until all output boundaries are checked.
+    struct EdgeProfiles {
+        std::unordered_map<int, EdgeProfilePacket> packets;
+        size_t new_bytes = 0;
+    };
+private:
     struct Frame {
         std::string geometry;
         std::unordered_map<int,std::shared_ptr<const Packet>> packets;
+        EdgeProfiles profiles;
         uint64_t used=0;
     };
     std::vector<Frame> frames_;
@@ -56,14 +83,31 @@ class MeshReuse {
         if(auto* frame=find_frame(geometry)){const auto at=frame->packets.find(face);if(at!=frame->packets.end())return at->second;}
         return {};
     }
+    const EdgeProfilePacket* find_profile(const std::string& geometry, int edge) {
+        if (pending_.geometry == geometry) {
+            const auto found = pending_.profiles.packets.find(edge);
+            if (found != pending_.profiles.packets.end()) return &found->second;
+        }
+        if (const auto* frame = find_frame(geometry)) {
+            const auto found = frame->profiles.packets.find(edge);
+            if (found != frame->profiles.packets.end()) return &found->second;
+        }
+        return nullptr;
+    }
     size_t bytes() const {
         std::unordered_set<const Payload*> unique;
+        std::unordered_set<const EdgeProfileValues*> profiles;
         size_t result=(faces_.capacity()+edges_.capacity())*sizeof(std::pair<int,int>);
         const auto charge=[&](const Frame& frame){
             for(const auto& entry:frame.packets){
                 result+=sizeof(entry)+sizeof(Packet)+entry.second->edges.capacity()*sizeof(int)+3*sizeof(void*);
                 const auto& payload=entry.second->payload;
                 if(unique.insert(payload.get()).second)result+=sizeof(Payload)+payload->bytes+payload->edges.capacity()*sizeof(Edge);
+            }
+            for (const auto& entry : frame.profiles.packets) {
+                result += sizeof(entry) + 3 * sizeof(void*);
+                if (profiles.insert(entry.second.values.get()).second)
+                    result += entry.second.values->bytes;
             }
         };
         for(const auto& frame:frames_) charge(frame);
@@ -89,7 +133,7 @@ public:
         });
     }
     void policy(double linear,double angular){
-        if(linear!=linear_||angular!=angular_){frames_.clear();pending_.packets.clear();linear_=linear;angular_=angular;}
+        if(linear!=linear_||angular!=angular_){frames_.clear();pending_.packets.clear();pending_.profiles={};linear_=linear;angular_=angular;}
     }
     void inherit(const Correspondence& pairs,const std::string& input,const TopoDS_Shape& before,
                  const std::string& output,const TopoDS_Shape& after){
@@ -112,7 +156,76 @@ public:
             for(const auto edge:previous->edges){const auto at=edges.find(edge);if(at==edges.end()){complete=false;break;}packet->edges.push_back(at->second);}
             if(complete)next.packets.emplace(face.second,std::move(packet));
         }
+        // Mesh eligibility alone does not prove identical support derivatives
+        // or edge tolerances. Reuse profiles only for the same native subshapes.
+        std::unordered_map<int, int> face_ids;
+        for (const auto& face : faces_)
+            if (oldFaces(face.first).IsSame(newFaces(face.second)))
+                face_ids.emplace(face);
+        for (const auto& edge : edges_) {
+            const auto* source = find_profile(input, edge.first);
+            if (!source || !oldEdges(edge.first).IsSame(newEdges(edge.second))) continue;
+            auto packet = *source;
+            bool complete = true;
+            for (auto& face : packet.faces) {
+                if (!face) continue;
+                const auto match = face_ids.find(face);
+                if (match == face_ids.end()) { complete = false; break; }
+                face = match->second;
+            }
+            if (complete) next.profiles.packets.emplace(edge.second, std::move(packet));
+        }
         pending_=std::move(next);if(bytes()>budget_)pending_=Frame{};
+    }
+    bool append_profile(const std::string& geometry, int edge, const std::vector<Vec3>& boundary,
+                        const std::vector<VisualEdgeUse>& uses, TessellationResult& mesh, EdgeProfiles& accepted) {
+        const auto* packet = find_profile(geometry, edge);
+        if (!packet) return false;
+        const auto& values = *packet->values;
+        if (values.uses.size() != uses.size() || values.boundary.size() != boundary.size() ||
+            !std::equal(boundary.begin(), boundary.end(), values.boundary.begin(), [](const auto& a, const auto& b) {
+                return a.x == b.x && a.y == b.y && a.z == b.z;
+            })) return false;
+        for (size_t i = 0; i < uses.size(); ++i) {
+            const auto& use = uses[i];
+            const auto& old = values.uses[i];
+            if (packet->faces[i] != use.face_id || old.orientation != use.edge.Orientation() ||
+                old.reversed != use.reversed || old.parameters != use.parameters || old.uv.size() != use.uv.size() ||
+                !std::equal(old.uv.begin(), old.uv.end(), use.uv.begin(), [](const auto& a, const auto& b) {
+                    return a.X() == b.X() && a.Y() == b.Y();
+                })) return false;
+        }
+        for (auto segment : values.segments) {
+            segment.local_id = edge;
+            segment.face_a = packet->faces[0];
+            segment.face_b = packet->faces[1];
+            if (segment.quality & 2) ++mesh.timings.edge_sampling_limits;
+            mesh.edge_profile.push_back(segment);
+        }
+        accepted.packets.emplace(edge, *packet);
+        return true;
+    }
+    void remember_profile(int edge, const std::vector<Vec3>& boundary, const std::vector<VisualEdgeUse>& uses,
+                          const TessellationResult& mesh, size_t first, EdgeProfiles& accepted) {
+        if (uses.size() > 2 || first == mesh.edge_profile.size()) return;
+        size_t bytes = sizeof(EdgeProfileValues) + boundary.size() * sizeof(Vec3) +
+                       (mesh.edge_profile.size() - first) * sizeof(EdgeDisplaySegment);
+        for (const auto& use : uses)
+            bytes += sizeof(EdgeUseValues) + use.uv.size() * sizeof(gp_Pnt2d) + use.parameters.size() * sizeof(double);
+        if (bytes > 32 * 1024 * 1024 - accepted.new_bytes) return;
+        auto values = std::make_shared<EdgeProfileValues>();
+        values->boundary = boundary;
+        values->segments.assign(mesh.edge_profile.begin() + first, mesh.edge_profile.end());
+        values->bytes = bytes;
+        EdgeProfilePacket packet{values};
+        values->uses.reserve(uses.size());
+        for (size_t i = 0; i < uses.size(); ++i) {
+            const auto& use = uses[i];
+            packet.faces[i] = use.face_id;
+            values->uses.push_back({use.edge.Orientation(), use.reversed, use.uv, use.parameters});
+        }
+        accepted.new_bytes += bytes;
+        accepted.packets.emplace(edge, std::move(packet));
     }
     size_t seed(const std::string& geometry,const TopoDS_Shape& source,const BRepBuilderAPI_Copy& copy,
                 std::vector<Handle(Poly_Triangulation)>& seeded){
@@ -137,8 +250,9 @@ public:
         return count;
     }
     template<class CorrespondingShape>
-    size_t admit(const std::string& geometry,const TopoDS_Shape& source,const CorrespondingShape& corresponding){
-        Frame frame;frame.geometry=geometry;
+    size_t admit(const std::string& geometry,const TopoDS_Shape& source,const CorrespondingShape& corresponding,
+                 EdgeProfiles profiles = {}){
+        Frame frame;frame.geometry=geometry;frame.profiles=std::move(profiles);
         TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(source,TopAbs_FACE,faces);TopExp::MapShapes(source,TopAbs_EDGE,edges);
         for(int id=1;id<=faces.Extent();++id){
             const auto original=TopoDS::Face(faces(id));const auto previous=find(geometry,id);

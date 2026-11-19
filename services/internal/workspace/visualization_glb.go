@@ -97,7 +97,13 @@ func glbWithVisualizationReader(source io.Reader, size int64, visualization Visu
 			document[key] = entries[:int(n)]
 		}
 	}
-	// The runtime manifest is materialized into binary accessors, never JSON numeric arrays.
+	// Geometry uses binary accessors. The association table shares identifiers
+	// and lists across all locators, without expanding into the JSON map.
+	table, err := packFeatureAssociations(visualization.FeatureAssociations)
+	if err != nil {
+		return nil, err
+	}
+	visualization.FeatureAssociations = nil
 	raw, err := json.Marshal(visualization)
 	if err != nil {
 		return nil, err
@@ -106,12 +112,12 @@ func glbWithVisualizationReader(source io.Reader, size int64, visualization Visu
 	if err = json.Unmarshal(raw, &metadata); err != nil {
 		return nil, err
 	}
-	if visualization.FeatureAssociations == nil {
-		if previous, ok := extensions[visualizationExtension].(map[string]any); ok {
-			for _, key := range []string{"featureAssociations", "featureContributions"} {
-				if derived := previous[key]; derived != nil {
-					metadata[key] = derived
-				}
+	if table != nil {
+		metadata["featureAssociationTable"] = table
+	} else if previous, ok := extensions[visualizationExtension].(map[string]any); ok {
+		for _, key := range []string{"featureAssociationTable", "featureAssociations", "featureContributions"} {
+			if derived := previous[key]; derived != nil {
+				metadata[key] = derived
 			}
 		}
 	}

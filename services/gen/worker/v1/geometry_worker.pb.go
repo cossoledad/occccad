@@ -5103,8 +5103,25 @@ type PartRuntimeStats struct {
 	FrozenPrefixStages            uint32  `protobuf:"varint,43,opt,name=frozen_prefix_stages,json=frozenPrefixStages,proto3" json:"frozen_prefix_stages,omitempty"`
 	RestoredMeshFaces             uint64  `protobuf:"varint,44,opt,name=restored_mesh_faces,json=restoredMeshFaces,proto3" json:"restored_mesh_faces,omitempty"`
 	MeshSeedMs                    float64 `protobuf:"fixed64,45,opt,name=mesh_seed_ms,json=meshSeedMs,proto3" json:"mesh_seed_ms,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	GeneratorPrepareMs            float64 `protobuf:"fixed64,46,opt,name=generator_prepare_ms,json=generatorPrepareMs,proto3" json:"generator_prepare_ms,omitempty"`
+	BodyOperationMs               float64 `protobuf:"fixed64,47,opt,name=body_operation_ms,json=bodyOperationMs,proto3" json:"body_operation_ms,omitempty"`
+	// These durations may be included in the enclosing body operation.
+	BooleanBuildMs       float64 `protobuf:"fixed64,48,opt,name=boolean_build_ms,json=booleanBuildMs,proto3" json:"boolean_build_ms,omitempty"`
+	MaterialWitnessMs    float64 `protobuf:"fixed64,49,opt,name=material_witness_ms,json=materialWitnessMs,proto3" json:"material_witness_ms,omitempty"`
+	SameDomainMs         float64 `protobuf:"fixed64,50,opt,name=same_domain_ms,json=sameDomainMs,proto3" json:"same_domain_ms,omitempty"`
+	SolidValidationMs    float64 `protobuf:"fixed64,51,opt,name=solid_validation_ms,json=solidValidationMs,proto3" json:"solid_validation_ms,omitempty"`
+	BrepSnapshotMs       float64 `protobuf:"fixed64,52,opt,name=brep_snapshot_ms,json=brepSnapshotMs,proto3" json:"brep_snapshot_ms,omitempty"`
+	CorrespondenceMs     float64 `protobuf:"fixed64,53,opt,name=correspondence_ms,json=correspondenceMs,proto3" json:"correspondence_ms,omitempty"`
+	DisplayEdgesMs       float64 `protobuf:"fixed64,54,opt,name=display_edges_ms,json=displayEdgesMs,proto3" json:"display_edges_ms,omitempty"`
+	EdgeProfileMs        float64 `protobuf:"fixed64,55,opt,name=edge_profile_ms,json=edgeProfileMs,proto3" json:"edge_profile_ms,omitempty"`
+	EdgeProfilesReused   uint64  `protobuf:"varint,56,opt,name=edge_profiles_reused,json=edgeProfilesReused,proto3" json:"edge_profiles_reused,omitempty"`
+	EdgeProfilesComputed uint64  `protobuf:"varint,57,opt,name=edge_profiles_computed,json=edgeProfilesComputed,proto3" json:"edge_profiles_computed,omitempty"`
+	// Subspans of solid_validation_ms.
+	BrepCheckMs        float64 `protobuf:"fixed64,58,opt,name=brep_check_ms,json=brepCheckMs,proto3" json:"brep_check_ms,omitempty"`
+	SolidMaterialMs    float64 `protobuf:"fixed64,59,opt,name=solid_material_ms,json=solidMaterialMs,proto3" json:"solid_material_ms,omitempty"`
+	ParallelBrepChecks uint32  `protobuf:"varint,60,opt,name=parallel_brep_checks,json=parallelBrepChecks,proto3" json:"parallel_brep_checks,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *PartRuntimeStats) Reset() {
@@ -5448,6 +5465,111 @@ func (x *PartRuntimeStats) GetRestoredMeshFaces() uint64 {
 func (x *PartRuntimeStats) GetMeshSeedMs() float64 {
 	if x != nil {
 		return x.MeshSeedMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetGeneratorPrepareMs() float64 {
+	if x != nil {
+		return x.GeneratorPrepareMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetBodyOperationMs() float64 {
+	if x != nil {
+		return x.BodyOperationMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetBooleanBuildMs() float64 {
+	if x != nil {
+		return x.BooleanBuildMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetMaterialWitnessMs() float64 {
+	if x != nil {
+		return x.MaterialWitnessMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetSameDomainMs() float64 {
+	if x != nil {
+		return x.SameDomainMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetSolidValidationMs() float64 {
+	if x != nil {
+		return x.SolidValidationMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetBrepSnapshotMs() float64 {
+	if x != nil {
+		return x.BrepSnapshotMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetCorrespondenceMs() float64 {
+	if x != nil {
+		return x.CorrespondenceMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetDisplayEdgesMs() float64 {
+	if x != nil {
+		return x.DisplayEdgesMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetEdgeProfileMs() float64 {
+	if x != nil {
+		return x.EdgeProfileMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetEdgeProfilesReused() uint64 {
+	if x != nil {
+		return x.EdgeProfilesReused
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetEdgeProfilesComputed() uint64 {
+	if x != nil {
+		return x.EdgeProfilesComputed
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetBrepCheckMs() float64 {
+	if x != nil {
+		return x.BrepCheckMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetSolidMaterialMs() float64 {
+	if x != nil {
+		return x.SolidMaterialMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetParallelBrepChecks() uint32 {
+	if x != nil {
+		return x.ParallelBrepChecks
 	}
 	return 0
 }
@@ -10114,13 +10236,17 @@ func (x *NamingHistoryReference) GetFullLineageCount() uint64 {
 }
 
 type NamingHistoryBlock struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	SchemaVersion        uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"` // block codec 1, independent of root schema 3
-	Values               *PartTopologyManifest  `protobuf:"bytes,2,opt,name=values,proto3" json:"values,omitempty"`                                     // one block-local transition, literals only, no tip or nested history
-	PreviousSha256       string                 `protobuf:"bytes,3,opt,name=previous_sha256,json=previousSha256,proto3" json:"previous_sha256,omitempty"`
-	PreviousLineageCount uint64                 `protobuf:"varint,4,opt,name=previous_lineage_count,json=previousLineageCount,proto3" json:"previous_lineage_count,omitempty"`
-	FullLineageCount     uint64                 `protobuf:"varint,5,opt,name=full_lineage_count,json=fullLineageCount,proto3" json:"full_lineage_count,omitempty"`
-	Layout               []*NamingHistorySpan   `protobuf:"bytes,6,rep,name=layout,proto3" json:"layout,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Codec 1 stores local adjacency indices. Codec 2 encodes each Evidence
+	// adjacent index as (one_based_index << 1) | from_predecessor. An odd
+	// index addresses the result of a fully expanded predecessor lineage row
+	// under previous_sha256. All other references and v3 roots remain local.
+	SchemaVersion        uint32                `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	Values               *PartTopologyManifest `protobuf:"bytes,2,opt,name=values,proto3" json:"values,omitempty"` // one block-local transition, literals only, no tip or nested history
+	PreviousSha256       string                `protobuf:"bytes,3,opt,name=previous_sha256,json=previousSha256,proto3" json:"previous_sha256,omitempty"`
+	PreviousLineageCount uint64                `protobuf:"varint,4,opt,name=previous_lineage_count,json=previousLineageCount,proto3" json:"previous_lineage_count,omitempty"`
+	FullLineageCount     uint64                `protobuf:"varint,5,opt,name=full_lineage_count,json=fullLineageCount,proto3" json:"full_lineage_count,omitempty"`
+	Layout               []*NamingHistorySpan  `protobuf:"bytes,6,rep,name=layout,proto3" json:"layout,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -16764,7 +16890,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\finput_digest\x18\x02 \x01(\tR\vinputDigest\x12\x1f\n" +
 	"\vgeometry_id\x18\x03 \x01(\tR\n" +
 	"geometryId\x12\x16\n" +
-	"\x06reused\x18\x04 \x01(\bR\x06reused\"\xf6\x0f\n" +
+	"\x06reused\x18\x04 \x01(\bR\x06reused\"\x97\x15\n" +
 	"\x10PartRuntimeStats\x12'\n" +
 	"\x0fstages_executed\x18\x01 \x01(\rR\x0estagesExecuted\x12#\n" +
 	"\rstages_reused\x18\x02 \x01(\rR\fstagesReused\x12'\n" +
@@ -16814,7 +16940,22 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x14frozen_prefix_stages\x18+ \x01(\rR\x12frozenPrefixStages\x12.\n" +
 	"\x13restored_mesh_faces\x18, \x01(\x04R\x11restoredMeshFaces\x12 \n" +
 	"\fmesh_seed_ms\x18- \x01(\x01R\n" +
-	"meshSeedMs\"\x93\x06\n" +
+	"meshSeedMs\x120\n" +
+	"\x14generator_prepare_ms\x18. \x01(\x01R\x12generatorPrepareMs\x12*\n" +
+	"\x11body_operation_ms\x18/ \x01(\x01R\x0fbodyOperationMs\x12(\n" +
+	"\x10boolean_build_ms\x180 \x01(\x01R\x0ebooleanBuildMs\x12.\n" +
+	"\x13material_witness_ms\x181 \x01(\x01R\x11materialWitnessMs\x12$\n" +
+	"\x0esame_domain_ms\x182 \x01(\x01R\fsameDomainMs\x12.\n" +
+	"\x13solid_validation_ms\x183 \x01(\x01R\x11solidValidationMs\x12(\n" +
+	"\x10brep_snapshot_ms\x184 \x01(\x01R\x0ebrepSnapshotMs\x12+\n" +
+	"\x11correspondence_ms\x185 \x01(\x01R\x10correspondenceMs\x12(\n" +
+	"\x10display_edges_ms\x186 \x01(\x01R\x0edisplayEdgesMs\x12&\n" +
+	"\x0fedge_profile_ms\x187 \x01(\x01R\redgeProfileMs\x120\n" +
+	"\x14edge_profiles_reused\x188 \x01(\x04R\x12edgeProfilesReused\x124\n" +
+	"\x16edge_profiles_computed\x189 \x01(\x04R\x14edgeProfilesComputed\x12\"\n" +
+	"\rbrep_check_ms\x18: \x01(\x01R\vbrepCheckMs\x12*\n" +
+	"\x11solid_material_ms\x18; \x01(\x01R\x0fsolidMaterialMs\x120\n" +
+	"\x14parallel_brep_checks\x18< \x01(\rR\x12parallelBrepChecks\"\x93\x06\n" +
 	"\fProfileCurve\x12\x1b\n" +
 	"\tentity_id\x18\x01 \x01(\tR\bentityId\x12\x1a\n" +
 	"\breversed\x18\x02 \x01(\bR\breversed\x12\x12\n" +

@@ -1590,19 +1590,39 @@ int solid_count(const TopoDS_Shape& shape) {
 
 void validate_body_solid_set(const TopoDS_Shape& shape, ShapeFacts* facts = nullptr) {
     if(facts){facts->check();if(facts->validated.find(shape)!=facts->validated.end())return;}
+    const auto started = std::chrono::steady_clock::now();
     if (shape.IsNull() || solid_count(shape) == 0)
         throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
-    if (!BRepCheck_Analyzer(shape).IsValid())
+    TopExp_Explorer faces(shape, TopAbs_FACE);
+    for (int i = 0; i < 128 && faces.More(); ++i) faces.Next();
+    // Use the Worker's bounded OCCT pool for large results. Keep both the
+    // geometric checks and the distance method of the existing analyzer.
+    const bool parallel = faces.More();
+    const auto analyzer_started = std::chrono::steady_clock::now();
+    if (!BRepCheck_Analyzer(shape, Standard_True, parallel).IsValid())
         throw std::runtime_error("INVALID_RESULT: solid operation produced invalid B-Rep");
+    const auto topology_started = std::chrono::steady_clock::now();
+    if (facts) facts->check();
     // A compound of several solids is legal. Loose faces, edges and vertices are
     // not Body material, even when the compound also contains valid solids.
     for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
         if (TopExp_Explorer(shape, type, TopAbs_SOLID).More())
             throw std::invalid_argument("INVALID_RESULT: body contains topology outside solids");
+    const auto material_started = std::chrono::steady_clock::now();
     for(TopExp_Explorer solids(shape,TopAbs_SOLID);solids.More();solids.Next())
         if(!has_material(solids.Current(),facts))
             throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
-    if(facts)facts->validated.insert(shape);
+    if (facts) {
+        facts->validated.insert(shape);
+        if (facts->stats) {
+            auto& stats = *facts->stats;
+            const auto ended = std::chrono::steady_clock::now();
+            stats.solid_validation_ms += std::chrono::duration<double,std::milli>(ended-started).count();
+            stats.brep_check_ms += std::chrono::duration<double,std::milli>(topology_started-analyzer_started).count();
+            stats.solid_material_ms += std::chrono::duration<double,std::milli>(ended-material_started).count();
+            stats.parallel_brep_checks += parallel;
+        }
+    }
 }
 
 struct BodyOperationResult {
@@ -2629,9 +2649,27 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     std::vector<NamedShape> mapped;
     std::vector<NamedShape> sources = input_named;
     sources.insert(sources.end(), tool.named.begin(), tool.named.end());
+    auto* timings = facts ? facts->stats : nullptr;
+    const auto elapsed = [](auto start) {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    };
+    const auto build_boolean = [&](auto& algorithm) {
+        const auto start = std::chrono::steady_clock::now();
+        algorithm.SetNonDestructive(Standard_True);
+        TopTools_ListOfShape arguments, tools;
+        arguments.Append(input);
+        tools.Append(tool.shape);
+        const Handle(Message_ProgressIndicator) progress = new PartProgress(facts ? facts->cancelled : std::function<bool()>{});
+        algorithm.SetArguments(arguments);
+        algorithm.SetTools(tools);
+        algorithm.Build(progress->Start());
+        if (timings) timings->boolean_build_ms += elapsed(start);
+        if (facts) facts->check();
+    };
     // Reuse the Boolean's own partition to ask whether a three-dimensional
     // material region exists. No mass integration or whole-body subtraction.
     const auto changed_material = [&](const auto& algorithm, bool addition) {
+        const auto start = std::chrono::steady_clock::now();
         if (facts) facts->check();
         const Handle(Message_ProgressIndicator) progress=new PartProgress(facts?facts->cancelled:std::function<bool()>{});
         TopTools_ListOfShape arguments, tools;
@@ -2649,7 +2687,9 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
             if(!delta.IsDone()||delta.HasErrors())throw std::runtime_error("MATERIAL_CHANGE_BOOLEAN_FAILED");
             changed=delta.Shape();
         }
-        return has_material(changed,facts);
+        const bool present = has_material(changed,facts);
+        if (timings) timings->material_witness_ms += elapsed(start);
+        return present;
     };
     const auto failed = [&](const char* diagnostic) {
         if (diagnose_loft) {
@@ -2661,11 +2701,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     };
     if (operation == "ADD") {
         BRepAlgoAPI_Fuse algorithm;
-        algorithm.SetNonDestructive(Standard_True);
-        TopTools_ListOfShape arguments,tools;arguments.Append(input);tools.Append(tool.shape);
-        const Handle(Message_ProgressIndicator) progress=new PartProgress(facts?facts->cancelled:std::function<bool()>{});
-        algorithm.SetArguments(arguments);algorithm.SetTools(tools);algorithm.Build(progress->Start());
-        if(facts)facts->check();
+        build_boolean(algorithm);
         if (!algorithm.IsDone())
             failed("body fuse failed");
         result = algorithm.Shape();
@@ -2674,11 +2710,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
             throw std::invalid_argument("NO_MATERIAL_CHANGE: add does not change the target body");
     } else if (operation == "REMOVE") {
         BRepAlgoAPI_Cut algorithm;
-        algorithm.SetNonDestructive(Standard_True);
-        TopTools_ListOfShape arguments,tools;arguments.Append(input);tools.Append(tool.shape);
-        const Handle(Message_ProgressIndicator) progress=new PartProgress(facts?facts->cancelled:std::function<bool()>{});
-        algorithm.SetArguments(arguments);algorithm.SetTools(tools);algorithm.Build(progress->Start());
-        if(facts)facts->check();
+        build_boolean(algorithm);
         if (!algorithm.IsDone())
             failed("body cut failed");
         result = algorithm.Shape();
@@ -2690,18 +2722,17 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
                 "NO_MATERIAL_CHANGE: cut does not intersect the target body");
     } else if (operation == "INTERSECT") {
         BRepAlgoAPI_Common algorithm;
-        algorithm.SetNonDestructive(Standard_True);
-        TopTools_ListOfShape arguments,tools;arguments.Append(input);tools.Append(tool.shape);
-        const Handle(Message_ProgressIndicator) progress=new PartProgress(facts?facts->cancelled:std::function<bool()>{});
-        algorithm.SetArguments(arguments);algorithm.SetTools(tools);algorithm.Build(progress->Start());
-        if(facts)facts->check();
+        build_boolean(algorithm);
         if (!algorithm.IsDone())
             failed("body common failed");
         result = algorithm.Shape();
         if (result.IsNull() || solid_count(result)==0)
             throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
         mapped = map_named_shapes(sources, algorithm, result);
-        if (!has_material_difference(input,result,facts))
+        const auto start = std::chrono::steady_clock::now();
+        const bool changed = has_material_difference(input,result,facts);
+        if (timings) timings->material_witness_ms += elapsed(start);
+        if (!changed)
             throw std::invalid_argument(
                 "NO_MATERIAL_CHANGE: intersection does not change the target body");
     } else {
@@ -2715,6 +2746,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     // would otherwise be exposed as several selectable faces.  Normalize the
     // completed operation before validation and content hashing.  This keeps the
     // B-Rep deterministic and makes a continuous planar skin one logical face.
+    const auto unify_started = std::chrono::steady_clock::now();
     ShapeUpgrade_UnifySameDomain unifier(result, Standard_True, Standard_True, Standard_False);
     unifier.SetSafeInputMode(Standard_True);
     unifier.Build();
@@ -2723,6 +2755,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
         facts->check();
     }
     result = unifier.Shape();
+    if (timings) timings->same_domain_ms += elapsed(unify_started);
     validate_body_solid_set(result, facts);
     auto derived = complete_boolean_topology_naming(result, mapped, tool.feature_id);
     std::vector<std::string> diagnostics;
@@ -5153,6 +5186,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             };
             if(modifier)++stats.modifier_calls;
             else ++stats.body_operation_calls;
+            const auto operation_started = std::chrono::steady_clock::now();
+            stats.generator_prepare_ms += std::chrono::duration<double,std::milli>(operation_started-exact_started).count();
             auto operation = spec.generator == "SOLID_PATTERN" && tool.shape.IsNull()
                 ? BodyOperationResult{result,live_named,{}, {}}
                 : spec.generator=="SOLID_PATTERN" && spec.pattern_result_mode=="INDEPENDENT" ? independent()
@@ -5161,13 +5196,17 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 : spec.generator=="SOLID_PATTERN" && (tool.private_boolean || !tool.through_holes.empty()) ? apply_private_pattern()
                 : modifier ? apply_local_modifier(result, live_named, spec, &facts)
                            : apply_body_operation(result, live_named, tool, spec.body_operation, spec.generator == "LOFT", &facts);
+            stats.body_operation_ms += std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-operation_started).count();
             result = operation.shape;
             result_validated=operation.validated;
             if(!result_validated) {
                 validate_body_solid_set(result,&facts);
                 result_validated=true;
             }
+            const auto snapshot_started = std::chrono::steady_clock::now();
             result_id = impl_->store(result);
+            const auto correspondence_started = std::chrono::steady_clock::now();
+            stats.brep_snapshot_ms += std::chrono::duration<double,std::milli>(correspondence_started-snapshot_started).count();
             impl_->shapes.at(result_id).validated=result_validated;
             // Only real unchanged-copy history grants correspondence. A stable
             // semantic ref by itself is insufficient: modified faces often retain
@@ -5212,6 +5251,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             }
             impl_->mesh_reuse.inherit(survivors,input_id,input_shape,result_id,result);
 
+            stats.correspondence_ms += std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-correspondence_started).count();
             stats.exact_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-exact_started).count();
             const auto naming_started=std::chrono::steady_clock::now();
             TopTools_IndexedMapOfShape final_faces;
@@ -5987,6 +6027,8 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             }
             result.timings.faces_ms = elapsed(extraction) - result.timings.edges_ms-result.timings.normals_ms;
             const auto edge_validation = std::chrono::steady_clock::now();
+            detail::MeshReuse::EdgeProfiles profiles;
+            std::vector<std::shared_ptr<BRepAdaptor_Surface>> surfaces(face_map.Extent());
             auto distance = [](const Vec3& a, const Vec3& b) { return std::hypot(a.x-b.x, a.y-b.y, a.z-b.z); };
             for (int id = 1; id <= edge_map.Extent(); ++id) {
                 const auto edge = TopoDS::Edge(edge_map(id));
@@ -6008,6 +6050,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                     for (int i = 1; i <= polygon->NbNodes(); ++i)
                         line.points.push_back(to_vec3(polygon->Nodes()(i).Transformed(location.Transformation())));
                     detail::append_edge_profile(result,id,edge,line.points,uses,check_cancel);
+                    ++result.timings.computed_edge_profiles;
                     result.edges.push_back(std::move(line));
                     continue;
                 }
@@ -6033,7 +6076,17 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                 }
                 result.edges.push_back({static_cast<uint64_t>(id), canonical});
                 const auto profile_start=std::chrono::steady_clock::now();
-                check_cancel();detail::append_edge_profile(result,id,edge,canonical,uses,check_cancel);
+                check_cancel();
+                if (reuse && !preserveBoundary && impl_->mesh_reuse.append_profile(geometry_id,id,canonical,uses,result,profiles)) {
+                    ++result.timings.reused_edge_profiles;
+                } else {
+                    const auto first = result.edge_profile.size();
+                    detail::prepare_edge_profile(uses,surfaces);
+                    detail::append_edge_profile(result,id,edge,canonical,uses,check_cancel);
+                    ++result.timings.computed_edge_profiles;
+                    if (!preserveBoundary)
+                        impl_->mesh_reuse.remember_profile(id,canonical,uses,result,first,profiles);
+                }
                 result.timings.edge_profile_ms+=elapsed(profile_start);
             }
             for (int id = 1; id <= vertex_map.Extent(); ++id)
@@ -6054,7 +6107,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             const auto& admission=fresh_cancelled?fresh_cancelled:cancelled;
             if(admission&&admission())throw std::runtime_error("EVALUATION_CANCELLED");
             if (!preserveBoundary) {
-                impl_->mesh_reuse.admit(geometry_id, source, [&](const auto& original) { return copy.ModifiedShape(original); });
+                impl_->mesh_reuse.admit(geometry_id, source, [&](const auto& original) { return copy.ModifiedShape(original); }, std::move(profiles));
                 if (capture_mesh_seed && result.triangles.size() >= 50'000)
                     result.mesh_seed = capture_mesh_packet(geometry_id, linear_deflection, angular_deflection, source, copy);
             }

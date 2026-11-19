@@ -111,6 +111,7 @@ Product 的机构／研究定义通过 `occccad://product/kinematics/set` 命令
 - Document 是容器；显式 Workspace 保存可变 Head/sequence/base，`document_versions` 是不可变 Revision 快照；
 - 每个新建或复制的 Document 自动建立 `main` Workspace；可以从任意所属 Revision 创建并列出 Branch Workspace；
 - Domain Transaction、typed command envelope、语义 ChangeSet、Revision parent、EvaluationRun、dependency edge 与 outbox 在 Head CAS 的同一短事务中追加；
+- 相同文档的 Revision 可以共享完全一致的依赖边集合。写入依据排序后的端点与边类型摘要选择更早的直接所有者，`dependency_edges` 仍按各 Revision 投影逻辑边。已冻结的行保留其归属，首次新写入的集合建立可复用所有者。节点输入和依赖结果继续由各自 Revision 的求值摘要绑定。
 - Restore 创建新的状态，而不是覆写历史；
 - Product 保存对子文档的引用和实例 Transform，不展开复制完整子树；
 

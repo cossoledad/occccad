@@ -20,6 +20,7 @@ type decodedNamingBlock struct {
 	retainedBytes          int
 	policyID, evaluator    string
 	queryOnly              bool
+	borrowed               map[*workerv1.SelectionEvidence][]predecessorAdjacency
 }
 type namingHistoryLoader func(context.Context, *workerv1.NamingHistoryReference) (*decodedNamingBlock, error)
 type namingHistoryLoadError struct{ error }
@@ -37,8 +38,18 @@ func decodeNamingBlock(ctx context.Context, data []byte, expected *workerv1.Nami
 		return nil, err
 	}
 	v := block.Values
-	if block.SchemaVersion != 1 || v == nil || len(v.History) != 0 || len(v.Transitions) != 1 || block.FullLineageCount != expected.FullLineageCount {
+	if (block.SchemaVersion != 1 && block.SchemaVersion != 2) || v == nil || len(v.History) != 0 || len(v.Transitions) != 1 || block.FullLineageCount != expected.FullLineageCount {
 		return nil, fmt.Errorf("invalid naming history block contract")
+	}
+	var predecessor *namingEvidencePredecessor
+	if block.SchemaVersion == 2 {
+		if len(block.PreviousSha256) != 64 || block.PreviousLineageCount == 0 {
+			return nil, fmt.Errorf("naming adjacency requires a predecessor")
+		}
+		predecessor = &namingEvidencePredecessor{count: block.PreviousLineageCount}
+		if includeEvidence {
+			predecessor.uses = make(map[*workerv1.SelectionEvidence][]predecessorAdjacency)
+		}
 	}
 	if len(v.Bodies)+len(v.Results) != 1 || len(v.Bodies) == 1 && len(v.Bodies[0].Tip) != 0 || len(v.Results) == 1 && len(v.Results[0].Tip) != 0 {
 		return nil, fmt.Errorf("history block contains a locator snapshot")
@@ -84,11 +95,14 @@ func decodeNamingBlock(ctx context.Context, data []byte, expected *workerv1.Nami
 			return nil, fmt.Errorf("overlapping naming carry ranges")
 		}
 	}
-	view, err := unpackNamingValuesWithEvidence(v, includeEvidence)
+	view, err := unpackNamingValuesWithEvidence(v, includeEvidence, predecessor)
 	if err != nil {
 		return nil, err
 	}
 	decoded := &decodedNamingBlock{view: view, layout: block.Layout, previous: block.PreviousSha256, previousRows: block.PreviousLineageCount, fullRows: block.FullLineageCount, retainedBytes: len(data) * 16, policyID: v.PolicyId, evaluator: v.EvaluatorVersion}
+	if predecessor != nil {
+		decoded.borrowed = predecessor.uses
+	}
 	if !includeEvidence {
 		decoded.queryOnly = true
 		decoded.layout = nil
@@ -120,6 +134,7 @@ func namingBlockForQueries(block *decodedNamingBlock) *decodedNamingBlock {
 	projected := *block
 	projected.view = &topologyManifest{GeometryID: block.view.GeometryID, FeatureResults: []*workerv1.FeatureResult{feature}}
 	projected.layout = nil
+	projected.borrowed = nil
 	projected.queryOnly = true
 	projected.retainedBytes = namingQueryBlockCharge(feature) + len(projected.previous) + len(projected.policyID) + len(projected.evaluator) + 512
 	return &projected
@@ -241,7 +256,25 @@ func expandNamingHistory(ctx context.Context, m *topologyManifest, maxRows uint6
 			return nil, fmt.Errorf("naming history expansion budget exceeded")
 		}
 		used += block.fullRows
-		f := proto.Clone(block.view.FeatureResults[0]).(*workerv1.FeatureResult)
+		source := block.view.FeatureResults[0]
+		f := proto.CloneOf(source)
+		if len(block.borrowed) != 0 {
+			if i == 0 || len(out[i-1].TopologyHistory.Lineage) != int(block.previousRows) {
+				return nil, fmt.Errorf("naming adjacency predecessor mismatch")
+			}
+			previous := out[i-1].TopologyHistory.Lineage
+			restore := func(value, from *workerv1.SelectionEvidence) {
+				for _, use := range block.borrowed[from] {
+					value.Adjacent[use.position] = previous[use.row-1].Result
+				}
+			}
+			for j, row := range f.TopologyHistory.Lineage {
+				restore(row.Evidence, source.TopologyHistory.Lineage[j].Evidence)
+			}
+			for j, row := range f.TopologyHistory.Deleted {
+				restore(row.Evidence, source.TopologyHistory.Deleted[j].Evidence)
+			}
+		}
 		literals := f.TopologyHistory.Lineage
 		f.TopologyHistory.Lineage = nil
 		for _, span := range block.layout {

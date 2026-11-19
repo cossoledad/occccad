@@ -600,6 +600,23 @@ message PartRuntimeStats {
     uint32 frozen_prefix_stages = 43;
     uint64 restored_mesh_faces = 44;
     double mesh_seed_ms = 45;
+    double generator_prepare_ms = 46;
+    double body_operation_ms = 47;
+    // These durations may be included in the enclosing body operation.
+    double boolean_build_ms = 48;
+    double material_witness_ms = 49;
+    double same_domain_ms = 50;
+    double solid_validation_ms = 51;
+    double brep_snapshot_ms = 52;
+    double correspondence_ms = 53;
+    double display_edges_ms = 54;
+    double edge_profile_ms = 55;
+    uint64 edge_profiles_reused = 56;
+    uint64 edge_profiles_computed = 57;
+    // Subspans of solid_validation_ms.
+    double brep_check_ms = 58;
+    double solid_material_ms = 59;
+    uint32 parallel_brep_checks = 60;
 }
 
 message ProfileCurve {
@@ -1121,7 +1138,11 @@ message NamingHistoryReference {
     uint64 full_lineage_count = 5;
 }
 message NamingHistoryBlock {
-    uint32 schema_version = 1; // block codec 1, independent of root schema 3
+    // Codec 1 stores local adjacency indices. Codec 2 encodes each Evidence
+    // adjacent index as (one_based_index << 1) | from_predecessor. An odd
+    // index addresses the result of a fully expanded predecessor lineage row
+    // under previous_sha256. All other references and v3 roots remain local.
+    uint32 schema_version = 1;
     PartTopologyManifest values = 2; // one block-local transition, literals only, no tip or nested history
     string previous_sha256 = 3;
     uint64 previous_lineage_count = 4;

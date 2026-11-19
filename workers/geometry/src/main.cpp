@@ -2050,6 +2050,17 @@ public:
             stats->set_queue_ms(queue_ms);
             stats->set_input_prepare_ms(std::chrono::duration<double,std::milli>(exact_started-acquired).count());
             stats->set_exact_ms(runtime_stats.exact_ms);
+            stats->set_generator_prepare_ms(runtime_stats.generator_prepare_ms);
+            stats->set_body_operation_ms(runtime_stats.body_operation_ms);
+            stats->set_boolean_build_ms(runtime_stats.boolean_build_ms);
+            stats->set_material_witness_ms(runtime_stats.material_witness_ms);
+            stats->set_same_domain_ms(runtime_stats.same_domain_ms);
+            stats->set_solid_validation_ms(runtime_stats.solid_validation_ms);
+            stats->set_brep_check_ms(runtime_stats.brep_check_ms);
+            stats->set_solid_material_ms(runtime_stats.solid_material_ms);
+            stats->set_parallel_brep_checks(runtime_stats.parallel_brep_checks);
+            stats->set_brep_snapshot_ms(runtime_stats.brep_snapshot_ms);
+            stats->set_correspondence_ms(runtime_stats.correspondence_ms);
             stats->set_naming_ms(runtime_stats.naming_ms);
             stats->set_cache_accounting_ms(runtime_stats.cache_accounting_ms);
             stats->set_cache_accounting_serializations(runtime_stats.cache_accounting_serializations);
@@ -2689,6 +2700,10 @@ private:
             response->mutable_runtime_stats()->set_mesh_ms(m.timings.meshing_ms);
             response->mutable_runtime_stats()->set_mesh_reused_faces(m.timings.reused_faces);
             response->mutable_runtime_stats()->set_mesh_computed_faces(m.timings.computed_faces);
+            response->mutable_runtime_stats()->set_display_edges_ms(m.timings.edges_ms);
+            response->mutable_runtime_stats()->set_edge_profile_ms(m.timings.edge_profile_ms);
+            response->mutable_runtime_stats()->set_edge_profiles_reused(m.timings.reused_edge_profiles);
+            response->mutable_runtime_stats()->set_edge_profiles_computed(m.timings.computed_edge_profiles);
             response->mutable_runtime_stats()->set_encoding_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count());
             size_t edge_points = 0; for (const auto& edge : m.edges) edge_points += edge.points.size();
             spdlog::info("edge_profile geometry={} sampling_ms={} normal_evaluations={} segments={} limited={}",

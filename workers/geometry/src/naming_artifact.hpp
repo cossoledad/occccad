@@ -9,6 +9,8 @@
 #include "naming_value_access.hpp"
 
 namespace occccad::worker {
+using NativeRefTable = std::unordered_map<const kernel::SemanticTopologyRef*, uint32_t, naming_detail::RefHash, naming_detail::RefEqual>;
+
 inline void expand_naming_references(v1::PartTopologyManifest& manifest) {
     if (!manifest.has_reference_dictionary()) return;
     if (manifest.semantic_refs_size()) throw std::invalid_argument("NAMING_REFERENCE_ENCODING_AMBIGUOUS");
@@ -77,7 +79,8 @@ inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& 
 // representation is retained; IDs still follow first occurrence, never hash
 // table iteration. Full wire keys retain exact equality, including unknowns.
 template<class ReadFeature>
-inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest& out, bool compact = false) {
+inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest& out, bool compact = false,
+                        const NativeRefTable* previous_refs = nullptr) {
     if (!count) throw std::invalid_argument("NAMING_OWNER_REQUIRED");
     const auto& first=read(0);
     const bool geometric=naming_detail::has_result(first);
@@ -124,7 +127,7 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
     // Native keys borrow immutable records, but hash/compare complete values.
     // A hit only skips conversion; full protobuf wire keys remain authoritative
     // on a miss (including ignored fields, signed zero and optional presence).
-    std::unordered_map<const kernel::SemanticTopologyRef*,uint32_t,naming_detail::RefHash,naming_detail::RefEqual> native_refs;
+    NativeRefTable native_refs;
     std::unordered_map<const kernel::SelectionEvidence*,uint32_t,naming_detail::EvidenceHash,naming_detail::EvidenceEqual> native_evidence;
     const auto ref = [&](const auto& value) {
         if constexpr(std::is_same_v<std::decay_t<decltype(value)>,kernel::SemanticTopologyRef>) {
@@ -133,7 +136,7 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
             const auto id=wire_ref(converted);native_refs.emplace(&value,id);return id;
         } else return wire_ref(value);
     };
-    auto wire_ev = [&](const v1::SelectionEvidence& value) {
+    auto wire_ev = [&](const v1::SelectionEvidence& value, const auto& adjacency) {
         v1::NamingEvidence packed;
         if(value.has_centroid()) *packed.mutable_centroid() = value.centroid();
         if (value.has_measure_si())
@@ -147,8 +150,21 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
         if (value.has_cone_leaf()) packed.set_cone_leaf(value.cone_leaf());
         if (value.has_material_side()) packed.set_material_side(value.material_side());
         if (value.has_x_direction()) *packed.mutable_x_direction() = value.x_direction();
-        for (const auto& adjacent : value.adjacent())
-            packed.add_adjacent(ref(adjacent));
+        for (const auto& adjacent : adjacency) {
+            if constexpr (std::is_same_v<std::decay_t<decltype(adjacent)>, kernel::SemanticTopologyRef>) {
+                if (previous_refs) {
+                    const auto previous = previous_refs->find(&adjacent);
+                    if (previous != previous_refs->end()) {
+                        packed.add_adjacent((previous->second << 1) | 1);
+                        continue;
+                    }
+                }
+            }
+            const auto local = ref(adjacent);
+            if (previous_refs && local > UINT32_MAX / 2)
+                throw std::invalid_argument("NAMING_LOCAL_REFERENCE_LIMIT");
+            packed.add_adjacent(previous_refs ? local << 1 : local);
+        }
         v1::NamingFrame* frame = nullptr;
         v1::NamingCurveRange* range = nullptr;
         const auto& kind = value.geometry_type();
@@ -193,9 +209,9 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
     const auto ev = [&](const auto& value) {
         if constexpr(std::is_same_v<std::decay_t<decltype(value)>,kernel::SelectionEvidence>) {
             const auto found=native_evidence.find(&value);if(found!=native_evidence.end())return found->second;
-            v1::SelectionEvidence converted;naming_detail::encode_evidence(value,&converted);
-            const auto id=wire_ev(converted);native_evidence.emplace(&value,id);return id;
-        } else return wire_ev(value);
+            v1::SelectionEvidence converted;naming_detail::encode_evidence(value,&converted,false);
+            const auto id=wire_ev(converted,value.adjacent);native_evidence.emplace(&value,id);return id;
+        } else return wire_ev(value,value.adjacent());
     };
     const auto write_snapshot = [&](auto* body) {
     for (size_t i = 0; i < count; ++i) {

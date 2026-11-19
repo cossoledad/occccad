@@ -10,6 +10,7 @@
 - 三种 localId 均从 1 开始；0 非法。`geometryKey + topology kind + localId` 仅在冻结结果内定位，不是持久身份。多个 primitive 可以重复同一个面/边的 locator，例如材质切分；localId 只在该 Body 的冻结 Geometry 内唯一；两个 Body 都可以具有 FACE 1。
 - 所有 bufferView 位于 GLB BIN chunk，按 4 字节对齐。当前实现读取紧密排列的 FLOAT/UINT32 accessor；不接受外部 URI。未来 accessor 编码能力扩展必须同步消费者或升级版本。
 - `OCCCCAD_visualization.schemaVersion=2` 的辅助显示 primitive 将 `positions` / `indices` 改为 accessor 索引，其余字段只保存选择与显示 metadata。辅助显示同时生成标准 glTF primitive；扩展中的所有权范围标记允许更新时替换二进制后缀。运行时会展开为原有显示对象，HTTP/WS DocumentView 不携带这些数组。
+- 新写入的 `featureAssociationTable.version=1` 共享 Feature ID、重复的归属列表和阵列成员列表。行通过拓扑类型和冻结 locator 定位，解码后提供 origin、primary、modifier、support 和 pattern member。已冻结的 Visual 2 可继续读取原 `featureAssociations` 对象。续算只需读取配对 GLB 的 JSON 块，几何变体重新使用同一套显示归属。
 - 删除 `stableIds`。SemanticTopologyRef 的序列化哈希既不是 stable ID，也不是 Visual 的职责。
 - 每个 Body 或几何 FeatureResult 使用自己的 GLB；Wire/Point 允许仅有 EDGE/VERTEX primitive，不含零 count 面 accessor。拾取归属来自 Revision 的 `bodyId` / `result` binding，持久拓扑身份来自同一 owner 的 Naming。多个 mesh/primitive 为 Material、LOD 等组预留扩展；需要新解码语义的功能必须声明 required extension 或升级 schema，不能默默把 LOD 候选全部绘制。
 
@@ -21,9 +22,9 @@
 
 - `naming.pb` 为根：`geometry_id` / `brep_sha256` 绑定冻结结果；`coordinate_space=PART_LOCAL`、`length_unit=mm`。位置为 mm，方向无量纲，measure 显式为 SI。根的 `transitions` 为空，`history` 顺序声明块的 SHA-256、大小、Feature、Geometry 和完整 lineage 行数。
 - `bodies` 或 `results` 恰有一个 owner，互斥。根保存当前 `tip_feature_id`、全链完整性与 typed locator → semantic/evidence 映射；Body 和几何 FeatureResult 不能混合。一个 Naming 根不组织整个 Part。
-- 每个 `NamingHistoryBlock` 的 codec `schema_version=1`，包含前驱 SHA / 行数、完整行数、一个 Feature 的 metadata、literal 变化行、删除、歧义和有序 `layout`。前驱为空的块必须从零行开始，后续块必须与根声明的直接前驱及行数一致。
+- 每个 `NamingHistoryBlock` 包含前驱 SHA / 行数、完整行数、一个 Feature 的 metadata、literal 变化行、删除、歧义和有序 `layout`。前驱为空的块从零行开始。后续块与根声明的直接前驱及行数绑定。codec 1 的邻接引用位于本块。codec 2 的偶数 token 引用本块，奇数 token 引用已绑定前驱完全展开后的谱系结果行。两者都从 1 编号，完整展开保留邻接顺序。已接纳前缀可以混合两种 codec。
 - LITERAL span 按序读取本块 literal 表；CARRY span 读取已验证前驱行的 result 和完整 evidence，重建 `UNCHANGED(result ← result)`。只有同引用、同完整证据的自延续可编码为 CARRY；类型变化、其他来源、删除或歧义不省略。span 中的 offset 是已校验块内位置，不是拓扑身份。边界、计数、重复继承范围及有序语义须验证；完整行序列可无损重建。
-- 块的 `values` 和根各有局部引用表与 `evidence` 表，均从 1 编号。当前编码使用 `reference_dictionary` 的字符串符号和有序来源列表。解码恢复完整的 `SemanticTopologyRef` 值。可证明与 tip 定位证据一致时，根还提供按展开历史行排列的定位表。块内不保存历史 locator 快照；根只保存当前 tip。跨块仍存在重复引用/证据，文件块并不保证每种模型的单个历史闭包最小。
+- 块的 `values` 和根各有局部引用表与 `evidence` 表，均从 1 编号。当前编码使用 `reference_dictionary` 的字符串符号和有序来源列表。解码恢复完整的 `SemanticTopologyRef` 值。可证明与 tip 定位证据一致时，根还提供按展开历史行排列的定位表。根的定位与证据可独立读取，历史块记录拓扑变化与证据继承。
 - Evidence 保留 Plane / Cylinder / Line / Circle / Point / Spline / Other typed 数据、公共质心、SI measure、digest、endpoint role 和邻接；不伪造 evaluator 未提供的值。Curve range 保留 LINE_MM、ANGLE_RADIANS 或 NATIVE_CURVE_PARAMETER 的原生约定，不能当成统一弧长。
 - Loader 校验根/全部块摘要及大小、policy/evaluator、Frame/单位、Feature/Geometry、单 owner、前驱、layout、表引用和 locator 唯一性。source/target Revision 及授权另行校验。部分缺失不能降级为“完整历史”，也不能按最近坐标改绑。
 
@@ -35,6 +36,6 @@ tip 绑定独立读取当前定位表。需要沿历史解析时校验全链并�
 
 ## 演进与验证边界
 
-生产不兼容读取旧 v1/v2 Naming；未发布开发数据通过 `mise run data:reset --yes` 重建。运行前重新构建 `mise run go:build`，避免旧迁移程序仍嵌入旧 SQL。Visual 仍为 schema 2；Naming 3 不表示 glTF 或 CAD 身份版本变化。新字段遵循 protobuf 字段号和显式 schema；Preview 仍为 transient，不形成正式 Revision。
+当前 Naming 根为 v3，历史块支持 codec 1 和 2。新制品输入键分别绑定 Naming 存储版本和显示策略版本。已接纳 Revision 继续引用原制品与摘要。持久选择继续使用 v8 策略，预览继续引用临时制品。
 
 `NamingArtifact.HistoryBlocksKeepLegacyBytesAndSurviveEvictionAndColdRebuild` 用冻结旧编码器比较完整展开后的逻辑 v2 字节。Router 验证各自冻结的 BREP、Naming 根及历史块摘要。恢复圆曲线后，OCCT 文本可将轴分量的零写成相反符号，连带改变 BREP 和证据摘要。对应回放测试核对 BREP 数值及拓扑排列、完整 Naming 的语义引用、证据、定位和有序历史，并逐份验证原摘要。Go 测试还覆盖旧扫描器、删除/重新出现/歧义顺序、错误闭包、缓存淘汰/取消、共享前缀依赖和精简查询视图。

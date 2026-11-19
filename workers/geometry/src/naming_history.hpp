@@ -181,18 +181,32 @@ public:
                 ++out.reused;
             } else {
                 v1::NamingHistoryBlock block;
-                block.set_schema_version(1);
+                const bool share_adjacency = i && previous_rows;
+                block.set_schema_version(share_adjacency ? 2 : 1);
                 block.set_previous_sha256(previous);
                 block.set_previous_lineage_count(previous_rows);
                 block.set_full_lineage_count(source->lineage().size());
                 auto* values = block.mutable_values();
                 policy(p, *values);
+                NativeRefTable previous_refs;
+                if (share_adjacency) {
+                    const auto& before = features.frozen(i - 1)->lineage();
+                    if (before.size() != previous_rows || before.size() > UINT32_MAX / 2)
+                        throw std::invalid_argument("NAMING_HISTORY_PREDECESSOR_MISMATCH");
+                    previous_refs.reserve(before.size());
+                    uint32_t ordinal = 0;
+                    for (const auto& lineage : before) {
+                        if ((ordinal & 1023) == 0 && cancelled && cancelled())
+                            throw std::runtime_error("EVALUATION_CANCELLED");
+                        previous_refs.emplace(&lineage.result, ++ordinal);
+                    }
+                }
                 pack_naming(
                     1,
                     [&](std::size_t) {
                         return naming_projection(*source, NamingProjection::literals);
                     },
-                    *values, true);
+                    *values, true, share_adjacency ? &previous_refs : nullptr);
                 values->set_geometry_id(h.result_geometry_id);
                 for (const auto& span : source->layout()) {
                     auto* row = block.add_layout();

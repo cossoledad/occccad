@@ -70,10 +70,20 @@ func namingReferences(m *workerv1.PartTopologyManifest) ([]*workerv1.SemanticTop
 }
 
 func unpackNamingValues(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
-	return unpackNamingValuesWithEvidence(m, true)
+	return unpackNamingValuesWithEvidence(m, true, nil)
 }
 
-func unpackNamingValuesWithEvidence(m *workerv1.PartTopologyManifest, includeEvidence bool) (*topologyManifest, error) {
+type predecessorAdjacency struct {
+	position int
+	row      uint32
+}
+
+type namingEvidencePredecessor struct {
+	count uint64
+	uses  map[*workerv1.SelectionEvidence][]predecessorAdjacency
+}
+
+func unpackNamingValuesWithEvidence(m *workerv1.PartTopologyManifest, includeEvidence bool, predecessor *namingEvidencePredecessor) (*topologyManifest, error) {
 	if len(m.Bodies)+len(m.Results) != 1 || m.GeometryId == "" || m.SchemaVersion != 3 || m.CoordinateSpace != "PART_LOCAL" || m.LengthUnit != "mm" {
 		return nil, fmt.Errorf("unsupported naming artifact contract")
 	}
@@ -117,6 +127,28 @@ func unpackNamingValuesWithEvidence(m *workerv1.PartTopologyManifest, includeEvi
 		}
 		return refs[id-1]
 	}
+	adjacency := func(e *workerv1.SelectionEvidence, indices []uint32) {
+		for position, id := range indices {
+			if predecessor != nil {
+				index := id >> 1
+				if id&1 != 0 {
+					if index == 0 || uint64(index) > predecessor.count {
+						failure = fmt.Errorf("invalid naming predecessor adjacency index %d", index)
+					}
+					if e != nil {
+						predecessor.uses[e] = append(predecessor.uses[e], predecessorAdjacency{position: position, row: index})
+						e.Adjacent = append(e.Adjacent, nil)
+					}
+					continue
+				}
+				id = index
+			}
+			value := ref(id)
+			if e != nil {
+				e.Adjacent = append(e.Adjacent, value)
+			}
+		}
+	}
 	var evidence []*workerv1.SelectionEvidence
 	if includeEvidence {
 		evidence = make([]*workerv1.SelectionEvidence, len(m.Evidence))
@@ -158,17 +190,13 @@ func unpackNamingValuesWithEvidence(m *workerv1.PartTopologyManifest, includeEvi
 			}
 		}
 		if !includeEvidence {
-			for _, id := range e.Adjacent {
-				ref(id)
-			}
+			adjacency(nil, e.Adjacent)
 			continue
 		}
 		v := &workerv1.SelectionEvidence{Centroid: e.Centroid, MeasureSi: e.MeasureSi, MeasureDimension: e.MeasureDimension, EvidenceDigest: e.EvidenceDigest, EndpointRole: e.EndpointRole, GeometryType: kind}
 		v.MinorRadiusMm = e.MinorRadiusMm
 		v.RadiusMm, v.HalfAngleRadians, v.ConeLeaf, v.MaterialSide, v.XDirection = e.RadiusMm, e.HalfAngleRadians, e.ConeLeaf, e.MaterialSide, e.XDirection
-		for _, id := range e.Adjacent {
-			v.Adjacent = append(v.Adjacent, ref(id))
-		}
+		adjacency(v, e.Adjacent)
 		if isPoint {
 			v.Origin, v.Direction = point, &workerv1.Vec3{}
 		}

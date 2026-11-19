@@ -166,7 +166,15 @@ func resolveQualifiedParameterSource(model PartModel, source string) (string, er
 }
 
 func presentParameters(model *PartModel) {
+	features := make(map[string]*Feature, len(model.Features))
+	for i := range model.Features {
+		feature := &model.Features[i]
+		if features[feature.ID] == nil {
+			features[feature.ID] = feature
+		}
+	}
 	for i := range model.Parameters {
-		model.Parameters[i] = parameterPresentation(*model, model.Parameters[i])
+		parameter := model.Parameters[i]
+		model.Parameters[i] = presentPartParameter(*model, parameter, features[parameter.OwnerFeatureID])
 	}
 }

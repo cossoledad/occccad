@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/occccad/occccad/internal/modelcore"
 	"slices"
-
-	perf "github.com/occccad/occccad/internal/performance"
 	"strings"
+
+	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 )
 
 func projectPartDocument(ctx context.Context, service *Service, summary DocumentSummary, modelJSON []byte) (DocumentView, error) {
@@ -28,6 +28,12 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 		e := partElementPresentation(model, model.Publications[i].Target)
 		model.Publications[i].Resolution.Element = &e
 	}
+	finishStructure := perf.Start(ctx, "structure-project")
+	path := "document:" + summary.ID
+	structure := DocumentStructureNode{ID: path, Kind: summary.Type, Name: summary.Name, ReferenceName: summary.Name,
+		DocumentID: summary.ID, DocumentType: summary.Type, VersionID: summary.VersionID}
+	structure.Children = normalizedPartStructureChildren(model, path, summary.ID, summary.VersionID, true)
+	finishStructure()
 	service.projectMeasurements(ctx, summary.ID, summary.VersionID, model.Measurements)
 	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
 		return view, err
@@ -65,14 +71,10 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 	if err != nil {
 		return view, err
 	}
-	finishStructure := perf.Start(ctx, "structure-project")
-	structure, err := service.buildDocumentStructure(ctx, summary.VersionID,
-		"document:"+summary.ID, summary.Name, InstancePath{RootDocumentID: summary.ID}, map[string]bool{})
-	finishStructure()
-	if err != nil {
-		return view, err
-	}
+	finishStructure = perf.Start(ctx, "structure-project")
+	finishPartStructure(&structure, model)
 	bindStructureReferenceCurrency(&structure, view.ReferenceUpdates)
+	finishStructure()
 	view.StructureTree = &structure
 	return view, nil
 }
@@ -220,19 +222,23 @@ func projectPartStructure(ctx context.Context, service *Service, root DocumentSt
 	if err := service.projectFrozenPublications(ctx, documentID, versionID, &model); err != nil {
 		return root, err
 	}
-	root.Children = partStructureChildren(model, path, documentID, versionID, true)
+	root.Children = normalizedPartStructureChildren(model, path, documentID, versionID, true)
 	service.projectMeasurements(ctx, documentID, versionID, model.Measurements)
 	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
 		return DocumentStructureNode{}, err
 	}
+	finishPartStructure(&root, model)
+	return root, nil
+}
+
+func finishPartStructure(root *DocumentStructureNode, model PartModel) {
 	if len(model.Measurements) > 0 {
-		root.Children = append(root.Children, measurementStructure(documentID, versionID, path, model.Measurements, model.Parameters))
+		root.Children = append(root.Children, measurementStructure(root.DocumentID, root.VersionID, root.ID, model.Measurements, model.Parameters))
 	}
 	root.Children = parametersAfterApplications(root.Children)
 	rootPath := root.InstancePath
 	applyInstancePath(root.Children, rootPath)
-	annotateStructure(&root, documentID, "")
-	return root, nil
+	annotateStructure(root, root.DocumentID, "")
 }
 
 func projectProductStructure(ctx context.Context, service *Service, root DocumentStructureNode, modelJSON []byte, occurrenceIdentity InstancePath, visiting map[string]bool) (DocumentStructureNode, error) {

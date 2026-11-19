@@ -1,4 +1,5 @@
 import { packedMesh, type MeshBuffers } from "./packed-mesh";
+import { decodeFeatureAssociationTable } from "./feature-association-table";
 import type { MeshData, VisualizationManifest, Vec3 } from "../../types";
 export type DecodedVisual = {
     mesh: MeshData;
@@ -95,6 +96,10 @@ export function decodeMeshGLB(buffer: ArrayBuffer): DecodedVisual {
     }
     if (visualization) {
         if (visualization.schemaVersion !== 2) throw new Error("Unsupported visualization schema");
+        if (visualization.featureAssociationTable !== undefined) {
+            visualization.featureAssociations = decodeFeatureAssociationTable(visualization.featureAssociationTable);
+            delete visualization.featureAssociationTable;
+        }
         for (const p of visualization.primitives ?? []) {
             p.positions = p.positions === undefined ? [] : vectors(read(p.positions, 3, 5126));
             if (p.indices !== undefined) p.indices = Array.from(read(p.indices, 1, 5125));

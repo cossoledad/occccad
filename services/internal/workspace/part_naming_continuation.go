@@ -47,14 +47,14 @@ func (s *Service) adoptNamingContinuation(ctx context.Context, checkpoint partCh
 	if err != nil {
 		return nil, ctx.Err()
 	}
-	v, err := frozenVisualization(reader, visual.Size, previous.GeometryId, checkpoint.continuation.Naming.Sha256)
+	associations, err := readFrozenAssociations(reader, visual.Size, previous.GeometryId, checkpoint.continuation.Naming.Sha256)
 	reader.Close()
-	if err != nil || v.FeatureAssociations == nil || len(v.FeatureAssociations.Elements) != len(before.SemanticOutputs) {
+	if err != nil || associations == nil || len(associations.Elements) != len(before.SemanticOutputs) {
 		return nil, ctx.Err()
 	}
 	states := make(map[string]FeatureTopologyAssociation, len(before.SemanticOutputs))
-	byLocator := make(map[string]FeatureTopologyAssociation, len(v.FeatureAssociations.Elements))
-	for _, element := range v.FeatureAssociations.Elements {
+	byLocator := make(map[string]FeatureTopologyAssociation, len(associations.Elements))
+	for _, element := range associations.Elements {
 		byLocator[fmt.Sprintf("%s:%d", element.Kind, element.LocalID)] = element
 	}
 	for _, output := range before.SemanticOutputs {
@@ -126,6 +126,6 @@ func (s *Service) adoptNamingContinuation(ctx context.Context, checkpoint partCh
 		return nil, err
 	}
 	nextTip.FeatureResults = suffix
-	nextTip.associations = deriveFeatureAssociationsFrom(nextTip, states, v.FeatureAssociations.Features)
+	nextTip.associations = deriveFeatureAssociationsFrom(nextTip, states, associations.Features)
 	return nextTip, nil
 }

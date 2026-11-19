@@ -12,9 +12,19 @@ namespace api = occccad::worker::v1;
 
 namespace {
 api::SemanticTopologyRef stored_ref(const api::PartTopologyManifest& values,uint32_t id) {return values.semantic_refs(id-1);}
-api::SelectionEvidence stored_evidence(const api::PartTopologyManifest& values,uint32_t id) {
+api::SelectionEvidence stored_evidence(const api::PartTopologyManifest& values,uint32_t id,
+                                       const api::TopologyHistory* predecessor = nullptr) {
     api::SelectionEvidence out;
-    occccad::worker::naming_detail::encode_evidence(occccad::worker::read_naming_evidence(values.evidence(id-1),values),&out);
+    auto evidence = values.evidence(id-1);
+    if (predecessor) evidence.clear_adjacent();
+    occccad::worker::naming_detail::encode_evidence(occccad::worker::read_naming_evidence(evidence,values),&out);
+    if (predecessor) {
+        for (const auto encoded : values.evidence(id-1).adjacent()) {
+            const auto index = encoded >> 1;
+            *out.add_adjacent() = encoded & 1 ? predecessor->lineage(index-1).result()
+                                             : stored_ref(values, index);
+        }
+    }
     return out;
 }
 std::vector<api::FeatureResult> expanded_history(const occccad::worker::EncodedNamingHistory& encoded) {
@@ -23,6 +33,7 @@ std::vector<api::FeatureResult> expanded_history(const occccad::worker::EncodedN
         api::NamingHistoryBlock block;if(!block.ParseFromArray(payload->bytes.data(),static_cast<int>(payload->bytes.size())))throw std::runtime_error("invalid test block");
         occccad::worker::expand_naming_references(*block.mutable_values());
         const auto& values=block.values();const auto& source=values.transitions(0);
+        const auto* previous = block.schema_version() == 2 ? &result.back().topology_history() : nullptr;
         api::FeatureResult feature;feature.set_feature_id(source.feature_id());feature.set_body_id(source.body_id());
         if(source.has_result())*feature.mutable_result()=source.result();
         feature.set_input_feature_id(source.input_feature_id());feature.set_profile_feature_id(source.profile_feature_id());feature.set_result_geometry_id(source.result_geometry_id());feature.set_topology_history_complete(source.complete());
@@ -36,10 +47,10 @@ std::vector<api::FeatureResult> expanded_history(const occccad::worker::EncodedN
             } else {
                 const auto& old=source.lineage(static_cast<int>(span.offset()+i));
                 *row->mutable_result()=stored_ref(values,old.result());for(auto ref:old.sources())*row->add_sources()=stored_ref(values,ref);
-                *row->mutable_evidence()=stored_evidence(values,old.evidence());row->set_kind(old.kind());
+                *row->mutable_evidence()=stored_evidence(values,old.evidence(),previous);row->set_kind(old.kind());
             }
         }
-        for(const auto& d:source.deleted()){auto* row=history->add_deleted();*row->mutable_source()=stored_ref(values,d.source());*row->mutable_evidence()=stored_evidence(values,d.evidence());row->set_reason(d.reason());}
+        for(const auto& d:source.deleted()){auto* row=history->add_deleted();*row->mutable_source()=stored_ref(values,d.source());*row->mutable_evidence()=stored_evidence(values,d.evidence(),previous);row->set_reason(d.reason());}
         for(const auto& a:source.ambiguous()){auto* row=history->add_ambiguous();for(auto ref:a.sources())*row->add_sources()=stored_ref(values,ref);for(auto ref:a.candidates())*row->add_candidates()=stored_ref(values,ref);row->set_diagnostic_code(a.diagnostic_code());}
         result.push_back(std::move(feature));
     }
@@ -78,6 +89,10 @@ TEST(NamingArtifact, HistoryBlocksKeepLegacyBytesAndSurviveEvictionAndColdRebuil
         EXPECT_EQ(expected.SerializeAsString(),actual.SerializeAsString());
     }
     EXPECT_GT(encoded.blocks.back()->carries,0U);
+    api::NamingHistoryBlock changed;
+    ASSERT_TRUE(changed.ParseFromArray(encoded.blocks[2]->bytes.data(), static_cast<int>(encoded.blocks[2]->bytes.size())));
+    EXPECT_EQ(changed.schema_version(), 2U);
+    EXPECT_EQ(changed.values().evidence(0).adjacent(0), 3U);
     // The full prefix does not fit this memo. Rebuilding missing early blocks
     // must not evict the tail before the same request can reuse it.
     occccad::worker::NamingHistoryEncoder bounded(1024);

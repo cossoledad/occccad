@@ -302,8 +302,8 @@ func TestGrowingTopologyPartFeaturesAndNamingThroughRouter(t *testing.T) {
 			t.Fatal("invalid naming block accounting", step, mustRuntimeJSON(run))
 		}
 		if step == 20 || step == 50 || step == 100 || step == 500 || step == 1000 || step == count {
-			if step >= 20 && run.MeshReusedFaces == 0 {
-				t.Fatal("accepted BREP reload discarded every unaffected face mesh", step, mustRuntimeJSON(run))
+			if step >= 20 && (run.MeshReusedFaces == 0 || run.EdgeProfilesReused == 0) {
+				t.Fatal("accepted BREP reload discarded every unaffected face mesh or edge profile", step, mustRuntimeJSON(run))
 			}
 			if math.Abs(measuredArtifactVolume(t, artifact)-expectedVolume) > 1e-5 {
 				t.Fatal("sampled growing stage has different material volume", step)
@@ -391,45 +391,24 @@ func TestGrowingTopologyPartFeaturesAndNamingThroughRouter(t *testing.T) {
 // Compare the exact BREP tokens and every typed Naming table in that case.
 func assertExactPartReplay(t *testing.T, artifacts *artifactstore.Service, accepted, cold workspace.Artifact) {
 	t.Helper()
-	if accepted.Representations["BREP"].Digest == cold.Representations["BREP"].Digest {
-		if accepted.Representations["NAMING"].Digest != cold.Representations["NAMING"].Digest {
-			t.Fatal("cold Naming differs for the same BREP")
-		}
+	sameBRep := accepted.Representations["BREP"].Digest == cold.Representations["BREP"].Digest
+	if sameBRep && accepted.Representations["NAMING"].Digest == cold.Representations["NAMING"].Digest {
 		return
 	}
 	ctx := t.Context()
-	readArtifact := func(rep workspace.Representation) []byte {
-		t.Helper()
-		object, reader, err := artifacts.Open(ctx, rep.ObjectID)
-		if err != nil {
-			t.Fatal(err)
+	readArtifact := func(rep workspace.Representation) []byte { return readPartReplayArtifact(t, artifacts, rep) }
+	if !sameBRep {
+		left := bytes.Fields(readArtifact(accepted.Representations["BREP"]))
+		right := bytes.Fields(readArtifact(cold.Representations["BREP"]))
+		if len(left) != len(right) {
+			t.Fatal("cold BREP token count differs")
 		}
-		data, err := io.ReadAll(reader)
-		closeErr := reader.Close()
-		if err != nil || closeErr != nil || int64(len(data)) != rep.Size ||
-			object.SHA256 != rep.Digest || fmt.Sprintf("%x", sha256.Sum256(data)) != rep.Digest {
-			t.Fatal("replay artifact failed its own integrity check", rep.ObjectID, err, closeErr)
+		isZero := func(token []byte) bool { return bytes.Equal(token, []byte("-0")) || bytes.Equal(token, []byte("0")) }
+		for i, token := range left {
+			if !bytes.Equal(token, right[i]) && (!isZero(token) || !isZero(right[i])) {
+				t.Fatalf("cold BREP token %d differs: %s / %s", i, token, right[i])
+			}
 		}
-		return data
-	}
-	left := bytes.Fields(readArtifact(accepted.Representations["BREP"]))
-	right := bytes.Fields(readArtifact(cold.Representations["BREP"]))
-	if len(left) != len(right) {
-		t.Fatal("cold BREP token count differs")
-	}
-	isZero := func(token []byte) bool { return bytes.Equal(token, []byte("-0")) || bytes.Equal(token, []byte("0")) }
-	zeroDifferences := 0
-	for i, token := range left {
-		if bytes.Equal(token, right[i]) {
-			continue
-		}
-		if !isZero(token) || !isZero(right[i]) {
-			t.Fatalf("cold BREP token %d differs: %s / %s", i, token, right[i])
-		}
-		zeroDifferences++
-	}
-	if zeroDifferences == 0 {
-		t.Fatal("cold BREP digest changed without a signed zero difference")
 	}
 	normalize := func(m *workerv1.PartTopologyManifest) {
 		m.GeometryId, m.BrepSha256 = "", ""
@@ -467,12 +446,12 @@ func assertExactPartReplay(t *testing.T, artifacts *artifactstore.Service, accep
 	if !proto.Equal(roots[0], roots[1]) || len(histories[0]) != len(histories[1]) {
 		t.Fatal("cold Naming type, reference or tip locator differs")
 	}
+	sharedRefs := map[string]uint32{}
+	var previousRows [2][]uint32
+	differentCodec := false
 	for n, ref := range histories[0] {
 		if ref.FeatureId != histories[1][n].FeatureId || ref.FullLineageCount != histories[1][n].FullLineageCount {
 			t.Fatalf("cold Naming history differs at stage %d", n+1)
-		}
-		if ref.Sha256 == histories[1][n].Sha256 {
-			continue
 		}
 		var blocks [2]*workerv1.NamingHistoryBlock
 		for i, history := range histories {
@@ -491,13 +470,126 @@ func assertExactPartReplay(t *testing.T, artifacts *artifactstore.Service, accep
 			}
 			block.PreviousSha256 = ""
 			normalize(block.Values)
+			previousRows[i] = canonicalReplayNamingRefs(t, block, previousRows[i], sharedRefs)
 			blocks[i] = block
 		}
+		differentCodec = differentCodec || blocks[0].SchemaVersion != blocks[1].SchemaVersion
+		blocks[0].SchemaVersion, blocks[1].SchemaVersion = 0, 0
 		if !proto.Equal(blocks[0], blocks[1]) {
 			t.Fatalf("cold Naming typed lineage or evidence differs at stage %d", n+1)
 		}
 	}
-	t.Logf("replay matched all BREP tokens except signed zero and %d typed Naming stages after verifying their own digest bindings", len(histories[0]))
+	if sameBRep && !differentCodec {
+		t.Fatal("cold Naming digest differs for the same BREP and codec")
+	}
+	t.Logf("replay matched BREP (identical digest=%t) and %d typed Naming stages (different codec=%t)", sameBRep, len(histories[0]), differentCodec)
+}
+
+func readPartReplayArtifact(t *testing.T, artifacts *artifactstore.Service, rep workspace.Representation) []byte {
+	t.Helper()
+	object, reader, err := artifacts.Open(t.Context(), rep.ObjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if err != nil || closeErr != nil || int64(len(data)) != rep.Size ||
+		object.SHA256 != rep.Digest || fmt.Sprintf("%x", sha256.Sum256(data)) != rep.Digest {
+		t.Fatal("replay artifact failed its own integrity check", rep.ObjectID, err, closeErr)
+	}
+	return data
+}
+
+// The replay oracle compares typed references and ordered adjacency across
+// codecs. Temporary ordinals represent exact decoded tuples on both sides.
+func canonicalReplayNamingRefs(t *testing.T, block *workerv1.NamingHistoryBlock, previous []uint32, shared map[string]uint32) []uint32 {
+	t.Helper()
+	values := block.Values
+	if (block.SchemaVersion != 1 && block.SchemaVersion != 2) || uint64(len(previous)) != block.PreviousLineageCount {
+		t.Fatal("invalid replay block codec or predecessor")
+	}
+	intern := func(ref *workerv1.SemanticTopologyRef) uint32 {
+		raw, err := proto.Marshal(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := string(raw)
+		if shared[key] == 0 {
+			shared[key] = uint32(len(shared) + 1)
+		}
+		return shared[key]
+	}
+	var local []uint32
+	if dictionary := values.ReferenceDictionary; dictionary != nil {
+		symbol := func(id uint32) string { return dictionary.Symbols[id-1] }
+		sourceLists := make([][]string, len(dictionary.SourceLists)+1)
+		for i, list := range dictionary.SourceLists {
+			for _, id := range list.Symbols {
+				sourceLists[i+1] = append(sourceLists[i+1], symbol(id))
+			}
+		}
+		local = make([]uint32, len(dictionary.Rows))
+		for i, row := range dictionary.Rows {
+			local[i] = intern(&workerv1.SemanticTopologyRef{FeatureId: symbol(row.Feature), OutputSlot: symbol(row.Slot), SourceIds: sourceLists[row.Sources]})
+		}
+	} else {
+		for _, ref := range values.SemanticRefs {
+			local = append(local, intern(ref))
+		}
+	}
+	lookup := func(ids []uint32, id uint32) uint32 {
+		if id == 0 || uint64(id) > uint64(len(ids)) {
+			t.Fatalf("invalid replay reference %d of %d", id, len(ids))
+		}
+		return ids[id-1]
+	}
+	remap := func(ids []uint32) {
+		for i, id := range ids {
+			ids[i] = lookup(local, id)
+		}
+	}
+	for _, evidence := range values.Evidence {
+		for i, token := range evidence.Adjacent {
+			switch {
+			case block.SchemaVersion == 1:
+				evidence.Adjacent[i] = lookup(local, token)
+			case token&1 == 0:
+				evidence.Adjacent[i] = lookup(local, token>>1)
+			default:
+				evidence.Adjacent[i] = lookup(previous, token>>1)
+			}
+		}
+	}
+	values.ReferenceDictionary, values.SemanticRefs = nil, nil
+	stage := values.Transitions[0]
+	literals := make([]uint32, len(stage.Lineage))
+	for i, row := range stage.Lineage {
+		row.Result = lookup(local, row.Result)
+		literals[i] = row.Result
+		remap(row.Sources)
+	}
+	for _, row := range stage.Deleted {
+		row.Source = lookup(local, row.Source)
+	}
+	for _, row := range stage.Ambiguous {
+		remap(row.Sources)
+		remap(row.Candidates)
+	}
+	expanded := make([]uint32, 0, block.FullLineageCount)
+	for _, span := range block.Layout {
+		rows := literals
+		if span.Carry {
+			rows = previous
+		}
+		if span.Count == 0 || span.Offset > uint64(len(rows)) || span.Count > uint64(len(rows))-span.Offset {
+			t.Fatal("invalid replay lineage layout")
+		}
+		expanded = append(expanded, rows[span.Offset:span.Offset+span.Count]...)
+	}
+	if uint64(len(expanded)) != block.FullLineageCount {
+		t.Fatal("incomplete replay lineage layout")
+	}
+	return expanded
 }
 
 // Optional cross-build replay uses an existing development document so that
@@ -527,7 +619,9 @@ func TestStoredGrowingTopologyNamingReplayThroughRouter(t *testing.T) {
 	if err != nil || current.Document.VersionID != view.Document.VersionID {
 		t.Fatal("cross-build preview moved Head", err)
 	}
-	t.Logf("stored-growing-replay features=%d elapsed_ms=%.3f exact_geometry_and_typed_naming_unchanged=true", len(view.Part.Features), float64(elapsed)/float64(time.Millisecond))
+	t.Logf("stored-growing-replay features=%d elapsed_ms=%.3f brep=%s naming=%s visual=%s exact_geometry_and_typed_naming_unchanged=true",
+		len(view.Part.Features), float64(elapsed)/float64(time.Millisecond), cold.Artifact.Representations["BREP"].Digest,
+		cold.Artifact.Representations["NAMING"].Digest, cold.Artifact.Representations["VISUAL"].Digest)
 }
 
 func TestStoredFixedPartContinuationThroughFreshRouter(t *testing.T) {
@@ -535,7 +629,7 @@ func TestStoredFixedPartContinuationThroughFreshRouter(t *testing.T) {
 	if id == "" {
 		t.Skip("requires an accepted fixed-topology performance fixture")
 	}
-	service, _, _, _, _ := featureAssociationRuntimeService(t)
+	service, artifacts, _, _, _ := featureAssociationRuntimeService(t)
 	ctx, timings := perf.WithRecorder(t.Context())
 	view, err := service.GetDocument(t.Context(), id)
 	if err != nil {
@@ -564,9 +658,18 @@ func TestStoredFixedPartContinuationThroughFreshRouter(t *testing.T) {
 	if err != nil || cold.Artifact == nil {
 		t.Fatal("full-chain preview unavailable", err)
 	}
-	for _, role := range []string{"BREP", "NAMING", "VISUAL"} {
-		if preview.Artifact.Representations[role].Digest != cold.Artifact.Representations[role].Digest {
-			t.Fatalf("checkpoint %s differs from fully cold evaluation", role)
+	assertExactPartReplay(t, artifacts, *preview.Artifact, *cold.Artifact)
+	warmNaming, coldNaming := preview.Artifact.Representations["NAMING"].Digest, cold.Artifact.Representations["NAMING"].Digest
+	warmVisual, coldVisual := preview.Artifact.Representations["VISUAL"], cold.Artifact.Representations["VISUAL"]
+	if warmVisual.Digest != coldVisual.Digest {
+		// Old immutable prefix blocks produce different artifact digests even
+		// when every typed Naming value is identical. The display still has
+		// to match byte-for-byte, except for its verified geometry association.
+		warm, cold := readPartReplayArtifact(t, artifacts, warmVisual), readPartReplayArtifact(t, artifacts, coldVisual)
+		binding := func(digest string) []byte { return []byte(`"namingDigest":"` + digest + `"`) }
+		if bytes.Count(warm, binding(warmNaming)) != 1 || bytes.Count(cold, binding(coldNaming)) != 1 ||
+			!bytes.Equal(bytes.Replace(warm, binding(warmNaming), binding(coldNaming), 1), cold) {
+			t.Fatal("checkpoint display differs from fully cold evaluation")
 		}
 	}
 	commit, commitTimes := perf.WithRecorder(t.Context())
@@ -972,6 +1075,7 @@ func TestPartFeatureChainIncrementalAndColdThroughRouter(t *testing.T) {
 	}
 	checkVolume(200000 - 8*20*math.Pi)
 	checkRuns(8, 1)
+	beforeEdit := view.Document.VersionID
 	var edited workspace.Feature
 	for _, f := range view.Part.Features {
 		if f.ID == cuts[2] {
@@ -982,6 +1086,23 @@ func TestPartFeatureChainIncrementalAndColdThroughRouter(t *testing.T) {
 	apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: edited.ID, Feature: &edited, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, edited.ID)})
 	checkVolume(200000 - (7*20+15)*math.Pi)
 	checkRuns(3, 6)
+	var owner string
+	var stored, logical, previous, differences int
+	if err := db.QueryRow(ctx, `SELECT COALESCE(dependency_edge_owner::text,'') FROM occccad.document_versions WHERE id=$1`, view.Document.VersionID).Scan(&owner); err != nil || owner != beforeEdit {
+		t.Fatalf("edited revision did not reuse the same dependency endpoints: %q / %q (%v)", owner, beforeEdit, err)
+	}
+	if err := db.QueryRow(ctx, `
+SELECT (SELECT count(*) FROM occccad.dependency_edge_rows WHERE revision_id=$1),
+       (SELECT count(*) FROM occccad.dependency_edges WHERE revision_id=$1),
+       (SELECT count(*) FROM occccad.dependency_edges WHERE revision_id=$2),
+       (SELECT count(*) FROM (
+           SELECT source_key,target_key,edge_kind FROM occccad.dependency_edges WHERE revision_id=$2
+           EXCEPT
+           SELECT source_key,target_key,edge_kind FROM occccad.dependency_edges WHERE revision_id=$1
+       ) AS difference)`, view.Document.VersionID, beforeEdit).Scan(&stored, &logical, &previous, &differences); err != nil ||
+		stored != 0 || logical == 0 || logical != previous || differences != 0 {
+		t.Fatalf("dependency projection changed: stored=%d logical=%d previous=%d differences=%d (%v)", stored, logical, previous, differences, err)
+	}
 	accepted := activeBodyArtifact(t, view)
 	head := view.Document.VersionID
 	cold, e := service.PreviewCommand(workspace.WithColdEvaluation(ctx), view.Document.ID, workspace.CommandRequest{Type: "EDIT_FEATURE", ActorID: p6Actor, RequestID: view.Document.ID + "-part-chain-cold", TargetID: edited.ID, Feature: &edited, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, edited.ID)})

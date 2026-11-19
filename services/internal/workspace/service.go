@@ -34,9 +34,10 @@ const geometryValidationPolicy = "occccad.geometry.brep-valid.v1"
 
 const evaluatorVersion = "part-solid-generators-v82-frozen-prefix"
 
-// Display algorithm changes qualify newly evaluated representations separately
-// from exact/Naming semantics and the accepted dependency manifest.
-const displayStrategyVersion = "planar-cdt-v1"
+// Representation changes qualify newly evaluated artifacts independently of
+// the semantic Naming policy, exact shape identity and dependency manifest.
+const namingHistoryStorageVersion = "predecessor-adjacency-v2"
+const displayStrategyVersion = "planar-cdt-v1/association-table-v1"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1781,11 +1782,12 @@ func partGeometryKeyForPolicy(policyDigest, baseKey string, solidFeatures []geom
 	canonical, err := json.Marshal(struct {
 		EvaluatorVersion     string                `json:"evaluatorVersion"`
 		TopologyPolicyDigest string                `json:"topologyPolicyDigest"`
+		NamingStorage        string                `json:"namingStorage"`
 		BaseGeometryKey      string                `json:"baseGeometryKey,omitempty"`
 		SolidFeatures        []geometry.ProfilePad `json:"solidFeatures"`
 		Visualization        VisualizationManifest `json:"visualization"`
 		DisplayStrategy      string                `json:"displayStrategy,omitempty"`
-	}{evaluatorVersion, policyDigest, baseKey, solidFeatures, visualization, displayStrategy})
+	}{evaluatorVersion, policyDigest, namingHistoryStorageVersion, baseKey, solidFeatures, visualization, displayStrategy})
 	if err != nil {
 		return "", fmt.Errorf("canonicalize Part evaluation: %w", err)
 	}
@@ -2557,6 +2559,10 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 
 func partStructureChildren(model PartModel, path, documentID, versionID string, editable bool) []DocumentStructureNode {
 	normalizePartModel(&model)
+	return normalizedPartStructureChildren(model, path, documentID, versionID, editable)
+}
+
+func normalizedPartStructureChildren(model PartModel, path, documentID, versionID string, editable bool) []DocumentStructureNode {
 	planes := model.DatumPlanes
 	origin := DocumentStructureNode{ID: path + "/origin", Kind: "ORIGIN", Name: "Origin", EntityID: "origin", LocalVisible: boolPointer(visibleOrDefault(model.OriginVisible)),
 		DocumentID: documentID, VersionID: versionID,

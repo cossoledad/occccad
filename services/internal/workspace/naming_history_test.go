@@ -83,15 +83,17 @@ func fixtureHistoryLoader(payloads map[string][]byte) namingHistoryLoader {
 
 func TestNamingHistoryCarriesRemainLosslessAndQueriesUseOnlyEvents(t *testing.T) {
 	a, b := testRef("base", "first"), testRef("base", "second")
-	ev := &workerv1.NamingEvidence{EvidenceDigest: "evidence", Geometry: &workerv1.NamingEvidence_Plane{Plane: &workerv1.NamingFrame{Direction: &workerv1.Vec3{Z: 1}}}}
+	ev := &workerv1.NamingEvidence{EvidenceDigest: "evidence", Adjacent: []uint32{1, 2}, Geometry: &workerv1.NamingEvidence_Plane{Plane: &workerv1.NamingFrame{Direction: &workerv1.Vec3{Z: 1}}}}
 	values := &workerv1.PartTopologyManifest{SchemaVersion: 3, PolicyId: modelcore.TopologyNamingPolicyID, EvaluatorVersion: modelcore.TopologyNamingEvaluator, PolicyDigest: modelcore.TopologyNamingPolicyDigest, GeometryId: "second", CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", SemanticRefs: []*workerv1.SemanticTopologyRef{a, b}, Evidence: []*workerv1.NamingEvidence{ev}, Transitions: []*workerv1.NamingTransition{
 		{FeatureId: "base", BodyId: "body-main", ResultGeometryId: "base", Complete: true, Lineage: []*workerv1.NamingLineage{{Result: 1, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED}, {Result: 2, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED}}},
 		{FeatureId: "second", BodyId: "body-main", InputFeatureId: "base", ResultGeometryId: "second", Complete: true, Lineage: []*workerv1.NamingLineage{{Result: 1, Sources: []uint32{1}, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_UNCHANGED}, {Result: 2, Sources: []uint32{2}, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_UNCHANGED}}},
 	}, Bodies: []*workerv1.NamingBody{{BodyId: "body-main", Transitions: []uint32{1, 2}, TipTransition: 2, Tip: []*workerv1.NamingTopologyLocator{{TopologyType: 1, LocalId: 1, SemanticRef: 1, Evidence: 1}, {TopologyType: 1, LocalId: 2, SemanticRef: 2, Evidence: 1}}}}}
 	root, payloads := namingRootFixture(t, values, func(i int, b *workerv1.NamingHistoryBlock) {
 		if i == 1 {
-			b.Values.Transitions[0].Lineage = nil
-			b.Layout = []*workerv1.NamingHistorySpan{{Carry: true, Count: 2}}
+			b.SchemaVersion = 2
+			b.Values.Transitions[0].Lineage = b.Values.Transitions[0].Lineage[1:]
+			b.Values.Evidence[0].Adjacent = []uint32{3, 4}
+			b.Layout = []*workerv1.NamingHistorySpan{{Carry: true, Count: 1}, {Count: 1}}
 		}
 	})
 	sparse, err := unpackNamingRoot(t.Context(), root, fixtureHistoryLoader(payloads))
@@ -102,7 +104,7 @@ func TestNamingHistoryCarriesRemainLosslessAndQueriesUseOnlyEvents(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sparse.FeatureResults[1].TopologyHistory.Lineage) != 0 {
+	if len(sparse.FeatureResults[1].TopologyHistory.Lineage) != 1 {
 		t.Fatal("query path expanded identity rows")
 	}
 	selection := testSelection()
@@ -159,6 +161,10 @@ func TestNamingHistoryCarriesRemainLosslessAndQueriesUseOnlyEvents(t *testing.T)
 		func(b *workerv1.NamingHistoryBlock) { b.Layout[0].Offset = ^uint64(0) },
 		func(b *workerv1.NamingHistoryBlock) { b.Layout = append(b.Layout, b.Layout[0]); b.FullLineageCount = 4 },
 		func(b *workerv1.NamingHistoryBlock) { b.PreviousLineageCount = 1 },
+		func(b *workerv1.NamingHistoryBlock) {
+			b.SchemaVersion = 2
+			b.Values.Evidence[0].Adjacent = []uint32{7}
+		},
 	} {
 		badRoot, badFiles := namingRootFixture(t, values, func(i int, b *workerv1.NamingHistoryBlock) {
 			if i == 1 {

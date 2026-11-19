@@ -28,6 +28,8 @@ VisualEdgeUse visual_edge_use(uint32_t face_id, const TopoDS_Face& face, const T
                               const Handle(Poly_Triangulation) & triangulation,
                               const Handle(Poly_PolygonOnTriangulation) & polygon,
                               const std::vector<Vec3>& vertices, uint32_t base);
+void prepare_edge_profile(std::vector<VisualEdgeUse>& uses,
+                          std::vector<std::shared_ptr<BRepAdaptor_Surface>>& surfaces);
 void append_edge_profile(TessellationResult& mesh, uint32_t edge_id, const TopoDS_Edge& edge,
                          const std::vector<Vec3>& canonical, const std::vector<VisualEdgeUse>& uses,
                          const std::function<void()>& checkpoint = {});

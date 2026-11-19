@@ -10,7 +10,12 @@ const moduleURL=async(file,replacements=[])=>{
  return `data:text/javascript;base64,${Buffer.from(output).toString("base64")}`;
 };
 const packed=await moduleURL("../packed-mesh.ts");
-const codec=await moduleURL("../mesh-glb.ts", [['"./packed-mesh"', JSON.stringify(packed)]]),{encodeMeshGLB,decodeMeshGLB}=await import(codec);
+const associationCodec=await moduleURL("../feature-association-table.ts");
+const codec=await moduleURL("../mesh-glb.ts", [
+ ['"./packed-mesh"', JSON.stringify(packed)],
+ ['"./feature-association-table"', JSON.stringify(associationCodec)],
+]);
+const {encodeMeshGLB,decodeMeshGLB}=await import(codec);
 const delta=await moduleURL("../visual-delta.ts");
 const incidence=await moduleURL("../../rendering/mesh-contour-incidence.ts");
 const decoder=await moduleURL("../visual-decoder.ts", [["'./mesh-glb'", JSON.stringify(codec)], ["'./packed-mesh'", JSON.stringify(packed)], ["'../rendering/mesh-contour-incidence'", JSON.stringify(incidence)]]);
@@ -106,6 +111,28 @@ rewriteDocument(wireGLB,doc=>{assert.equal(typeof doc.extensions.OCCCCAD_visuali
 assert.deepEqual(decodeMeshGLB(wireGLB).visualization,wire);
 assert.throws(()=>decodeMeshGLB(encodeMeshGLB({...mesh,faceIds:[0]},visualization)),/locator/);
 const withNormals={...mesh,normals:[[0,0,1],[0,0,1],[0,0,1]]};assert.deepEqual(decodeMeshGLB(encodeMeshGLB(withNormals)).mesh,withNormals);
+const ownership = {
+ version: 1,
+ symbols: ["origin", "modifier", "support", "pattern"],
+ features: [1, 2, 4],
+ lists: [[1], [2], [3]],
+ members: [[4, 0]],
+ rows: [[0, 1, 0, 1, 1, 2, 3, 1], [1, 7, 0, 1, 1, 2, 3, 1]],
+};
+const compact = rewriteDocument(glb, doc => { doc.extensions.OCCCCAD_visualization.featureAssociationTable = ownership; });
+const restored = decodeMeshGLB(compact).visualization;
+const roles = {
+ status: "MAPPED", origins: ["origin"], primary: ["origin"], modifiers: ["modifier"], supports: ["support"],
+ members: [{ patternId: "pattern", slot: 0 }],
+};
+assert.deepEqual(restored.featureAssociations, {
+ features: ["origin", "modifier", "pattern"],
+ elements: [{ kind: "FACE", localId: 1, ...roles }, { kind: "EDGE", localId: 7, ...roles }],
+});
+assert.equal(restored.featureAssociationTable, undefined);
+assert.equal(restored.featureAssociations.elements[0].modifiers, restored.featureAssociations.elements[1].modifiers);
+const invalidList = rewriteDocument(compact, doc => { doc.extensions.OCCCCAD_visualization.featureAssociationTable.rows[0][5] = 99; });
+assert.throws(() => decodeMeshGLB(invalidList), /Invalid display association row/);
 const paired=rewriteDocument(glb,doc=>doc.extensions.OCCCCAD_cad.association={geometryId:"geometry",namingDigest:"naming"});
 const pairedView={...view,artifact:{...descriptor,geometryId:"geometry",representations:{VISUAL:{...descriptor.representations.VISUAL,digest:createHash("sha256").update(new Uint8Array(paired)).digest("hex"),size:paired.byteLength},NAMING:{digest:"naming"}}}};
 try {

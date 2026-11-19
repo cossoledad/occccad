@@ -29,6 +29,10 @@ struct PartRuntimeStats {
     size_t stages_executed = 0, stages_reused = 0, generator_calls = 0,
            modifier_calls = 0, body_operation_calls = 0, stage_cache_bytes = 0, stage_evictions = 0;
     double exact_ms = 0, naming_ms = 0;
+    double generator_prepare_ms = 0, body_operation_ms = 0, boolean_build_ms = 0, material_witness_ms = 0;
+    double same_domain_ms = 0, solid_validation_ms = 0, brep_snapshot_ms = 0, correspondence_ms = 0;
+    double brep_check_ms = 0, solid_material_ms = 0;
+    uint32_t parallel_brep_checks = 0;
     double base_ms = 0, adjacency_ms = 0;
     double cache_accounting_ms = 0;
     size_t cache_accounting_serializations = 0;

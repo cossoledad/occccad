@@ -1,8 +1,12 @@
 package workspace
 
 import (
+	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -14,12 +18,27 @@ func queueDependencyEdges(batch *database.Batch, revisionID string, graph *model
 	if len(graph.Edges) == 0 {
 		return nil
 	}
-	data, err := json.Marshal(graph.Edges)
+	edges := slices.Clone(graph.Edges)
+	slices.SortFunc(edges, func(a, b modelcore.DependencyEdge) int {
+		return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.Target, b.Target), cmp.Compare(a.Kind, b.Kind))
+	})
+	data, err := json.Marshal(edges)
 	if err != nil {
 		return err
 	}
-	batch.Queue(`INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind)
- SELECT $1,edge->>'source',edge->>'target',edge->>'kind' FROM jsonb_array_elements($2::jsonb) AS edge`, revisionID, string(data))
+	digest := sha256.Sum256(data)
+	// The full evaluation digest continues to bind node inputs. Only the
+	// structural edges may share a prior immutable owner in the same document.
+	batch.Queue(`UPDATE occccad.document_versions AS version
+ SET dependency_edge_digest=$2, dependency_edge_owner=(
+   SELECT prior.id FROM occccad.document_versions prior
+   WHERE prior.document_id=version.document_id AND prior.sequence<version.sequence
+     AND prior.dependency_edge_digest=$2 AND prior.dependency_edge_digest<>'' AND prior.dependency_edge_owner IS NULL
+   ORDER BY prior.sequence LIMIT 1
+ ) WHERE version.id=$1`, revisionID, hex.EncodeToString(digest[:]))
+	batch.Queue(`INSERT INTO occccad.dependency_edge_rows(revision_id,source_key,target_key,edge_kind)
+ SELECT $1,edge->>'source',edge->>'target',edge->>'kind' FROM jsonb_array_elements($2::jsonb) AS edge
+ WHERE EXISTS(SELECT 1 FROM occccad.document_versions WHERE id=$1 AND dependency_edge_owner IS NULL)`, revisionID, string(data))
 	return nil
 }
 

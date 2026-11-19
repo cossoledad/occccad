@@ -87,9 +87,11 @@ VisualEdgeUse visual_edge_use(uint32_t face_id, const TopoDS_Face& face, const T
     use.face_id = face_id;
     use.face = face;
     use.edge = edge;
-    use.surface = std::make_shared<BRepAdaptor_Surface>(face);
-    double first = 0, last = 0;
-    use.pcurve = BRep_Tool::CurveOnSurface(edge, face, first, last);
+    use.points.reserve(polygon->NbNodes());
+    if (triangulation->HasUVNodes())
+        use.uv.reserve(polygon->NbNodes());
+    if (polygon->HasParameters())
+        use.parameters.reserve(polygon->NbNodes());
     for (int i = 1; i <= polygon->NbNodes(); ++i) {
         const auto node = polygon->Node(i);
         use.points.push_back(vertices[base + node - 1]);
@@ -98,9 +100,24 @@ VisualEdgeUse visual_edge_use(uint32_t face_id, const TopoDS_Face& face, const T
         if (polygon->HasParameters())
             use.parameters.push_back(polygon->Parameter(i));
     }
-    if (use.surface->GetType() == GeomAbs_Plane && !use.uv.empty())
-        use.plane_normal = normal(use, use.uv.front());
     return use;
+}
+void prepare_edge_profile(std::vector<VisualEdgeUse>& uses,
+                          std::vector<std::shared_ptr<BRepAdaptor_Surface>>& surfaces) {
+    if (uses.size() > 2)
+        return;
+    for (auto& use : uses) {
+        auto& surface = surfaces[use.face_id - 1];
+        if (!surface)
+            surface = std::make_shared<BRepAdaptor_Surface>(use.face);
+        use.surface = surface;
+        if (surface->GetType() == GeomAbs_Plane && !use.uv.empty())
+            use.plane_normal = normal(use, use.uv.front());
+        if (!valid(use.plane_normal)) {
+            double first = 0, last = 0;
+            use.pcurve = BRep_Tool::CurveOnSurface(use.edge, use.face, first, last);
+        }
+    }
 }
 void append_edge_profile(TessellationResult& mesh, uint32_t edge_id, const TopoDS_Edge& edge,
                          const std::vector<Vec3>& canonical, const std::vector<VisualEdgeUse>& uses,
@@ -126,6 +143,23 @@ void append_edge_profile(TessellationResult& mesh, uint32_t edge_id, const TopoD
         bool missing = false;
         double weight = 1;
     };
+    const auto face_a = uses.empty() ? 0 : uses[0].face_id;
+    const auto face_b = uses.size() < 2 ? 0 : uses[1].face_id;
+    const bool adaptive = uses.size() == 2 && kind != EdgeDisplayKind::coplanar &&
+        (!valid(uses[0].plane_normal) || !valid(uses[1].plane_normal));
+    auto emit = [&](const EdgeDisplayPoint& a, const EdgeDisplayPoint& b, bool missing, bool limited) {
+        EdgeDisplaySegment out;
+        out.local_id = edge_id;
+        out.kind = kind;
+        out.quality = (missing ? 1U : 0U) | (limited ? 2U : 0U);
+        out.face_a = face_a;
+        out.face_b = face_b;
+        out.first = a;
+        out.second = b;
+        mesh.edge_profile.push_back(out);
+        if (limited)
+            ++mesh.timings.edge_sampling_limits;
+    };
     for (size_t segment = 0; segment + 1 < canonical.size(); ++segment) {
         if (checkpoint)
             checkpoint();
@@ -133,41 +167,36 @@ void append_edge_profile(TessellationResult& mesh, uint32_t edge_id, const TopoD
         const auto& q = canonical[segment + 1];
         if (std::hypot(q.x - p.x, q.y - p.y, q.z - p.z) <= 1e-12)
             continue;
+        auto evaluate = [&](double f) {
+            if (checkpoint && (mesh.timings.edge_normal_evaluations % 256) == 0)
+                checkpoint();
+            EdgeDisplayPoint point;
+            point.point = {p.x + (q.x - p.x) * f, p.y + (q.y - p.y) * f, p.z + (q.z - p.z) * f};
+            if (uses.size() <= 2) {
+                if (!uses.empty())
+                    point.normal_a =
+                        at(uses[0], segment, f, mesh.timings.edge_normal_evaluations);
+                if (uses.size() == 2)
+                    point.normal_b =
+                        at(uses[1], segment, f, mesh.timings.edge_normal_evaluations);
+            }
+            return point;
+        };
+        // Planar support normals are constant throughout the chord.
+        if (!adaptive) {
+            const auto start = evaluate(0), end = evaluate(1);
+            emit(start, end, false, false);
+            continue;
+        }
         std::array<std::optional<Sample>, grid + 1> cache;
         auto sample = [&](int index) -> const Sample& {
             auto& value = cache[index];
-            if (value)
-                return *value;
-            if (checkpoint && (mesh.timings.edge_normal_evaluations % 256) == 0)
-                checkpoint();
-            const double f = double(index) / grid;
-            Sample s;
-            s.point.point = {p.x + (q.x - p.x) * f, p.y + (q.y - p.y) * f, p.z + (q.z - p.z) * f};
-            if (uses.size() <= 2) {
-                if (!uses.empty())
-                    s.point.normal_a =
-                        at(uses[0], segment, f, mesh.timings.edge_normal_evaluations);
-                if (uses.size() == 2)
-                    s.point.normal_b =
-                        at(uses[1], segment, f, mesh.timings.edge_normal_evaluations);
+            if (!value) {
+                auto point = evaluate(double(index) / grid);
+                value = Sample{point, !valid(point.normal_a) || !valid(point.normal_b),
+                               sharpness(point.normal_a, point.normal_b)};
             }
-            s.missing = uses.size() == 2 && (!valid(s.point.normal_a) || !valid(s.point.normal_b));
-            s.weight = sharpness(s.point.normal_a, s.point.normal_b);
-            value = s;
             return *value;
-        };
-        auto emit = [&](const Sample& a, const Sample& b, bool missing, bool limited) {
-            EdgeDisplaySegment out;
-            out.local_id = edge_id;
-            out.kind = kind;
-            out.quality = (missing ? 1U : 0U) | (limited ? 2U : 0U);
-            out.face_a = uses.empty() ? 0 : uses[0].face_id;
-            out.face_b = uses.size() < 2 ? 0 : uses[1].face_id;
-            out.first = a.point;
-            out.second = b.point;
-            mesh.edge_profile.push_back(out);
-            if (limited)
-                ++mesh.timings.edge_sampling_limits;
         };
         auto refine = [&](auto&& self, int lo, int hi, int depth) -> void {
             const auto& a = sample(lo);
@@ -189,12 +218,9 @@ void append_edge_profile(TessellationResult& mesh, uint32_t edge_id, const TopoD
                 self(self, lo, (lo + hi) / 2, depth + 1);
                 self(self, (lo + hi) / 2, hi, depth + 1);
             } else
-                emit(a, b, missing, split);
+                emit(a.point, b.point, missing, split);
         };
-        if (uses.size() != 2 || kind == EdgeDisplayKind::coplanar)
-            emit(sample(0), sample(grid), false, false);
-        else
-            refine(refine, 0, grid, 0);
+        refine(refine, 0, grid, 0);
     }
 }
 }  // namespace occccad::kernel::detail

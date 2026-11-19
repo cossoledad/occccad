@@ -1104,10 +1104,25 @@ test("fillet keeps untouched opposite edge owned by extrusion during real pickin
   if(!selection)throw Error("round input missing");v=await api.command(id,{type:"CREATE_MODIFY_FEATURE",feature:{type:"FILLET",bodyId:base.bodyId,length:1,selections:[{selection,sourceVersionId:v.document.versionId}]}});
   return {id,base,fillet:v.part!.features.at(-1)!,version:v.document.versionId};
  });
+ const pickOppositeEdge = async () => {
+  const point = [10, -10, 10];
+  // The canvas mounts before the accepted visual and the edge session are ready.
+  await expect.poll(async () => {
+   const screen = await worldScreen(page, point);
+   return page.evaluate(({x,y}) => {
+    const engine = (window as any).__cameraEngine;
+    if (engine.featureSelection?.role !== "edge") return null;
+    const box = document.querySelector("canvas")!.getBoundingClientRect();
+    const hit = engine.hitTest(x-box.x, y-box.y);
+    return hit ? {kind: hit.kind, bodyId: hit.bodyId, versionId: hit.versionId} : null;
+   }, screen);
+  }).toEqual({kind: "edge", bodyId: seed.base.bodyId, versionId: seed.version});
+  await clickWorld(page, point);
+ };
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await openCommand(page,"倒角");let dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});
- await clickWorld(page,[10,-10,10]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await dialog.getByRole("combobox").fill("0.2");await ready(page,dialog);
+ await pickOppositeEdge();await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await dialog.getByRole("combobox").fill("0.2");await ready(page,dialog);
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("extrude-edge-after-fillet-pick.png")});await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
- await openCommand(page,"倒角");dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[10,-10,10]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await dialog.getByRole("combobox").fill("0.2");await ready(page,dialog);await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
+ await openCommand(page,"倒角");dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});await pickOppositeEdge();await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await dialog.getByRole("combobox").fill("0.2");await ready(page,dialog);await dialog.getByRole("button",{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const v=await current(page,seed.id),chamfer=v.part.features.at(-1);expect(chamfer.selections[0].selection.anchor.featureId).toBe(seed.base.id);expect(chamfer.selections[0].selection.anchor.outputSlot).toMatch(/^VERTICAL_FROM_PROFILE_ENDPOINTS\//);expect(chamfer.evaluationStatus).toBeFalsy();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
 
