@@ -77,7 +77,7 @@ struct SemanticTopologyRef {
 // measure_si: AREA m^2, LENGTH m, NONE dimensionless. Curve parameters are
 // millimetres for LINE, radians for CIRCLE/ELLIPSE, native curve domain otherwise.
 // The Artifact serializer interns these values and emits typed evidence v2.
-struct SelectionEvidence {
+struct LocalSelectionEvidence {
     std::string geometry_type;
     std::optional<double> measure_si;
     std::string measure_dimension;
@@ -95,8 +95,13 @@ struct SelectionEvidence {
     std::optional<int> cone_leaf;
     std::optional<int> material_side;
     std::optional<Vec3> x_direction;
-    std::vector<SemanticTopologyRef> adjacent;
     std::string evidence_digest;
+};
+
+struct SelectionEvidence : LocalSelectionEvidence {
+    std::vector<SemanticTopologyRef> adjacent;
+    // Incidence is recomputed for each result, even on an unchanged native face.
+    SelectionEvidence without_adjacency() const { return {static_cast<const LocalSelectionEvidence&>(*this), {}}; }
 };
 
 struct PersistentSelection {

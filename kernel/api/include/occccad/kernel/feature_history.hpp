@@ -15,10 +15,11 @@ struct FeatureHistorySpan {
     std::size_t offset = 0, count = 0;
 };
 
-// For evaluators that emit exactly one output per final lineage row in row order.
+// One output per final lineage row. Ordinary evaluators emit in row order.
 struct LineageOutputLocator {
     PersistentTopologyType type;
     std::uint64_t local_id;
+    std::size_t lineage_ordinal = 0; // One-based when restoring a permuted snapshot.
 };
 
 class FrozenFeatureResult {
@@ -59,12 +60,12 @@ class FrozenFeatureResult {
             n += ref_bytes(source, charged);
         return n;
     }
-    static bool same_row(const TopologyLineage& a, const TopologyLineage& b) {
+    static bool same_row(const TopologyLineage& a, const TopologyLineage& b, bool evidence_matches) {
         return a.kind == b.kind && detail::equal_ref(a.result, b.result) &&
                a.sources.size() == b.sources.size() &&
                std::equal(a.sources.begin(), a.sources.end(), b.sources.begin(),
                           detail::equal_ref) &&
-               detail::EvidenceEqual{}(&a.evidence, &b.evidence);
+               (evidence_matches || detail::EvidenceEqual{}(&a.evidence, &b.evidence));
     }
     static void varint(std::vector<std::uint8_t>& out, std::uint64_t n) {
         while (n >= 128) {
@@ -266,7 +267,7 @@ public:
                 ++layout_.back().count;
             else
                 layout_.push_back({carry, offset, 1});
-            if (known && same_row(row, *old)) {
+            if (known && same_row(row, *old, carry)) {
                 flush_literals();
                 if (shared_count && shared_start + shared_count != found->second)
                     flush_shared();
@@ -288,7 +289,7 @@ public:
             for (std::size_t i = 0; i < aligned->size(); ++i) {
                 varint(output_bindings_, static_cast<unsigned>((*aligned)[i].type));
                 varint(output_bindings_, (*aligned)[i].local_id);
-                varint(output_bindings_, i + 1);
+                varint(output_bindings_, (*aligned)[i].lineage_ordinal ? (*aligned)[i].lineage_ordinal : i + 1);
             }
         } else {
             Index current;

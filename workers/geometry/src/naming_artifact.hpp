@@ -11,8 +11,8 @@
 namespace occccad::worker {
 using NativeRefTable = std::unordered_map<const kernel::SemanticTopologyRef*, uint32_t, naming_detail::RefHash, naming_detail::RefEqual>;
 
-inline void expand_naming_references(v1::PartTopologyManifest& manifest) {
-    if (!manifest.has_reference_dictionary()) return;
+template<class Visit>
+inline void visit_naming_dictionary(const v1::PartTopologyManifest& manifest, Visit visit) {
     if (manifest.semantic_refs_size()) throw std::invalid_argument("NAMING_REFERENCE_ENCODING_AMBIGUOUS");
     const auto& table = manifest.reference_dictionary();
     const auto symbol = [&](uint32_t id) -> const std::string& {
@@ -20,28 +20,35 @@ inline void expand_naming_references(v1::PartTopologyManifest& manifest) {
             throw std::invalid_argument("NAMING_REFERENCE_SYMBOL_INVALID");
         return table.symbols(id - 1);
     };
-    for (const auto& list : table.source_lists()) {
-        if (list.symbols().empty()) throw std::invalid_argument("NAMING_REFERENCE_LIST_EMPTY");
-        for (const auto id : list.symbols()) symbol(id);
+    std::vector<kernel::SharedVector<std::string>> sources(table.source_lists_size() + 1);
+    for (int i = 0; i < table.source_lists_size(); ++i) {
+        const auto& ids = table.source_lists(i).symbols();
+        if (ids.empty()) throw std::invalid_argument("NAMING_REFERENCE_LIST_EMPTY");
+        auto& list = sources[i + 1];
+        list.reserve(ids.size());
+        for (const auto id : ids) list.push_back(symbol(id));
     }
     for (const auto& row : table.rows()) {
-        auto& ref = *manifest.add_semantic_refs();
-        ref.set_feature_id(symbol(row.feature()));
-        ref.set_output_slot(symbol(row.slot()));
-        if (row.sources() > static_cast<uint32_t>(table.source_lists_size()))
-            throw std::invalid_argument("NAMING_REFERENCE_LIST_INVALID");
-        if (row.sources()) {
-            for (const auto id : table.source_lists(row.sources() - 1).symbols())
-                ref.add_source_ids(symbol(id));
-        }
+        if (row.sources() >= sources.size()) throw std::invalid_argument("NAMING_REFERENCE_LIST_INVALID");
+        visit(symbol(row.feature()), symbol(row.slot()), sources[row.sources()]);
     }
+}
+
+inline void expand_naming_references(v1::PartTopologyManifest& manifest) {
+    if (!manifest.has_reference_dictionary()) return;
+    visit_naming_dictionary(manifest, [&](const auto& feature, const auto& slot, const auto& sources) {
+        auto* ref = manifest.add_semantic_refs();
+        ref->set_feature_id(feature);
+        ref->set_output_slot(slot);
+        for (const auto& source : sources) ref->add_source_ids(source);
+    });
     manifest.clear_reference_dictionary();
 }
 
 // Restore typed geometry evidence from the immutable v2 artifact. This is the
 // inverse of pack_naming, not a reconstruction from display coordinates.
-inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& source,
-                                                     const v1::PartTopologyManifest& manifest) {
+template<class ResolveRef>
+inline kernel::SelectionEvidence decode_naming_evidence(const v1::NamingEvidence& source, ResolveRef resolve) {
     kernel::SelectionEvidence out;
     const auto vec=[](const v1::Vec3& v){return kernel::Vec3{v.x(),v.y(),v.z()};};
     out.centroid=vec(source.centroid());out.evidence_digest=source.evidence_digest();
@@ -53,11 +60,8 @@ inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& 
     if(source.has_cone_leaf())out.cone_leaf=source.cone_leaf();
     if(source.has_material_side())out.material_side=source.material_side();
     if(source.has_x_direction())out.x_direction=vec(source.x_direction());
-    for(auto id:source.adjacent()) {
-        if(!id||id>static_cast<unsigned>(manifest.semantic_refs_size()))throw std::invalid_argument("NAMING_EVIDENCE_REF_INVALID");
-        const auto& r=manifest.semantic_refs(id-1);
-        out.adjacent.push_back({r.feature_id(),r.output_slot(),{r.source_ids().begin(),r.source_ids().end()}});
-    }
+    out.adjacent.reserve(source.adjacent_size());
+    for (auto id : source.adjacent()) out.adjacent.push_back(resolve(id));
     const v1::NamingFrame* frame=nullptr;const v1::NamingCurveRange* range=nullptr;
     switch(source.geometry_case()) {
         case v1::NamingEvidence::kPlane:out.geometry_type="PLANE";frame=&source.plane();break;
@@ -72,6 +76,16 @@ inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& 
     if(frame){out.origin=vec(frame->origin());out.direction=vec(frame->direction());}
     if(range){if(range->has_start())out.parameter_start=range->start();if(range->has_end())out.parameter_end=range->end();}
     return out;
+}
+
+inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& source,
+                                                      const v1::PartTopologyManifest& manifest) {
+    return decode_naming_evidence(source, [&](uint32_t id) -> kernel::SemanticTopologyRef {
+        if (!id || id > static_cast<unsigned>(manifest.semantic_refs_size()))
+            throw std::invalid_argument("NAMING_EVIDENCE_REF_INVALID");
+        const auto& ref = manifest.semantic_refs(id - 1);
+        return {ref.feature_id(), ref.output_slot(), {ref.source_ids().begin(), ref.source_ids().end()}};
+    });
 }
 
 // Protobuf readers may reuse scratch. Native readers must borrow records that
@@ -104,37 +118,37 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
         symbols.emplace(stored, id);
         return id;
     };
-    auto wire_ref = [&](const v1::SemanticTopologyRef& value) {
-        const auto key = value.SerializeAsString();
-        auto [it, added] = refs.emplace(key, refs.size() + 1);
-        if (!added) return it->second;
-        if (!dictionary) {
-            *out.add_semantic_refs() = value;
-            return it->second;
-        }
+    auto dictionary_row = [&](const std::string& feature, const std::string& slot, const auto& ids) {
         auto& row = *dictionary->add_rows();
-        row.set_feature(symbol(value.feature_id()));
-        row.set_slot(symbol(value.output_slot()));
-        if (!value.source_ids().empty()) {
+        row.set_feature(symbol(feature));
+        row.set_slot(symbol(slot));
+        if (!ids.empty()) {
             v1::NamingSourceList sources;
-            for (const auto& source : value.source_ids()) sources.add_symbols(symbol(source));
+            for (const auto& id : ids) sources.add_symbols(symbol(id));
             const auto [list, inserted] = source_lists.emplace(sources.SerializeAsString(), source_lists.size() + 1);
             if (inserted) dictionary->add_source_lists()->Swap(&sources);
             row.set_sources(list->second);
         }
-        return it->second;
     };
-    // Native keys borrow immutable records, but hash/compare complete values.
-    // A hit only skips conversion; full protobuf wire keys remain authoritative
-    // on a miss (including ignored fields, signed zero and optional presence).
     NativeRefTable native_refs;
     std::unordered_map<const kernel::SelectionEvidence*,uint32_t,naming_detail::EvidenceHash,naming_detail::EvidenceEqual> native_evidence;
     const auto ref = [&](const auto& value) {
         if constexpr(std::is_same_v<std::decay_t<decltype(value)>,kernel::SemanticTopologyRef>) {
-            const auto found=native_refs.find(&value);if(found!=native_refs.end())return found->second;
-            v1::SemanticTopologyRef converted;naming_detail::encode_ref(value,&converted);
-            const auto id=wire_ref(converted);native_refs.emplace(&value,id);return id;
-        } else return wire_ref(value);
+            const auto [entry, added] = native_refs.emplace(&value, native_refs.size() + 1);
+            if (added) {
+                if (dictionary) dictionary_row(value.feature_id, value.output_slot, value.source_ids);
+                else naming_detail::encode_ref(value, out.add_semantic_refs());
+            }
+            return entry->second;
+        } else {
+            // Wire values can carry unknown fields; include those in their identity.
+            const auto [entry, added] = refs.emplace(value.SerializeAsString(), refs.size() + 1);
+            if (added) {
+                if (dictionary) dictionary_row(value.feature_id(), value.output_slot(), value.source_ids());
+                else *out.add_semantic_refs() = value;
+            }
+            return entry->second;
+        }
     };
     auto wire_ev = [&](const v1::SelectionEvidence& value, const auto& adjacency) {
         v1::NamingEvidence packed;

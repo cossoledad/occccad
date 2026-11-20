@@ -1,10 +1,12 @@
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepMesh_Context.hxx>
 #include <BRepMesh_DelabellaMeshAlgoFactory.hxx>
 #include <BRepMesh_FaceDiscret.hxx>
+#include <BRepMesh_FaceChecker.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepMesh_MeshAlgoFactory.hxx>
 #include <BRepTools.hxx>
@@ -167,5 +169,44 @@ TEST(SurfaceDisplay, PlanarMeshingAlgorithmsPreserveTrimmedArea) {
         for (size_t i = 0; i < std::min<size_t>(3, trace.faces.size()); ++i)
             std::cout << "mesh_face type=" << trace.faces[i].type << " wires=" << trace.faces[i].wires
                       << " ms=" << trace.faces[i].milliseconds << '\n';
+    }
+}
+
+TEST(SurfaceDisplay, DiscreteWireBoundsKeepCrossingsAndSelfIntersections) {
+    for (const bool parallel : {false, true}) {
+        BRepBuilderAPI_MakeFace face(gp_Pln(gp_Pnt(0,0,0), gp_Dir(0,0,1)), 0, 50, 0, 40);
+        const auto hole = [&](const gp_Pnt& a, const gp_Pnt& b, const gp_Pnt& c, const gp_Pnt& d) {
+            auto wire = BRepBuilderAPI_MakePolygon(a,b,c,d,true).Wire();
+            wire.Reverse();
+            face.Add(wire);
+        };
+        // Two intersections between distinct rectangles, two edges at each crossing.
+        hole({2,2,0}, {12,2,0}, {12,12,0}, {2,12,0});
+        hole({7,7,0}, {17,7,0}, {17,17,0}, {7,17,0});
+        // Self-intersection in an otherwise isolated wire.
+        BRepBuilderAPI_MakePolygon crossing;
+        for (const gp_Pnt& p : {gp_Pnt{22,2,0}, {32,12,0}, {27,14,0}, {22,12,0}, {32,2,0}, {27,1,0}})
+            crossing.Add(p);
+        crossing.Close();
+        auto wire = crossing.Wire();
+        wire.Reverse();
+        face.Add(wire);
+        hole({36,2,0}, {40,2,0}, {40,6,0}, {36,6,0});
+        BRepMesh_Context context;
+        context.SetShape(face.Shape());
+        auto& params = context.ChangeParameters();
+        params.Deflection = params.DeflectionInterior = 0.1;
+        params.Angle = params.AngleInterior = 0.3;
+        params.MinSize = 0.001;
+        params.InParallel = parallel;
+        ASSERT_TRUE(context.BuildModel());
+        ASSERT_TRUE(context.DiscretizeEdges());
+        ASSERT_EQ(context.GetModel()->FacesNb(), 1);
+        const auto& discrete = context.GetModel()->GetFace(0);
+        ASSERT_EQ(discrete->WiresNb(), 5);
+        discrete->SetDeflection(params.DeflectionInterior);
+        BRepMesh_FaceChecker checker(discrete, params);
+        EXPECT_FALSE(checker.Perform());
+        EXPECT_EQ(checker.GetIntersectingEdges()->Size(), 6);
     }
 }

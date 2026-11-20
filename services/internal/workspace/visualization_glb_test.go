@@ -80,12 +80,16 @@ func TestVisualV2BinaryAuxiliaryAndReplacement(t *testing.T) {
 	compare(restored.FeatureAssociations)
 	// Read a frozen prefix using only the metadata chunk. An attempt to read the
 	// mesh or auxiliary payload would hit EOF with this source.
-	frozen, err := readFrozenAssociations(bytes.NewReader(data[:20+n]), int64(len(data)), "geometry", "naming")
+	frozen, listBytes, err := readFrozenAssociations(bytes.NewReader(data[:20+n]), int64(len(data)), "geometry", "naming")
 	if err != nil {
 		t.Fatal(err)
 	}
 	compare(frozen)
-	if _, err := readFrozenAssociations(bytes.NewReader(data[:20+n]), int64(len(data)), "geometry", "other"); err == nil {
+	// Three feature IDs, three singleton lists and one member share four strings.
+	if want := int64(6*16 + 24 + len("featuremodifierpatternsupport")); listBytes != want {
+		t.Fatalf("frozen association list charge = %d, want %d", listBytes, want)
+	}
+	if _, _, err := readFrozenAssociations(bytes.NewReader(data[:20+n]), int64(len(data)), "geometry", "other"); err == nil {
 		t.Fatal("association reader accepted a different Naming binding")
 	}
 	// Repeated variants replace owned buffers, so unchanged payloads do not grow.

@@ -86,10 +86,10 @@ func (s *Service) VisualizationPrecision(ctx context.Context, key, originalID, p
 	return s.representationObject(ctx, variant, "VISUAL")
 }
 
-type frozenVisualHeader struct {
+type frozenVisualHeader[V any] struct {
 	Extensions struct {
 		CAD    struct{ Association visual.Association } `json:"OCCCCAD_cad"`
-		Visual json.RawMessage                          `json:"OCCCCAD_visualization"`
+		Visual V                                        `json:"OCCCCAD_visualization"`
 	}
 	BufferViews []struct{ Buffer, ByteOffset, ByteLength, ByteStride int }
 	Accessors   []struct {
@@ -98,8 +98,8 @@ type frozenVisualHeader struct {
 	}
 }
 
-func readFrozenVisualHeader(source io.Reader, size int64, geometryID, namingDigest string) (frozenVisualHeader, int, error) {
-	var doc frozenVisualHeader
+func readFrozenVisualHeader[V any](source io.Reader, size int64, geometryID, namingDigest string) (frozenVisualHeader[V], int, error) {
+	var doc frozenVisualHeader[V]
 	chunk, err := readVisualizationJSON(source, size)
 	if err != nil {
 		return doc, 0, err
@@ -116,29 +116,56 @@ func readFrozenVisualHeader(source io.Reader, size int64, geometryID, namingDige
 
 // Continuation needs the display index only. This leaves all GLB buffers and
 // other visualization projections unread.
-func readFrozenAssociations(source io.Reader, size int64, geometryID, namingDigest string) (*FeatureAssociationIndex, error) {
-	doc, _, err := readFrozenVisualHeader(source, size, geometryID, namingDigest)
-	if err != nil {
-		return nil, err
-	}
-	var wire struct {
+func readFrozenAssociations(source io.Reader, size int64, geometryID, namingDigest string) (*FeatureAssociationIndex, int64, error) {
+	type associationFields struct {
 		Index *FeatureAssociationIndex `json:"featureAssociations"`
 		Table *featureAssociationTable `json:"featureAssociationTable"`
 	}
-	if err := json.Unmarshal(doc.Extensions.Visual, &wire); err != nil {
-		return nil, err
+	doc, _, err := readFrozenVisualHeader[*associationFields](source, size, geometryID, namingDigest)
+	if err != nil {
+		return nil, 0, err
+	}
+	wire := doc.Extensions.Visual
+	if wire == nil {
+		return nil, 0, fmt.Errorf("missing visualization associations")
 	}
 	if wire.Table != nil {
-		return wire.Table.unpack()
+		index, err := wire.Table.unpack()
+		if err != nil {
+			return nil, 0, err
+		}
+		return index, wire.Table.decodedListBytes(), nil
 	}
-	return wire.Index, nil
+	if wire.Index == nil {
+		return nil, 0, nil
+	}
+	// Expanded JSON owns the ID strings in each row independently.
+	var bytes int64
+	chargeIDs := func(ids []string) {
+		bytes += int64(cap(ids)) * 16
+		for _, id := range ids {
+			bytes += int64(len(id))
+		}
+	}
+	chargeIDs(wire.Index.Features)
+	for _, e := range wire.Index.Elements {
+		chargeIDs(e.Origins)
+		chargeIDs(e.Primary)
+		chargeIDs(e.Supports)
+		chargeIDs(e.Modifiers)
+		bytes += int64(cap(e.Members)) * 24
+		for _, m := range e.Members {
+			bytes += int64(len(m.PatternID))
+		}
+	}
+	return wire.Index, bytes, nil
 }
 
 // Read only the metadata and the auxiliary sketch/annotation suffix. The
 // original shaded mesh has no role in producing a different precision.
 func frozenVisualization(source io.Reader, size int64, geometryID, namingDigest string) (VisualizationManifest, error) {
 	var v VisualizationManifest
-	doc, chunkSize, err := readFrozenVisualHeader(source, size, geometryID, namingDigest)
+	doc, chunkSize, err := readFrozenVisualHeader[json.RawMessage](source, size, geometryID, namingDigest)
 	if err != nil {
 		return v, err
 	}

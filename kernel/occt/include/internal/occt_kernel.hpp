@@ -55,7 +55,7 @@ struct PartRuntimeOptions {
     std::function<bool()> fresh_cancelled;
     PartRuntimeStats* stats = nullptr;
     std::optional<PartBaseStage> base_stage;
-    std::optional<PartBaseStage> continuation;
+    FrozenFeatureResult::handle_type continuation;
 };
 
 /// OCCT-backed implementation of ICadKernel.

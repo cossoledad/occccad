@@ -65,6 +65,8 @@ Boolean 和剖分通过 OCCT progress 协作取消，算法内观察本地单调
 
 默认 OCCT 包在组壳与面定向操作内，按有向面的实际查找深度为大边表建立临时索引。Part 求值键和检查点接纳条件包含该内核的 recipe revision。唯一输出与历史行按同一次生成的行序绑定，共用证据；有重复引用或独立输出的输入仍可表达各自证据。网格沿已证对应传递，边显示采样还要求原生边与支撑面相同，且边界、方向、UV 和参数一致。首次从新结果反向补齐前驱的采样后，同一前驱的下次编辑也可复用。GLB 直接遍历有序点和采样段生成字节。
 
+显示剖分检查同一面上的边界环时，先用两个 UV 空间线段树已有的根包围盒排除不可能相交的环对。包围盒沿用原段查询的容差；可能重叠的环对及环自身仍执行原生逐段检查。恢复 Body 检查点时，Worker 按制品中的 tip 与历史行顺序绑定共用的冻结证据，直接读引用字典；网格显示关联由服务从 GLB 头按需解析，共享的来源列表按实际保留的数组计入缓存预算。
+
 精确阶段再记录生成器准备、Body 运算、Boolean Build、材料变化、同域合并、有效性、BREP 快照和未变子形状对应。有效性包含 B‑Rep 分析器及实体材料检查，前者对超过 128 个待检面的检查集合使用 Geometry Worker 的四线程 OCCT 池。显示记录边界提取与轮廓时间，以及计算和复用的边数。明细与其所属阶段存在包含关系。
 
 ### 通用特征性能与增长边界
@@ -102,5 +104,7 @@ Boolean 和剖分通过 OCCT progress 协作取消，算法内观察本地单调
 - `services/internal/control/solid_feature_integration_test.go`：真实 Router/Worker、预览、提交、历史及重开。
 - `services/internal/control/part_feature_performance_integration_test.go`：多步切除、前缀复用、上游编辑、冷 BREP/Naming 等价和 Undo/Redo。
 - Web 的 `product-sketch-visibility`、`multi-body` 场景验证上下文过滤；真实深度、遮挡与相机行为仍须浏览器/WebGL 验收。
+
+已复现两处多 Body 限制：跨 Body 分区布尔后连续倒角、圆角，冷重建的部分 Naming 证据摘要与提交结果不同；撤销删除 Body 后，恢复的 Body 制品摘要可能发生变化。[复现入口与差异范围](../../validation/part-feature-performance.md#多环面剖分与前驱命名恢复)
 
 测试入口存在不是当次执行通过；几何、持久身份、历史和浏览器操作分别举证。执行方法见[测试路由](../../../tests/README.md)。

@@ -19,6 +19,7 @@ var occtRecipeInputs = []string{
 	"build-support/conan/opencascade/conanfile.py",
 	"build-support/conan/opencascade/conandata.yml",
 	"build-support/conan/patches/opencascade/7.9.1/shell-face-edge-lookup.patch",
+	"build-support/conan/patches/opencascade/7.9.1/mesh-wire-bounds.patch",
 }
 
 type depsReceipt struct {

@@ -1,0 +1,19 @@
+--- a/src/BRepMesh/BRepMesh_FaceChecker.cxx
++++ b/src/BRepMesh/BRepMesh_FaceChecker.cxx
+@@ -257,6 +257,16 @@
+     const Handle(IMeshData::BndBox2dTree)& aBndBoxTree2 = myWiresBndBoxTree->Value(aWireIt);
+     const Handle(Segments)&                aSegments2   = myWiresSegments->Value(aWireIt);
+ 
++    // Each tree root encloses every tolerance-expanded segment box of its wire.
++    // Disjoint roots reject exactly the same candidates as all segment queries.
++    if (aWireIt != theWireIndex)
++    {
++      const Handle(IMeshData::BndBox2dTree)& aTree1 = myWiresBndBoxTree->Value(theWireIndex);
++      if (aTree1->IsEmpty() || aBndBoxTree2->IsEmpty()
++          || aTree1->Root().Bnd().IsOut(aBndBoxTree2->Root().Bnd()))
++        continue;
++    }
++
+     aSelector.SetSegments(aSegments2);
+     for (Standard_Integer aSegmentIt = 0; aSegmentIt < aSegments1->Size(); ++aSegmentIt)
+     {

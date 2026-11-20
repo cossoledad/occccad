@@ -1996,9 +1996,8 @@ SelectionEvidence named_evidence(const TopoDS_Shape& shape, const SemanticTopolo
     facts.check();
     const auto found=facts.named.find(shape);
     if(found!=facts.named.end()&&found->second.ref==ref_key(ref)) {
-        auto evidence=*found->second.value;evidence.adjacent.clear();
         if(type==PersistentTopologyType::face&&facts.stats)++facts.stats->face_evidence_reused;
-        return evidence;
+        return found->second.value->without_adjacency();
     }
     auto evidence=topology_evidence(shape,&facts);append_semantic_role(evidence,ref,type);return evidence;
 }
@@ -4765,9 +4764,9 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     bool topology_history_complete = base_brep.empty();
     if (runtime.continuation && !restored) {
         const auto& frozen = *runtime.continuation;
-        const auto& root = frozen.root;
+        const auto& root = frozen.header();
         if (runtime.force_cold || import_seed || specs.empty() || needs_pattern_context.front() ||
-            result.IsNull() || frozen.geometry_id != result_id || !frozen.validated ||
+            result.IsNull() || root.result_geometry_id != result_id || !root.topology_history_complete ||
             root.body_id != specs.front().body_id || root.feature_id != specs.front().input_feature_id)
             throw std::invalid_argument("PART_CONTINUATION_MISMATCH");
         std::array<TopTools_IndexedMapOfShape, 3> locators;
@@ -4776,20 +4775,21 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         TopExp::MapShapes(result, TopAbs_VERTEX, locators[2]);
         const auto count = locators[0].Extent() + locators[1].Extent() + locators[2].Extent();
         TopTools_IndexedMapOfShape named;
-        if (root.semantic_outputs.size() != static_cast<std::size_t>(count))
-            throw std::invalid_argument("PART_CONTINUATION_LOCATOR_COVERAGE");
-        for (const auto& output : root.semantic_outputs) {
+        live_named.reserve(count);
+        frozen.visit_outputs([&](auto type, auto local_id, const auto& ref, const auto& evidence) {
             check_cancel();
-            const auto type = output.topology_type;
             const auto& shapes = locators[type == PersistentTopologyType::face ? 0 : type == PersistentTopologyType::edge ? 1 : 2];
-            if (!output.local_id || output.local_id > static_cast<std::size_t>(shapes.Extent()))
+            if (!local_id || local_id > static_cast<std::size_t>(shapes.Extent()))
                 throw std::invalid_argument("PART_CONTINUATION_LOCATOR_RANGE");
-            const auto& shape = shapes(static_cast<int>(output.local_id));
+            const auto& shape = shapes(static_cast<int>(local_id));
             if (named.Contains(shape)) throw std::invalid_argument("PART_CONTINUATION_LOCATOR_DUPLICATE");
             named.Add(shape);
-            live_named.push_back({output.semantic_ref, shape});
-        }
-        evaluation.feature_results.push_back(root);
+            live_named.push_back({ref, shape});
+            facts.named.emplace(shape, ShapeFacts::NamedEvidence{ref_key(ref), &evidence});
+        });
+        if (named.Extent() != count)
+            throw std::invalid_argument("PART_CONTINUATION_LOCATOR_COVERAGE");
+        evaluation.feature_results = FeatureResultSequence({runtime.continuation});
         facts.materials.emplace(result, true);
         facts.validated.insert(result);
         topology_history_complete = root.topology_history_complete;

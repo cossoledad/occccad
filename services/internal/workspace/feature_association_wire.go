@@ -135,12 +135,15 @@ func (table *featureAssociationTable) unpack() (*FeatureAssociationIndex, error)
 		if len(pairs)%2 != 0 {
 			return nil, fmt.Errorf("invalid display association member list")
 		}
+		if len(pairs) > 0 {
+			members[i+1] = make([]FeatureAssociationMember, len(pairs)/2)
+		}
 		for j := 0; j < len(pairs); j += 2 {
 			id := pairs[j]
 			if id == 0 || uint64(id) > uint64(len(table.Symbols)) || table.Symbols[id-1] == "" {
 				return nil, fmt.Errorf("invalid display association member symbol")
 			}
-			members[i+1] = append(members[i+1], FeatureAssociationMember{PatternID: table.Symbols[id-1], Slot: int(pairs[j+1])})
+			members[i+1][j/2] = FeatureAssociationMember{PatternID: table.Symbols[id-1], Slot: int(pairs[j+1])}
 		}
 	}
 	index := &FeatureAssociationIndex{Features: features, Elements: make([]FeatureTopologyAssociation, 0, len(table.Rows))}
@@ -161,6 +164,22 @@ func (table *featureAssociationTable) unpack() (*FeatureAssociationIndex, error)
 		})
 	}
 	return index, nil
+}
+
+// unpack allocates one slice per dictionary list. All references to a symbol
+// share the same decoded string bytes, including across different lists.
+func (table *featureAssociationTable) decodedListBytes() int64 {
+	bytes := int64(len(table.Features)) * 16
+	for _, symbol := range table.Symbols {
+		bytes += int64(len(symbol))
+	}
+	for _, ids := range table.Lists {
+		bytes += int64(len(ids)) * 16
+	}
+	for _, pairs := range table.Members {
+		bytes += int64(len(pairs)/2) * 24
+	}
+	return bytes
 }
 
 type visualizationManifestJSON VisualizationManifest

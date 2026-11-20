@@ -1498,10 +1498,10 @@ public:
     tool.body_id = source.body_id();
     tool.feature_id = source.feature_id();
     tool.result_id = source.result().result_id();
-    tool.brep = read(source.brep());
+    tool.brep = *read(source.brep());
     const auto bytes = read(source.naming());
     worker_api::PartTopologyManifest naming;
-    if (!naming.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())) ||
+    if (!naming.ParseFromArray(bytes->data(), static_cast<int>(bytes->size())) ||
         naming.schema_version() != 3 || naming.brep_sha256() != source.brep().sha256() || naming.policy_digest()!=occccad::kernel::topology_naming_policy_digest)
         throw std::invalid_argument("GEOMETRY_INPUT_NAMING_SNAPSHOT_MISMATCH");
     occccad::worker::expand_naming_references(naming);
@@ -1605,12 +1605,12 @@ public:
         if(input.has_import_seed()){
             auto seed=input.import_seed();if(seed.has_identity_artifact()){
                 const auto data=read(seed.identity_artifact());worker_api::ImportTopologySeed full;
-                if(!full.ParseFromArray(data.data(),static_cast<int>(data.size()))||full.feature_id()!=seed.feature_id()||full.brep_sha256()!=seed.brep_sha256()||full.body_id()!=seed.body_id()||full.result_id()!=seed.result_id())throw std::invalid_argument("IMPORT_SEED_ARTIFACT_MISMATCH");seed=std::move(full);
+                if(!full.ParseFromArray(data->data(),static_cast<int>(data->size()))||full.feature_id()!=seed.feature_id()||full.brep_sha256()!=seed.brep_sha256()||full.body_id()!=seed.body_id()||full.result_id()!=seed.result_id())throw std::invalid_argument("IMPORT_SEED_ARTIFACT_MISMATCH");seed=std::move(full);
             }
             if(seed.occt_version()!=OCC_VERSION_COMPLETE||seed.policy_id()!="occccad.import.frozen-brep.v1")throw std::invalid_argument("IMPORT_SEED_CONTRACT_MISMATCH");
             occccad::kernel::ImportTopologySeed frozen;frozen.feature_id=seed.feature_id();frozen.body_id=seed.body_id();frozen.result_id=seed.result_id();frozen.brep_sha256=seed.brep_sha256();
             for(const auto& entry:seed.identities())frozen.identities.push_back({entry.stable_id(),static_cast<occccad::kernel::PersistentTopologyType>(entry.topology_type()),entry.local_id()});
-            result.import_seed=std::move(frozen);result.import_brep=read(input.import_brep());
+            result.import_seed=std::move(frozen);result.import_brep=*read(input.import_brep());
         }
         return result;
     }
@@ -1621,7 +1621,7 @@ public:
         std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
         while(!lock.try_lock()){if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"cancelled"};std::this_thread::sleep_for(std::chrono::milliseconds(5));}
         try {
-            const auto read=[this](const auto& ref){return read_input(ref,false);};
+            const auto read=[this](const auto& ref){return read_shared_input(ref,false);};
             const auto target=read_boolean_source(request->target(),read),tool=read_boolean_source(request->tool(),read);
             if(target.body_id==tool.body_id)throw std::invalid_argument("BOOLEAN_REGION_DISTINCT_BODIES_REQUIRED");
             const auto regions=kernel_.analyze_boolean_regions(target,tool,[context](){return context->IsCancelled();});
@@ -1667,14 +1667,14 @@ public:
         if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "request cancelled while queued"};
         try {
             double input_io_ms=0;
-            const auto input_artifact=[&](const auto& ref){const auto began=std::chrono::steady_clock::now();auto bytes=read_input(ref,request->force_cold());input_io_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count();return bytes;};
+            const auto input_artifact=[&](const auto& ref){const auto began=std::chrono::steady_clock::now();auto bytes=read_shared_input(ref,request->force_cold());input_io_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count();return bytes;};
             const auto publish=[&](const auto& key,const auto& bytes,const auto& type,auto* ref){const auto began=std::chrono::steady_clock::now();if(context->IsCancelled())throw std::runtime_error("EVALUATION_CANCELLED");write_artifact(key,bytes,type,ref);auto* timings=response->mutable_runtime_stats();timings->set_artifact_io_ms(timings->artifact_io_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count());};
             std::unordered_set<std::string> known_naming_blocks;
             if(!request->force_cold() && request->has_naming_source()) {
                 try {
                     const auto bytes=input_artifact(request->naming_source());
                     worker_api::PartTopologyManifest source;
-                    if(!source.ParseFromArray(bytes.data(),static_cast<int>(bytes.size())) || source.schema_version()!=3 ||
+                    if(!source.ParseFromArray(bytes->data(),static_cast<int>(bytes->size())) || source.schema_version()!=3 ||
                        source.policy_digest()!=request->topology_policy().policy_digest() || source.coordinate_space()!="PART_LOCAL" || source.length_unit()!="mm" || source.transitions_size()!=0)
                         throw std::invalid_argument("NAMING_SOURCE_CONTRACT_MISMATCH");
                     const auto body=request->profile_pads_size()?request->profile_pads(0).body_id():request->import_seed().body_id();
@@ -1899,7 +1899,7 @@ public:
                 if (input.has_identity_artifact()) {
                     const auto data = input_artifact(input.identity_artifact());
                     worker_api::ImportTopologySeed full;
-                    if (!full.ParseFromArray(data.data(), static_cast<int>(data.size())) || full.feature_id()!=input.feature_id() || full.brep_sha256()!=input.brep_sha256() || full.body_id()!=input.body_id() || full.result_id()!=input.result_id())
+                    if (!full.ParseFromArray(data->data(), static_cast<int>(data->size())) || full.feature_id()!=input.feature_id() || full.brep_sha256()!=input.brep_sha256() || full.body_id()!=input.body_id() || full.result_id()!=input.result_id())
                         throw std::invalid_argument("IMPORT_SEED_ARTIFACT_MISMATCH");
                     input = std::move(full);
                 }
@@ -1933,10 +1933,12 @@ public:
                         throw std::invalid_argument("PART_CONTINUATION_NAMING_UNAVAILABLE");
                     }
                 }();
-                if (!accepted_prefix.ParseFromArray(data.data(), static_cast<int>(data.size())))
+                worker_api::PartTopologyManifest snapshot;
+                if (!snapshot.ParseFromArray(data->data(), static_cast<int>(data->size())))
                     throw std::invalid_argument("PART_CONTINUATION_NAMING_INVALID");
-                runtime.continuation = occccad::worker::restore_part_continuation(accepted_prefix, continuation,
+                runtime.continuation = occccad::worker::restore_part_continuation(snapshot, continuation,
                     "sha256:" + request->base_brep_artifact().sha256(), request->topology_policy());
+                accepted_prefix.mutable_history()->Swap(snapshot.mutable_history());
             }
             if(request->has_base_stage() && !runtime.force_cold) {
                 if(!request->has_import_seed() || base_brep.empty())throw std::invalid_argument("BASE_STAGE_REQUIRES_IMPORT");
@@ -1945,7 +1947,7 @@ public:
                 const auto data=input_artifact(source.naming());
                 worker_api::PartTopologyManifest snapshot;
                 const auto geometry=occccad::kernel::make_geometry_id(base_brep.data(),base_brep.size());
-                if(!snapshot.ParseFromArray(data.data(),static_cast<int>(data.size())) || snapshot.schema_version()!=3 ||
+                if(!snapshot.ParseFromArray(data->data(),static_cast<int>(data->size())) || snapshot.schema_version()!=3 ||
                    source.geometry_id()!=geometry ||
                    snapshot.policy_digest()!=request->topology_policy().policy_digest() || snapshot.length_unit()!="mm" || snapshot.coordinate_space()!="PART_LOCAL" ||
                    snapshot.bodies_size()!=1 || snapshot.results_size()!=0 || snapshot.bodies(0).body_id()!=seed.body_id)
@@ -1956,7 +1958,7 @@ public:
                     throw std::invalid_argument("BASE_STAGE_ROOT_REFERENCE_MISMATCH");
                 const auto root_bytes=input_artifact(source.root_history());
                 worker_api::NamingHistoryBlock root_block;
-                if(!root_block.ParseFromArray(root_bytes.data(),static_cast<int>(root_bytes.size())) || root_block.schema_version()!=1 || !root_block.previous_sha256().empty() || root_block.previous_lineage_count()!=0 ||
+                if(!root_block.ParseFromArray(root_bytes->data(),static_cast<int>(root_bytes->size())) || root_block.schema_version()!=1 || !root_block.previous_sha256().empty() || root_block.previous_lineage_count()!=0 ||
                    root_block.values().schema_version()!=3 || root_block.values().policy_digest()!=snapshot.policy_digest() || root_block.values().history_size()!=0 || root_block.values().transitions_size()!=1 ||
                    root_block.full_lineage_count()!=static_cast<uint64_t>(root_block.values().transitions(0).lineage_size()))throw std::invalid_argument("BASE_STAGE_ROOT_BLOCK_INVALID");
                 for(const auto& span:root_block.layout())if(span.carry())throw std::invalid_argument("BASE_STAGE_ROOT_CARRY_INVALID");

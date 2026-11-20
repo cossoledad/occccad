@@ -126,7 +126,7 @@ func (s *Service) namingAssociationSeed(ctx context.Context, checkpoint partChec
 		if err != nil {
 			return nil, 0, ctx.Err()
 		}
-		associations, err := readFrozenAssociations(reader, visual.Size, root.GeometryId, checkpoint.continuation.Naming.Sha256)
+		associations, listBytes, err := readFrozenAssociations(reader, visual.Size, root.GeometryId, checkpoint.continuation.Naming.Sha256)
 		reader.Close()
 		outputs := root.Bodies[0].Tip
 		if err != nil || associations == nil || len(associations.Elements) != len(outputs) {
@@ -145,10 +145,7 @@ func (s *Service) namingAssociationSeed(ctx context.Context, checkpoint partChec
 			byLocator[locator{element.Kind, element.LocalID}] = element
 		}
 		seed := &namingAssociationSeed{features: associations.Features, states: make(map[string]FeatureTopologyAssociation, len(outputs))}
-		charge := int64(512)
-		for _, f := range seed.features {
-			charge += int64(16 + len(f))
-		}
+		charge := int64(512) + listBytes
 		for _, o := range outputs {
 			if o.SemanticRef == 0 || int(o.SemanticRef) > len(refs) {
 				return nil, 0, nil
@@ -160,14 +157,6 @@ func (s *Service) namingAssociationSeed(ctx context.Context, checkpoint partChec
 			k := associationRefKey(refs[o.SemanticRef-1])
 			seed.states[k] = element
 			charge += int64(320 + len(k))
-			for _, ids := range [][]string{element.Primary, element.Origins, element.Supports, element.Modifiers} {
-				for _, id := range ids {
-					charge += int64(len(id) + 16)
-				}
-			}
-			for _, member := range element.Members {
-				charge += int64(24 + len(member.PatternID))
-			}
 		}
 		return seed, charge, nil
 	})

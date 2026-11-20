@@ -10,7 +10,7 @@
         "protobuf/5.27.0#99c5d5f87d1eea580a2234238020821b%1768401326.052",
         "openssl/3.6.5#3c1311f37543e7140f33fe5989f315c2%1790692982.113",
         "opengl/system#cfcf523b9d2bad75cbf377f56562634c%1762526044.744",
-        "opencascade/7.9.1@occccad/stable#f333bc9fec9ce7843fb407f00d0ece5c%1795186881.5061803",
+        "opencascade/7.9.1@occccad/stable#fb4a17b508257b7fd375ead67d019146%1795192810.1434464",
         "libpng/1.6.58#19cb72905ae54f54948401f753faa2c1%1776606503.628",
         "gtest/1.18.0#e2507fc4efe2ec9e2db9e5c91eefab9f%1786446847.733",
         "grpc/1.71.0#fee18bdf773502d7abeaab0c4f931fd7%1761821350.597",

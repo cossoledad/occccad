@@ -1,4 +1,5 @@
 #include "../src/naming_history.hpp"
+#include "../src/part_continuation.hpp"
 #include "naming_legacy_reference.hpp"
 #include "../src/cancellation.hpp"
 
@@ -60,6 +61,49 @@ std::vector<api::FeatureResult> expanded_history(const occccad::worker::EncodedN
     for(const auto& binding:tip){auto* row=result.back().add_semantic_outputs();*row->mutable_semantic_ref()=stored_ref(root,binding.semantic_ref());*row->mutable_evidence()=stored_evidence(root,binding.evidence());row->set_local_id(binding.local_id());row->set_topology_type(binding.topology_type());}
     return result;
 }
+}
+
+TEST(NamingArtifact, CheckpointKeepsTipAndLineagePermutations) {
+    namespace native = occccad::kernel;
+    native::FeatureResult f;
+    f.body_id = "body";
+    f.feature_id = "base";
+    f.result_geometry_id = "sha256:geometry";
+    f.topology_history_complete = true;
+    for (uint64_t i = 1; i <= 3; ++i) {
+        native::SemanticTopologyRef ref{"base", "face/" + std::to_string(i), {"source"}};
+        native::SelectionEvidence evidence;
+        evidence.geometry_type = "PLANE";
+        evidence.adjacent = {ref};
+        f.semantic_outputs.push_back({ref, native::PersistentTopologyType::face, i, evidence});
+        f.topology_history.lineage.push_back({{}, ref, native::TopologyLineageKind::generated, evidence});
+    }
+    std::reverse(f.semantic_outputs.begin(), f.semantic_outputs.end());
+    native::FeatureResultSequence features;
+    features.push_back(std::move(f));
+    api::TopologyNamingPolicy policy;
+    policy.set_policy_id("policy");
+    policy.set_policy_digest("digest");
+    policy.set_evaluator_version("evaluator");
+    auto snapshot = occccad::worker::NamingHistoryEncoder().encode(features, policy, "sha256:geometry", "geometry").root;
+    api::PartContinuation c;
+    c.set_feature_id("base");
+    c.set_body_id("body");
+    c.set_stage_count(1);
+    c.set_validation_policy("occccad.geometry.brep-valid.v1");
+    auto broken = snapshot;
+    broken.set_tip_lineage_locators(1, broken.tip_lineage_locators(0));
+    EXPECT_THROW(occccad::worker::restore_part_continuation(broken, c, "sha256:geometry", policy), std::invalid_argument);
+    auto restored = occccad::worker::restore_part_continuation(snapshot, c, "sha256:geometry", policy);
+    ASSERT_EQ(restored->tip_lineage_locators(), (std::vector<uint32_t>{3, 2, 1}));
+    uint64_t ordinal = 0;
+    for (const auto output : restored->outputs()) {
+        EXPECT_EQ(output.local_id, 3 - ordinal++);
+        EXPECT_EQ(output.semantic_ref.output_slot, "face/" + std::to_string(output.local_id));
+        EXPECT_EQ(&output.evidence, &restored->lineage()[output.local_id - 1].evidence);
+        ASSERT_EQ(output.evidence.adjacent.size(), 1U);
+        EXPECT_EQ(output.semantic_ref.output_slot, output.evidence.adjacent.front().output_slot);
+    }
 }
 
 TEST(NamingArtifact, HistoryBlocksKeepLegacyBytesAndSurviveEvictionAndColdRebuild) {

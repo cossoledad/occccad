@@ -32,7 +32,7 @@ import (
 
 const geometryValidationPolicy = "occccad.geometry.brep-valid.v1"
 
-const evaluatorVersion = "part-solid-generators-v83-occt-f333bc9fec9ce7843fb407f00d0ece5c"
+const evaluatorVersion = "part-solid-generators-v84-occt-fb4a17b508257b7fd375ead67d019146"
 
 // Representation changes qualify newly evaluated artifacts independently of
 // the semantic Naming policy, exact shape identity and dependency manifest.
