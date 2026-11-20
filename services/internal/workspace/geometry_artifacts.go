@@ -116,7 +116,7 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 		if m.SchemaVersion != modelcore.TopologyNamingSchemaVersion || m.TopologyPolicyId != modelcore.TopologyNamingPolicyID || m.TopologyEvaluatorVersion != modelcore.TopologyNamingEvaluator || m.TopologyPolicyDigest != modelcore.TopologyNamingPolicyDigest {
 			return fmt.Errorf("topology manifest contract mismatch")
 		}
-		naming, manifest, err := s.adoptNamingHistory(ctx, m, e.GeometryId, brep.SHA256)
+		naming, manifest, err := s.adoptNamingHistory(ctx, m, e.GeometryId, brep.SHA256, e.GetRepresentationKind() != "EXACT_STAGE")
 		if err != nil {
 			return err
 		}

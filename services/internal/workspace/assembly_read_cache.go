@@ -18,6 +18,11 @@ type assemblyTopologyKey struct {
 	geometry, kind string
 	localID        uint64
 }
+type assemblyManifestKey struct {
+	Document, Version, Body string
+	Tip, Resolver           bool
+	Prefix                  string
+}
 type assemblyManifestRead struct {
 	manifest         *topologyManifest
 	geometry, digest string

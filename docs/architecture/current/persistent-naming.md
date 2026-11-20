@@ -2,6 +2,18 @@
 
 本文拥有当前拓扑历史、PersistentSelection、Product 支持元素与 Reconnect 合同。先读身份链和源码路由，再按需求展开后面的具体实现。
 
+## 切分后引用的含义
+
+| 命令需要的对象 | 分割后的行为 |
+|---|---|
+| 一条有限边、一个有限面、端点或带限定条件的选择 | 原对象有多个有效后代时报告歧义。在切分后选中的子段跨切槽重算时，通过创建 Revision 中该段独有的上游邻接边界识别后代。证据不足时保留诊断，删除创建切槽后该有限子段缺失。 |
+| 解析直线、平面或圆柱支撑 | 装配的重合、同轴及方向约束使用解析支撑，直线与平面的距离也支持该路径。仅聚合同一历史来源、满足方向和距离容差的后代。圆柱还要求半径和材料侧一致。求解器接收一个支撑，视图区高亮全部成员。面上草图、镜像面和选取直线方向的零件命令使用同一解析器。 |
+| 允许多个成员的面集 | 曲面连接、缝合的拓扑输入传递全部同类型后代。保持独立的几何结果、Body 和 occurrence 身份。 |
+
+消费语义由命令指定。公共有限元素查询保留严格基数，Publication、有限接触或派生角色仍按自己的合同处理。解析器只比较有序历史已找到的候选。曲线裁剪、延长及切分记录同维延续或分割，生成的端点保留构造来源。曲面采用 OCCT 给出的同维修改及合并证据。构造关系混合或支撑不足的输出仍保留保守语义。
+
+在同一冻结 Revision 创建与解析选择可直接使用 Tip。跨 Revision 时，来源 Tip 的历史块摘要若位于目标的已接纳前缀中，只读取其后的有序事件。切槽重算、抑制或撤销形成的不同历史仍走完整目标及必要的创建历史。解析缓存区分 owner、投影及前缀摘要。[解析实现](../../../services/internal/workspace/naming_support.go) · [切槽验收](../../../services/internal/control/cut_hole_naming_integration_test.go)
+
 ## 身份链
 
 ```text
@@ -82,7 +94,7 @@ Changes spanning Proto/Worker/Router/Product require `mise run check --scope all
 
 约束恢复复用这些状态。创建和编辑使用同一非模态约束定义面板，服务端成功 preview 除 occurrence poses 和 component 诊断外，还返回候选 Constraint 状态与两个 Supporting Element 状态；已连接支持元素在 `SOLVING` 阶段的不可重试结构化失败明确投影为 Impossible，基础设施或可重试失败保持 NotUpdated，前端不从颜色或普通异常文本猜测领域状态。结构树双击/右键 Edit 打开同一编辑器，Broken 节点提供 Reconnect，非 Verified 节点提供 typed `UPDATE_REFERENCES` Refresh。Reconnect 复用一次性 Selection Tool 和现有 preview actor，替换端点后立即权威预览，确认以一个 `EDIT_ASSEMBLY_CONSTRAINT` Transaction 提交。结构树状态包含图标、文字和可访问标签；视口的 NotUpdated、Impossible、Broken 各用不同的屏幕稳定 SDF glyph，精确拓扑锚点丢失时回退到 occurrence 中心，确保 Broken 约束仍可被选择并修复。
 
-既有圆形切除测试使用 `REMOVE` Linear Extrude；独立 Hole 的范围与验证入口见[实体 Feature](solid-generators.md#独立-hole)，两者复用同一命名链。XZ 矩形贯穿 Cut 的 OCCT corpus 固定验证六个基础面语义引用继续存在并新增四个孔壁引用；同一 corpus 还覆盖保留面、删除面与侧开口 split 歧义。Go 端可执行 fixture 经真实 Workspace、当前配置的 SQLite/PostgreSQL、ArtifactStore、GeometryPool、正式 Router 和 C++ Worker 创建 Part/Product 面约束，覆盖通孔更新、Part Undo/Redo、真实删除、Broken 隔离、Reconnect 后继续编辑以及 ambiguous 不自动选择，并重新执行保存的 `.3dreplay`。编辑任何 Broken 约束会先把 evaluation 重置为 NotUpdated，使当前命令的权威解析与求解能够恢复到 Verified；最终 Revision 才保存求值结果。fixture 可通过 `OCCCCAD_P6_EVIDENCE_DIR` 输出逐阶段 ResolutionSnapshot 摘要和 solver replay。
+既有圆形切除测试使用 `REMOVE` Linear Extrude；独立 Hole 的范围与验证入口见[实体 Feature](solid-generators.md#独立-hole)，两者复用同一命名链。XZ 矩形贯穿 Cut 的 OCCT corpus 固定验证六个基础面语义引用继续存在并新增四个孔壁引用；同一 corpus 还覆盖保留面、删除面，以及侧开口分割后的有限面歧义与共面装配支撑。Go 端可执行 fixture 经真实 Workspace、当前配置的 SQLite/PostgreSQL、ArtifactStore、GeometryPool、正式 Router 和 C++ Worker 创建 Part/Product 面约束，覆盖通孔更新、Part Undo/Redo、真实删除、Broken 隔离、Reconnect 后继续编辑以及 ambiguous 不自动选择，并重新执行保存的 `.3dreplay`。编辑任何 Broken 约束会先把 evaluation 重置为 NotUpdated，使当前命令的权威解析与求解能够恢复到 Verified；最终 Revision 才保存求值结果。fixture 可通过 `OCCCCAD_P6_EVIDENCE_DIR` 输出逐阶段 ResolutionSnapshot 摘要和 solver replay。
 
 Boolean semantic adjacency closure 受版本化 evaluator 与 policy digest 约束，旧制品不能冒充新 manifest；准确版本由[命名策略源码](../../../services/internal/modelcore/topology_naming.go)拥有。Linear Extrude 除 cap/side Face 外，还从 profile curve entity 与共享 endpoint identity 生成 start/end cap boundary Edge、vertical Edge 和 start/end Vertex；Boolean 与 same-domain history 优先按原拓扑类型传播，并只为 OCCT 未提供同类型 history 的最终交线/端点执行可审计 closure。Edge evidence 包含解析曲线类型、SI 长度、质心、原点/方向、参数区间与端点角色，Vertex evidence 包含稳定点坐标与端点角色，三类 output 均带跨类型邻接语义引用。声明完整的 Shape gate 要求最终 Face、Edge、Vertex 各自被唯一 semantic output 和 lineage 覆盖；矩形拉伸基线为 6/12/8，长度编辑、面上 boss/pocket、ADD/REMOVE、贯穿孔、多区域/圆环/Arc/Spline profile、edge merge/split、vertex delete、圆环 seam 和容差以下短边均有确定性 corpus。Worker Proto 保留真实 topology type。服务端把 Vertex 解析为精确 Point、线性 Edge 解析为 Axis，并经正式 Router 验证 Vertex-Vertex、Vertex-Plane、Edge-Edge、Edge-Plane 的创建、更新、Broken 隔离和 Reconnect；缺少 manifest 与不完整 history 使用稳定诊断，并在没有可求解 component 时不产生 replay。
 
@@ -105,7 +117,7 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 
 身份分配先按文档/Feature/策略冻结；并发或失败重试读取同一获胜记录，不能重新分配已发布身份。随机 ID 不由 local ID、数组位置或几何坐标派生。定位映射只在冻结 BREP 摘要内有效，Worker 同时校验 OCCT 版本/策略，内核校验摘要、有效 Solid 集与无散落拓扑、覆盖、重复身份与 locator。更换输入快照不按编号或最近几何继承身份。定义表及其引用的源对象、精确几何是重放输入，不能作为显示缓存回收；几何/邻接 evidence 在由该冻结映射生成的 topology manifest 中物化。导入根的邻接以 Face→Edge、Face→Vertex、Edge→Vertex 的包含索引，以及共享边/顶点的反向索引生成，避免对全部拓扑做两两扫描；身份覆盖/重复检查使用集合，输出仍按原 canonical 顺序排列，不改变引用与历史语义。
 
-EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named topology，再复用原生 Add/Remove/Intersect、OCCT history 与同域合并传播。初始输出有完整邻接、类型、几何 evidence 和有向法向；后续 split/merge/deletion 使用同一 resolver，分裂多候选保留 Ambiguous。缓存身份包含完整 seed，依赖图将 ImportBody 作为 Body Tip，后续草图/实体读取其命名和几何。
+EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named topology，再复用原生 Add/Remove/Intersect、OCCT history 与同域合并传播。初始输出有完整邻接、类型、几何 evidence 和有向法向；后续 split/merge/deletion 使用同一 resolver，分裂后的候选按消费端输入合同处理。缓存身份包含完整 seed，依赖图将 ImportBody 作为 Body Tip，后续草图/实体读取其命名和几何。
 
 已接纳 Body 的 Naming 可提供该冻结 ImportBody 根 transition，免除每次重新测量未变化的导入几何。恢复仍验证原始 BREP、策略、owner、typed locator、完整历史与全部已分配身份；根历史 digest 参与阶段缓存身份，后续 Tip transition 不改变根身份。精确拓扑及朝向相同、语义引用相同时复用对应证据；新拓扑继续计算几何证据，最终邻接重新索引。导入根、实体最终输出及独立几何结果共用包含/共享边界索引，保持 canonical 邻接及 history digest；不以数值相似度或 local 编号继承身份。求值与取消边界见[零件增量求值](part-feature-evaluation.md#零件增量求值)。
 
@@ -125,7 +137,7 @@ EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named 
 
 ## 阵列复制与选择延续
 
-`LINEAGE_DESCENDANT` 跟踪所选拓扑的实际延续，沿 Modified/Unchanged/Split/Merged 解析；`GENERATED` 表达构造来源，不是原拓扑身份的延续。因此抽壳内壁、圆角生成面和 `MEMBER/slot/seed-digest` 刚体副本不会成为原面／边选择的候选，原拓扑消失时也不能跳到新生成拓扑。显式选中的内壁或 MEMBER 以自身语义引用为锚点，继续跟踪后续延续；真实分裂仍保留 Ambiguous。解析索引仅在当前进程按冻结制品构造，不修改既有 Naming/BREP 制品或持久引用格式。
+`LINEAGE_DESCENDANT` 跟踪所选拓扑的实际延续，沿 Modified/Unchanged/Split/Merged 解析；`GENERATED` 表达构造来源，不是原拓扑身份的延续。因此抽壳内壁、圆角生成面和 `MEMBER/slot/seed-digest` 刚体副本不会成为原面／边选择的候选，原拓扑消失时也不能跳到新生成拓扑。显式选中的内壁或 MEMBER 以自身语义引用为锚点，继续跟踪后续延续；要求单一有限元素时，真实分裂仍保留 Ambiguous。解析索引仅在当前进程按冻结制品构造，不修改既有 Naming/BREP 制品或持久引用格式。
 
 Feature 的当前贡献与树／视图联动使用 `featureAssociations.primary`，只突出其实际拥有的结果；`origins` 保留复制来源链用于溯源，不能把祖先链当作当前归属而连带选中其他副本。成员槽位及持久拓扑选择合同保持不变，不按坐标挑选候选。回归见 `TestResolveManifestGeneratedBoundaryIsNotSourceContinuation` 和 `TestSketchOnShellOuterFaceThroughRouter`：外面与内面独立绑定、外面支撑的草图／拉伸、壁厚更新、历史及冷重建；视图区流程见 `solid-feature-live.spec.ts`。
 
@@ -137,15 +149,15 @@ Feature 的当前贡献与树／视图联动使用 `featureAssociations.primary`
 
 持久根和历史块用局部符号表编码完整引用。同一个有序来源列表在一个块内只写一次。历史块中的邻接可以借用经摘要绑定的直接前驱行结果，减少连续裁剪大平面时的重复来源字符串。完整展开恢复同一 Feature、OutputSlot 和有序 SourceIDs。属性检查器从输出角色显示端面、侧面和阵列成员等名称。命名策略和持久选择身份继续使用 v8 合同。
 
-命名根仅登记到最后一个历史块的直接依赖。历史块各自登记到唯一前驱。结合根中的有序摘要验证完整历史，可追溯并保留共享前缀。绑定当前面、边、点走独立 tip 定位表。沿历史解析与审计读取经验证的完整事件链。
+命名根仅登记到最后一个历史块的直接依赖。历史块各自登记到唯一前驱。绑定当前面、边、点走独立 tip 定位表。从已接纳的祖先 Revision 解析时，服务在目标根的有序历史中确认来源摘要，再沿依赖反向读取至来源块。历史分叉和完整审计读取整条事件链。
 
-从已接纳 Body 前缀续算时，接纳方核对前缀摘要序列和已发布前驱，读取及登记新事件块。普通显示归属可从冻结前缀的当前元素归属继续计算。引用已离开 tip 的先前状态、或别名需要解析历史时，进入完整事件路径。历史查询按需校验几何证据表的索引和类型，只为 tip 与审计解开详细几何证据。
+从已接纳 Body 前缀续算时，接纳方核对前缀摘要序列和已发布前驱，读取及登记新事件块。纯精确几何阶段只接纳拓扑历史，省去显示制品读取与查询索引构造。需要显示时，普通贡献可从前驱冻结的元素归属继续计算；同一前驱上的多次编辑共享按 Naming 和显示制品身份限定的 32 MiB 缓存。引用已离开 tip 的先前状态、或别名需要解析历史时，进入完整事件路径。历史查询按需校验几何证据表的索引和类型，只为 tip 与审计解开详细几何证据。
 
 `workspace/naming_search.go` 为校验后的不可变 manifest 一次构造派生索引：完整 semantic ref 值表、互斥 Body/FeatureResult owner、历史存在性、按 source 排序的事件列表和当前 tip 的 ref/type 输出索引。整数符号及事件位置只用于本次内存查询，不成为持久身份。`GENERATED` 支撑不加入延续关系，同引用 UNCHANGED 不创建无作用事件；权威历史仍可无损恢复这些记录。
 
-查询从锚点调度相关事件，用最小堆保留原 transition/lineage/ambiguity/delete 顺序。每个 source 的未来事件只调度一次；删除后重新出现也不重放过去事件。不能改成无序可达闭包，否则可能复活已删除拓扑或追踪在来源出现之前发生的规则。当前 tip 只检查活跃引用对应的候选，再按原 recipe、类型及顺序返回结果。首次校验仍读取根声明的全部历史块，建索引扫描其 literal 事件；复用查询的工作量取决于相关事件和候选，歧义传播很大时仍可访问大量历史。
+查询从锚点调度相关事件，用最小堆保留原 transition/lineage/ambiguity/delete 顺序。每个 source 的未来事件只调度一次。删除后重新出现也不重放过去事件。当前 tip 只检查活跃引用对应的候选，再按原 recipe、类型及顺序返回结果。首次查询须解码目标 tip 并校验所需历史区间。从最早阶段查询复杂零件时，这个区间可覆盖几乎全部历史。复用索引后的工作量取决于与锚点相关的事件和候选，歧义传播很大时仍可能访问大量历史。
 
-`workspace/naming_view_cache.go` 按 object ID、SHA-256、policy digest 和视图用途共享已校验结果。预算为 **64 MiB 根视图 + 64 MiB 块视图**。沿历史解析的根视图只保留当前 tip 与有序事件索引，完整审计另按需读取历史。索引用局部字符串符号和有序整数序列保存精确引用键，减少长来源列表的内存占用。当前 tip 的完整证据仍用于绑定及匹配。块按保留的 protobuf、slice、字符串和共享引用图估算费用；根计符号、事件、tip 等保留量。缓存预算是接纳估算，大型根仍可能达到单区上限。
+`workspace/naming_view_cache.go` 按 object ID、SHA-256、policy digest 和视图用途共享已校验结果。预算为 **64 MiB 根视图 + 64 MiB 块视图**。沿历史解析的根视图只保留当前 tip 与有序事件索引，完整审计另按需读取历史。索引用局部字符串符号和有序整数序列保存精确引用键。根的缓存费用计入共享字典、定位表、解码证据、邻接和索引；同一分裂父引用被多个子段使用时只计一次。块按保留的 protobuf、slice、字符串和共享引用图估算。缓存预算是接纳估算，大型视图仍可能达到单区上限。
 
 过大视图可共享正在进行的读取，但不留在缓存。读者租借在淘汰后仍有效；失败/取消不接纳，等待者独立取消，加载者取消后其他等待者可重试。inline 内容重新校验，`ForceCold` 绕过共享视图。完整历史展开使用明确预算和完整块 loader，精简查询对象不能冒充完整历史；此内存投影不修改持久证据、历史摘要或既有选择。
 

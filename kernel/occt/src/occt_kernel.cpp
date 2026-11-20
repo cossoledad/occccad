@@ -5263,6 +5263,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             struct OutputGroup {
                 TopoDS_Shape shape;
                 std::vector<SemanticTopologyRef> sources;
+                std::string first_source_key;
             };
             std::vector<OutputGroup> groups;
             TopTools_IndexedMapOfShape group_shapes;
@@ -5270,7 +5271,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 const int located=group_shapes.FindIndex(mapped.shape);
                 if (!located) {
                     group_shapes.Add(mapped.shape);
-                    groups.push_back({mapped.shape, {mapped.ref}});
+                    groups.push_back({mapped.shape, {mapped.ref}, {}});
                 } else {
                     auto& group=groups[static_cast<std::size_t>(located)-1];
                     if (std::none_of(
@@ -5293,14 +5294,11 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     group.shape = final_faces(index);
                 }
                 sort_refs(group.sources);
+                group.first_source_key = ref_key(group.sources.front());
             }
             std::sort(groups.begin(), groups.end(), [&](const auto& left, const auto& right) {
-                const auto left_key =
-                    left.sources.empty() ? std::string{} : ref_key(left.sources.front());
-                const auto right_key =
-                    right.sources.empty() ? std::string{} : ref_key(right.sources.front());
-                if (left_key != right_key)
-                    return left_key < right_key;
+                if (left.first_source_key != right.first_source_key)
+                    return left.first_source_key < right.first_source_key;
                 return topology_evidence(left.shape, &facts).evidence_digest <
                        topology_evidence(right.shape, &facts).evidence_digest;
             });
@@ -5530,27 +5528,18 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                                << '/' << final_vertices.Extent();
                     throw std::runtime_error(diagnostic.str());
                 }
-                std::vector<std::string> local_ids;
-                std::vector<std::string> semantic_refs;
+                if (output_refs.size() != outputs.size())
+                    throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_SEMANTIC_REF");
+                // Each group was indexed by a unique final TShape; the complete count
+                // and one lineage per semantic output prove coverage without sorting
+                // two additional arrays of formatted locator and reference strings.
                 for (const auto& output : outputs) {
                     if (output.first.local_id == 0U ||
                         output.first.topology_type == PersistentTopologyType::unspecified)
                         throw std::runtime_error("TOPOLOGY_HISTORY_INVALID_LOCAL_ID");
-                    local_ids.push_back(
-                        std::to_string(static_cast<int>(output.first.topology_type)) + "/" +
-                        std::to_string(output.first.local_id));
-                    semantic_refs.push_back(ref_key(output.first.semantic_ref));
-                    const auto matches = lineage_counts[ref_key(output.first.semantic_ref)];
-                    if (matches != 1)
+                    if (lineage_counts.at(ref_key(output.first.semantic_ref)) != 1)
                         throw std::runtime_error("TOPOLOGY_HISTORY_LINEAGE_OUTPUT_MISMATCH");
                 }
-                std::sort(local_ids.begin(), local_ids.end());
-                if (std::adjacent_find(local_ids.begin(), local_ids.end()) != local_ids.end())
-                    throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_LOCAL_ID");
-                std::sort(semantic_refs.begin(), semantic_refs.end());
-                if (std::adjacent_find(semantic_refs.begin(), semantic_refs.end()) !=
-                    semantic_refs.end())
-                    throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_SEMANTIC_REF");
             }
             feature.topology_history.evidence_digest =
                 topology_history_digest(feature.topology_history);
@@ -5709,7 +5698,7 @@ ProfileEvaluationResult OcctKernel::evaluateGeometryFeature(const GeometryFeatur
         for(const auto neighbor:adjacency[i])evidence.adjacent.push_back(names[neighbor].ref);
         sort_refs(evidence.adjacent);
         f.semantic_outputs.push_back({n.ref,type,static_cast<uint64_t>(local),evidence});
-        h.lineage.push_back({n.sources,n.ref,TopologyLineageKind::generated,evidence});
+        h.lineage.push_back({n.sources,n.ref,n.evolution,evidence});
     }
     size_t total=0;for(const auto& m:maps)total+=static_cast<size_t>(m.second.Extent());
     if(total!=f.semantic_outputs.size())throw std::runtime_error("GEOMETRY_NAMING_INCOMPLETE");

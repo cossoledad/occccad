@@ -235,7 +235,7 @@ func (service *Service) frozenSketchDependency(ctx context.Context, previous, re
 
 func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, documentID, sourceVersionID, geometryKey string,
 	selection modelcore.PersistentSelection) (modelcore.SelectionResolution, string, error) {
-	sourceCtx := context.WithValue(ctx, namingTipOnlyKey{}, true)
+	sourceCtx := namingCreationContext(ctx, selection)
 	source, _, _, err := service.selectionManifestForVersion(sourceCtx, documentID, sourceVersionID, selection)
 	if err != nil {
 		return modelcore.SelectionResolution{}, "", err
@@ -248,7 +248,9 @@ func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, doc
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch,
 			SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "CREATION_EVIDENCE_MISMATCH"}, "", nil
 	}
-	targetCtx := context.WithValue(ctx, namingResolverOnlyKey{}, true)
+	selection.CreationEvidence.GeometryType = sourceOutput.GetEvidence().GetGeometryType()
+	selection.CreationEvidence.MeasureDimension = sourceOutput.GetEvidence().GetMeasureDimension()
+	targetCtx := namingTargetContext(ctx, selection, source)
 	target, digest, err := service.topologyManifestForGeometryKey(targetCtx, geometryKey)
 	if err != nil {
 		return modelcore.SelectionResolution{}, "", err
@@ -256,7 +258,7 @@ func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, doc
 	if !topologyHistoryComplete(target) {
 		return unavailableSelectionResolution("TOPOLOGY_HISTORY_INCOMPLETE", "target support has no complete semantic topology history"), digest, nil
 	}
-	return resolveManifest(selection, geometryKey, target), digest, nil
+	return resolveBetweenNamingViews(selection, source, target, geometryKey, finiteElement), digest, nil
 }
 
 func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID, requestID string, model *PartModel) error {
@@ -414,7 +416,7 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 			}
 			return err
 		}
-		resolution, err := service.resolveFeaturePick(ctx, FeatureSelection{Selection: *support.PersistentSelection, SourceVersionID: support.SourceVersionID, SourceFeatureID: support.SourceFeatureID}, geometryKey)
+		resolution, err := service.resolveFeaturePickForUse(ctx, FeatureSelection{Selection: *support.PersistentSelection, SourceVersionID: support.SourceVersionID, SourceFeatureID: support.SourceFeatureID}, geometryKey, analyticSupport)
 		_, digest, manifestErr := service.topologyManifestForGeometryKey(ctx, geometryKey)
 		if manifestErr != nil {
 			return manifestErr
@@ -422,7 +424,7 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 		if err != nil {
 			return err
 		}
-		if resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 {
+		if resolution.Status != modelcore.SelectionResolved {
 			support.Status, support.DiagnosticCode, support.Diagnostic = "FAILED_SUPPORT", resolution.DiagnosticCode, resolution.Diagnostic
 			if support.DiagnosticCode == "" {
 				support.DiagnosticCode = "FAILED_SUPPORT"
@@ -430,14 +432,13 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 			failSupport(feature, support.DiagnosticCode, support.Diagnostic)
 			continue
 		}
-		evidence := resolution.Candidates[0].Evidence
-		if evidence.GeometryType != "PLANE" {
+		origin, normal, planar := resolvedPlaneFrame(resolution, support.Origin)
+		if !planar {
 			support.Status, support.DiagnosticCode, support.Diagnostic = "FAILED_SUPPORT", "SUPPORT_TYPE_MISMATCH", "resolved support is not planar"
 			failSupport(feature, support.DiagnosticCode, support.Diagnostic)
 			continue
 		}
-		normal := evidence.Direction
-		origin, xDirection, normal, frameErr := validatedSupportFrame(evidence.Origin, support.XDirection, normal)
+		origin, xDirection, normal, frameErr := validatedSupportFrame(origin, support.XDirection, normal)
 		if frameErr != nil {
 			failSupport(feature, "SUPPORT_FRAME_INVALID", frameErr.Error())
 			continue

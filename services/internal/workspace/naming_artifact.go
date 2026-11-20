@@ -10,9 +10,11 @@ import (
 // Consumer-local domain view, never marshaled to an artifact or database.
 // Historical features carry transitions only; full output locators exist at explicit body tips.
 type topologyManifest struct {
+	resolutionPrefix  string
+	historyTipDigest  string
 	BRepSHA256        string
 	GeometryID        string
-	Locators          map[string]namingLocator
+	Locators          map[namingLocatorKey]namingLocator
 	FeatureResults    []*workerv1.FeatureResult
 	Tips              map[string]*workerv1.FeatureResult
 	Results           map[modelcore.GeometryResultReference]*workerv1.FeatureResult
@@ -23,6 +25,10 @@ type topologyManifest struct {
 	associations      *FeatureAssociationIndex
 }
 
+type namingLocatorKey struct {
+	kind workerv1.PersistentTopologyType
+	id   uint64
+}
 type namingLocator struct {
 	BodyID string
 	Result *modelcore.GeometryResultReference
@@ -114,7 +120,7 @@ func unpackNamingValuesWithEvidence(m *workerv1.PartTopologyManifest, includeEvi
 	matchesOwner := func(body string, r *workerv1.GeometryResultReference) bool {
 		return body == ownerBody && ((ownerResult == nil && r == nil) || (ownerResult != nil && r != nil && ownerResult.FeatureId == r.FeatureId && ownerResult.ResultId == r.ResultId))
 	}
-	out := &topologyManifest{GeometryID: m.GeometryId, BRepSHA256: m.BrepSha256, Locators: map[string]namingLocator{}, Tips: map[string]*workerv1.FeatureResult{}, Results: map[modelcore.GeometryResultReference]*workerv1.FeatureResult{}}
+	out := &topologyManifest{GeometryID: m.GeometryId, BRepSHA256: m.BrepSha256, Locators: map[namingLocatorKey]namingLocator{}, Tips: map[string]*workerv1.FeatureResult{}, Results: map[modelcore.GeometryResultReference]*workerv1.FeatureResult{}}
 	refs, err := namingReferences(m)
 	if err != nil {
 		return nil, err
@@ -246,7 +252,7 @@ func unpackNamingValuesWithEvidence(m *workerv1.PartTopologyManifest, includeEvi
 		out.FeatureResults = append(out.FeatureResults, &workerv1.FeatureResult{FeatureId: t.FeatureId, BodyId: t.BodyId, Result: t.Result, InputFeatureId: t.InputFeatureId, ProfileFeatureId: t.ProfileFeatureId, ResultGeometryId: t.ResultGeometryId, TopologyHistory: h, TopologyHistoryComplete: t.Complete, Diagnostics: t.Diagnostics})
 	}
 	seen := map[uint32]bool{}
-	locators := map[string]bool{}
+
 	{
 		if tipTransition == 0 || uint64(tipTransition) > uint64(len(out.FeatureResults)) {
 			return nil, fmt.Errorf("invalid naming body tip")
@@ -266,27 +272,21 @@ func unpackNamingValuesWithEvidence(m *workerv1.PartTopologyManifest, includeEvi
 		if previous != tipTransition {
 			return nil, fmt.Errorf("body tip not at end of transition chain")
 		}
-		for _, o := range tipOutputs {
-			key := fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)
-			if o.LocalId == 0 || o.TopologyType < 1 || o.TopologyType > 3 || locators[key] {
-				return nil, fmt.Errorf("invalid or duplicate tip locator")
-			}
-			locators[key] = true
-			tip.SemanticOutputs = append(tip.SemanticOutputs, &workerv1.SemanticTopologyOutput{TopologyType: o.TopologyType, LocalId: o.LocalId, SemanticRef: ref(o.SemanticRef), Evidence: ev(o.Evidence)})
-		}
-		for _, o := range tip.SemanticOutputs {
-			out.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)] = namingLocator{BodyID: ownerBody, Output: o}
-		}
+		var resultRef *modelcore.GeometryResultReference
 		if ownerResult != nil {
-			r := modelcore.GeometryResultReference{FeatureID: ownerResult.FeatureId, ResultID: ownerResult.ResultId}
-			out.Results[r] = tip
-			for _, o := range tip.SemanticOutputs {
-				locator := out.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)]
-				locator.Result = &r
-				out.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)] = locator
-			}
+			resultRef = &modelcore.GeometryResultReference{FeatureID: ownerResult.FeatureId, ResultID: ownerResult.ResultId}
+			out.Results[*resultRef] = tip
 		} else {
 			out.Tips[ownerBody] = tip
+		}
+		for _, o := range tipOutputs {
+			key := namingLocatorKey{o.TopologyType, o.LocalId}
+			if _, exists := out.Locators[key]; exists || o.LocalId == 0 || o.TopologyType < 1 || o.TopologyType > 3 {
+				return nil, fmt.Errorf("invalid or duplicate tip locator")
+			}
+			output := &workerv1.SemanticTopologyOutput{TopologyType: o.TopologyType, LocalId: o.LocalId, SemanticRef: ref(o.SemanticRef), Evidence: ev(o.Evidence)}
+			tip.SemanticOutputs = append(tip.SemanticOutputs, output)
+			out.Locators[key] = namingLocator{BodyID: ownerBody, Result: resultRef, Output: output}
 		}
 	}
 	if len(seen) != len(m.Transitions) {

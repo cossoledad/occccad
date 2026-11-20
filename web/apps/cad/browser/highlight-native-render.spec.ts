@@ -93,3 +93,41 @@ test("native curved highlights keep visible strokes and occlusion", async ({ pag
   fs.writeFileSync(path.join(output,"highlights.json"),JSON.stringify({conditions:"Native OCCT fixtures through VisualRepository and viewport; same camera, geometry, lighting and material. Depth-reference intentionally exposes hidden edges for diagnosis only.",reports,errors},null,2));
   expect(errors).toEqual([]);
 });
+
+test("a resolved assembly support highlights every finite member of its occurrence", async ({page}) => {
+  const bytes = fs.readFileSync(path.join(edgeFixtures, "cube.glb"));
+  await page.route("**/edge-fixtures/cube.glb", route => route.fulfill({body: bytes, contentType: "model/gltf-binary"}));
+  await page.goto("/browser/natural-edges.html");
+  await page.waitForFunction(() => Boolean((window as any).edgeHarness));
+  await page.evaluate(async args => (window as any).edgeHarness.load(...args), ["cube", createHash("sha256").update(bytes).digest("hex"), bytes.length, "#98a8b8", 2]);
+  const report = await page.evaluate(async () => {
+    const {engine, frame} = (window as any).edgeHarness;
+    const binding = [...engine.solidBindings.values()][0] as any;
+    const {instanceId} = binding.context;
+    const {geometryKey, mesh} = binding.artifact;
+    const edgeIds = mesh.edges.slice(0, 2).map((edge: any) => edge.localId);
+    const ref = {instanceId, kind: "EDGE", resolution: {result: {
+      status: "RESOLVED", support: {geometryType: "LINE", origin: [0,0,0], direction: [1,0,0]},
+      candidates: edgeIds.map((localId: number) => ({geometryKey, localId}))
+    }}};
+    const view = engine.view;
+    view.product.constraints = [{id: "split-support", name: "Coincidence", kind: "COINCIDENT", evaluationStatus: "VERIFIED", first: ref}];
+    engine.assemblyConstraintDisplayDirty = true;
+    engine.addAssemblyConstraintMarkers(view);
+    const key = engine.assemblyMarkerKey(view.document.id, "", "split-support");
+    const marker = engine.assemblyConstraintMarkers.get(key);
+    const references = engine.assemblyConstraintReferences.get(key);
+    engine.preselect(marker.selection);
+    await frame();
+    const hover = engine.preselectedOverlays.length;
+    engine.preselect(null);
+    engine.select(marker.selection, false);
+    await frame();
+    return {edgeIds, actual: references.map((r: any) => r.topologyId), sameOccurrence: references.every((r: any) => r.instanceId === instanceId),
+      hover, selected: engine.selectedOverlays.length};
+  });
+  expect(report.actual).toEqual(report.edgeIds);
+  expect(report.sameOccurrence).toBe(true);
+  expect(report.hover).toBeGreaterThan(0);
+  expect(report.selected).toBeGreaterThan(0);
+});

@@ -196,7 +196,25 @@ func unpackNamingRoot(ctx context.Context, m *workerv1.PartTopologyManifest, loa
 	previous := ""
 	var previousRows uint64
 	allComplete := true
-	for _, reference := range m.History {
+	history := m.History
+	if prefix := namingPrefix(ctx); prefix != "" {
+		for i, stage := range history {
+			if stage.Sha256 != prefix {
+				continue
+			}
+			// The source root and target root were both accepted with complete
+			// owner-qualified histories. The digest binds the entire prefix.
+			locators.resolutionPrefix = prefix
+			if i == len(history)-1 {
+				return locators, nil
+			}
+			previous, previousRows = stage.Sha256, stage.FullLineageCount
+			history = history[i+1:]
+			out.resolutionPrefix = prefix
+			break
+		}
+	}
+	for _, reference := range history {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}

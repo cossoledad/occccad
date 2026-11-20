@@ -128,6 +128,7 @@ type geometryReferenceSnapshot struct {
 	Reference            GeometricInput
 	Origin, Direction, U [3]float64
 	Point, Plane         bool
+	GeometryKey          string `json:",omitempty"`
 	Source               *workerv1.GeometryFeatureInput
 }
 
@@ -220,17 +221,44 @@ func (s *Service) geometryReferenceFrame(ctx context.Context, requestID string, 
 		default:
 			return bad()
 		}
-	} else if input.Kind == "RESULT" || input.Kind == "TOPOLOGY" {
+	} else if input.Kind == "TOPOLOGY" && input.Selection != nil {
+		pick := input.Selection
+		key, err := s.featureStageInModel(ctx, model, "", geometryInputFeatureID(input), pick.Selection.SourceBodyID)
+		if err != nil {
+			return frame, snapshot, err
+		}
+		r, err := s.resolveFeaturePickForUse(ctx, *pick, key, analyticSupport)
+		if err != nil {
+			return frame, snapshot, err
+		}
+		if r.Status != modelcore.SelectionResolved {
+			return frame, snapshot, fmt.Errorf("%w: GEOMETRY_REFERENCE_%s", ErrValidation, r.Status)
+		}
+		snapshot.GeometryKey = key
+		if origin, normal, ok := resolvedPlaneFrame(r, pick.Selection.CreationEvidence.Origin); ok {
+			frame = datumFrame{origin: origin, direction: normal, u: pick.Selection.CreationEvidence.XDirection, plane: true}
+		} else if r.Support != nil && r.Support.GeometryType == "LINE" {
+			frame = datumFrame{origin: r.Support.Origin, direction: r.Support.Direction}
+		} else if len(r.Candidates) == 1 {
+			e := r.Candidates[0].Evidence
+			frame.origin = e.Origin
+			if r.Candidates[0].Type == modelcore.PersistentTopologyVertex {
+				frame.point = true
+			} else if e.GeometryType == "LINE" {
+				frame.direction = e.Direction
+			} else {
+				return bad()
+			}
+		} else {
+			return bad()
+		}
+	} else if input.Kind == "RESULT" {
 		source, err := s.geometrySource(ctx, requestID+"/reference", model, input)
 		if err != nil {
 			return frame, snapshot, err
 		}
 		snapshot.Source = source
-		body := ""
-		if input.Selection != nil {
-			body = input.Selection.Selection.SourceBodyID
-		}
-		key, err := s.featureStageInModel(ctx, model, "", geometryInputFeatureID(input), body)
+		key, err := s.featureStageInModel(ctx, model, "", geometryInputFeatureID(input), "")
 		if err != nil {
 			return frame, snapshot, err
 		}

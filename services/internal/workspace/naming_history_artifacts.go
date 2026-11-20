@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -62,7 +64,7 @@ func (s *Service) namingHistoryLoader(ctx context.Context, parent *string) namin
 			return nil, fmt.Errorf("topology artifact store is not configured")
 		}
 		if !initialized && parent != nil {
-			children, err := s.artifacts.NamingHistoryObjects(ctx, *parent, "")
+			children, err := s.artifacts.NamingHistorySuffix(ctx, *parent, namingPrefix(ctx))
 			if err != nil {
 				return nil, err
 			}
@@ -90,15 +92,18 @@ func (s *Service) namingHistoryLoader(ctx context.Context, parent *string) namin
 	}
 }
 
-func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvaluationManifest, geometryID, brep string) (artifactstore.Object, *topologyManifest, error) {
+func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvaluationManifest, geometryID, brep string, displayAssociations bool) (artifactstore.Object, *topologyManifest, error) {
 	defer perf.Start(ctx, "naming-adopt")()
+	finish := perf.Start(ctx, "naming-stage-root")
 	root, err := s.adoptEvaluationObject(ctx, m.TopologyManifestArtifact, artifactstore.KindTopologyManifest)
+	finish()
 	if err != nil {
 		return root, nil, err
 	}
 	if err = validateTopologyManifestDigests(m.TopologyManifestDigest, m.GetTopologyManifestArtifact().GetSha256(), root.SHA256); err != nil {
 		return root, nil, err
 	}
+	finish = perf.Start(ctx, "naming-root-read")
 	reader, err := s.artifacts.OpenReadyObject(ctx, root)
 	if err != nil {
 		return root, nil, err
@@ -111,10 +116,18 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 	if closeErr != nil {
 		return root, nil, closeErr
 	}
+	finish()
+	finish = perf.Start(ctx, "naming-root-decode")
+	sum := sha256.Sum256(data)
+	if hex.EncodeToString(sum[:]) != root.SHA256 {
+		return root, nil, fmt.Errorf("adopted Naming digest mismatch")
+	}
 	stored := &workerv1.PartTopologyManifest{}
 	if err = proto.Unmarshal(data, stored); err != nil {
 		return root, nil, err
 	}
+	finish()
+	finish = perf.Start(ctx, "naming-prefix-check")
 	wanted := map[string]*workerv1.NamingHistoryReference{}
 	digests := []string{}
 	for _, ref := range stored.History {
@@ -135,6 +148,8 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 			}
 		}
 	}
+	finish()
+	finish = perf.Start(ctx, "naming-adopt-blocks")
 	objects, err := s.artifacts.ReadyByDigests(ctx, artifactstore.KindNamingHistory, digests[prefix:])
 	if err != nil {
 		return root, nil, err
@@ -152,11 +167,12 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 		}
 		objects[object.SHA256] = object
 	}
+	finish()
 	if stored.GeometryId != geometryID || stored.BrepSha256 != brep {
 		return root, nil, fmt.Errorf("feature association snapshot mismatch")
 	}
 	if prefix > 0 {
-		view, err := s.adoptNamingContinuation(ctx, checkpoint, root, stored, objects)
+		view, err := s.adoptNamingContinuation(ctx, checkpoint, root, stored, objects, displayAssociations)
 		if view != nil || err != nil {
 			return root, view, err
 		}
@@ -168,13 +184,15 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 			objects[digest] = object
 		}
 	}
-	view, err := decodeTopologyManifestContext(ctx, data, root.SHA256, func(ctx context.Context, ref *workerv1.NamingHistoryReference) (*decodedNamingBlock, error) {
+	finish = perf.Start(ctx, "naming-full-history")
+	view, err := unpackVerifiedNamingRoot(ctx, stored, len(data), false, func(ctx context.Context, ref *workerv1.NamingHistoryReference) (*decodedNamingBlock, error) {
 		object, ok := objects[ref.Sha256]
 		if !ok {
 			return nil, namingError("CORRUPT", "TOPOLOGY_HISTORY_BLOCK_MISSING", "求值结果缺少命名历史块。")
 		}
 		return s.readNamingBlock(ctx, object, ref)
 	})
+	finish()
 	if err != nil {
 		return root, nil, err
 	}
@@ -187,12 +205,6 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 	}
 	if err = s.artifacts.RecordNamingClosure(ctx, root, ordered); err != nil {
 		return root, nil, err
-	}
-	if !geometry.PartRuntime(ctx).ForceCold {
-		_, err = s.namingViews.read(ctx, namingViewKey(root.ID, root.SHA256), namingViewBudget, func() (*topologyManifest, int64, error) { return view, namingViewCharge(view, root.ID), nil })
-		if err != nil {
-			return root, nil, err
-		}
 	}
 	return root, view, nil
 }

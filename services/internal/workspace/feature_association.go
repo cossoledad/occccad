@@ -2,8 +2,8 @@ package workspace
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"slices"
 	"sort"
 	"strconv"
@@ -34,8 +34,26 @@ type FeatureAssociationMember struct {
 }
 
 func associationRefKey(ref *workerv1.SemanticTopologyRef) string {
-	b, _ := json.Marshal(ref)
-	return string(b)
+	if ref == nil {
+		return ""
+	}
+	return semanticTupleKey(ref.FeatureId, ref.OutputSlot, ref.SourceIds)
+}
+
+func semanticTupleKey(feature, slot string, sources []string) string {
+	var key strings.Builder
+	put := func(value string) {
+		var length [binary.MaxVarintLen64]byte
+		n := binary.PutUvarint(length[:], uint64(len(value)))
+		key.Write(length[:n])
+		key.WriteString(value)
+	}
+	put(feature)
+	put(slot)
+	for _, id := range sources {
+		put(id)
+	}
+	return key.String()
 }
 func uniqueAssociationIDs(ids []string) []string {
 	// Callers pass their own newly assembled slice, never a frozen ancestor.
@@ -182,7 +200,7 @@ func deriveFeatureAssociationsFrom(m *topologyManifest, states map[string]Featur
 				// Feature, while keeping real solid-source merges multi-owner.
 				_, known := states[refKey(s)]
 				role, id, profile := strings.Cut(s.OutputSlot, "/")
-				if !known && profile && id != "" && (role == "PROFILE_EDGE" || role == "PROFILE_REGION" || role == "PROFILE_POINT") &&
+				if !known && profile && id != "" && isProfileNamingRole(role) &&
 					l.Result.FeatureId == f.FeatureId && (l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MERGED || l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_SPLIT) {
 					prev = FeatureTopologyAssociation{Origins: []string{f.FeatureId}, Primary: []string{f.FeatureId}, Supports: []string{s.FeatureId}, Status: "MAPPED"}
 				}
@@ -305,4 +323,13 @@ func featureContributionStatuses(index *FeatureAssociationIndex) map[string]stri
 		}
 	}
 	return out
+}
+
+// Profile roles identify sketch inputs emitted by the geometry kernel.
+func isProfileNamingRole(role string) bool {
+	switch role {
+	case "PROFILE_EDGE", "PROFILE_REGION", "PROFILE_POINT", "PROFILE_VERTEX", "PATH_EDGE":
+		return true
+	}
+	return false
 }

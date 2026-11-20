@@ -56,15 +56,15 @@ func (s *Service) resolveReferencedPlane(ctx context.Context, requestID string, 
 	if err != nil {
 		return [3]float64{}, [3]float64{}, err
 	}
-	resolution, err := s.resolveFeaturePick(ctx, *pick, key)
+	resolution, err := s.resolveFeaturePickForUse(ctx, *pick, key, analyticSupport)
 	if err != nil {
 		return [3]float64{}, [3]float64{}, err
 	}
-	if resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 || resolution.Candidates[0].Evidence.GeometryType != "PLANE" {
+	origin, normal, ok := resolvedPlaneFrame(resolution, pick.Selection.CreationEvidence.Origin)
+	if !ok {
 		return [3]float64{}, [3]float64{}, fmt.Errorf("%w: REFERENCED_PLANE_UNRESOLVED: %s", ErrValidation, resolution.DiagnosticCode)
 	}
-	e := resolution.Candidates[0].Evidence
-	return e.Origin, e.Direction, nil
+	return origin, normal, nil
 }
 
 func (s *Service) resolvedSolidPatternDefinition(ctx context.Context, requestID string, model PartModel, feature Feature) (PatternDefinition, error) {

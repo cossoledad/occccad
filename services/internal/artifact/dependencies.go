@@ -63,6 +63,19 @@ func (s *Service) NamingHistoryObjects(ctx context.Context, root, digest string)
  WHERE o.state='READY' AND ($2='' OR o.sha256=$2) ORDER BY o.id`, root, digest)
 }
 
+// NamingHistorySuffix reads the published chain down to the accepted source
+// checkpoint. A different modeling branch naturally runs back to the root.
+func (s *Service) NamingHistorySuffix(ctx context.Context, root, checkpoint string) ([]Object, error) {
+	if checkpoint == "" {
+		return s.NamingHistoryObjects(ctx, root, "")
+	}
+	return s.dependencyObjects(ctx, `WITH RECURSIVE history(id,sha256) AS (
+ SELECT o.id,o.sha256 FROM occccad.artifact_dependencies d JOIN occccad.artifact_objects o ON o.id=d.child_id WHERE d.parent_id=$1
+ UNION SELECT o.id,o.sha256 FROM history h JOIN occccad.artifact_dependencies d ON d.parent_id=h.id JOIN occccad.artifact_objects o ON o.id=d.child_id WHERE h.sha256<>$2
+ ) SELECT o.id::text,o.kind,o.sha256,o.storage_backend,o.object_key,o.content_type,o.size_bytes FROM history h
+ JOIN occccad.artifact_objects o ON o.id=h.id WHERE o.state='READY' AND h.sha256<>$2 ORDER BY o.id`, root, checkpoint)
+}
+
 func (s *Service) dependencyObjects(ctx context.Context, query string, args ...any) ([]Object, error) {
 	rows, err := s.database.Query(ctx, query, args...)
 	if err != nil {

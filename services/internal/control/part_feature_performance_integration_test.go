@@ -750,12 +750,60 @@ func TestMissingPartContinuationRecoversThroughRouter(t *testing.T) {
 	}
 }
 
+// Reproduce three same-predecessor previews without mutating the frozen Part.
+// Supply a new starting offset for uncached timings on a previously used fixture.
+func TestStoredNamingTipPreviewTimingThroughRouter(t *testing.T) {
+	id := os.Getenv("OCCCCAD_TEST_NAMING_TIMING_DOCUMENT")
+	if id == "" {
+		t.Skip("requires an accepted growing-topology fixture")
+	}
+	delta := .1875
+	if value := os.Getenv("OCCCCAD_TEST_NAMING_OFFSET_MM"); value != "" {
+		var err error
+		delta, err = strconv.ParseFloat(value, 64)
+		if err != nil || delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
+			t.Fatal("invalid feature length increment", value)
+		}
+	}
+	service, _, _, _, _ := featureAssociationRuntimeService(t)
+	view, err := service.GetDocument(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := view.Part.Features[len(view.Part.Features)-1]
+	for i := 0; i < 3; i++ {
+		tip := original
+		add := delta + .375*float64(i)
+		tip.Length += add
+		ctx, rec := perf.WithRecorder(t.Context())
+		start := time.Now()
+		candidate, err := service.PreviewCommand(ctx, id, workspace.CommandRequest{Type: "EDIT_FEATURE", ActorID: p6Actor, RequestID: fmt.Sprintf("%s-naming-timing-%d", id, start.UnixNano()), TargetID: tip.ID, Feature: &tip, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, tip.ID)})
+		elapsed := time.Since(start)
+		if err != nil || candidate.Artifact == nil || candidate.Runtime == nil {
+			t.Fatal("tip preview", err)
+		}
+		if len(candidate.Runtime.WorkerRuns) == 0 {
+			t.Fatalf("delta %.9g mm already has an accepted artifact; use a fresh OCCCCAD_TEST_NAMING_OFFSET_MM for an uncached measurement", add)
+		}
+		run := candidate.Runtime.WorkerRuns[0]
+		if len(candidate.Runtime.WorkerRuns) != 1 || run.StagesExecuted != 1 || run.FrozenPrefixStages == 0 || run.NamingBlocksComputed != 1 {
+			t.Fatal("expected one suffix stage", mustRuntimeJSON(run))
+		}
+		rep := candidate.Artifact.Representations
+		t.Logf("delta_mm=%.9g elapsed_ms=%.3f stages=%v prefix=%d brep=%s naming=%s visual=%s", add, float64(elapsed)/float64(time.Millisecond), rec.SnapshotMilliseconds(), run.FrozenPrefixStages, rep["BREP"].Digest, rep["NAMING"].Digest, rep["VISUAL"].Digest)
+	}
+	current, err := service.GetDocument(t.Context(), id)
+	if err != nil || current.Document.VersionID != view.Document.VersionID {
+		t.Fatal("preview changed Head", err)
+	}
+}
+
 func TestStoredGrowingNamingQueriesThroughRouter(t *testing.T) {
 	id := os.Getenv("OCCCCAD_TEST_NAMING_REPLAY_DOCUMENT")
 	if id == "" {
 		t.Skip("requires an accepted growing-topology fixture")
 	}
-	service, _, db, _, _ := featureAssociationRuntimeService(t)
+	service, artifacts, db, client, _ := featureAssociationRuntimeService(t)
 	ctx := t.Context()
 	view, err := service.GetDocument(ctx, id)
 	if err != nil {
@@ -775,14 +823,57 @@ func TestStoredGrowingNamingQueriesThroughRouter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		query, recorder := perf.WithRecorder(ctx)
 		start := time.Now()
-		resolved, err := service.ResolvePersistentSelection(ctx, id, workspace.ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: sourceVersion, TargetVersionID: view.Document.VersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+		resolved, err := service.ResolvePersistentSelection(query, id, workspace.ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: sourceVersion, TargetVersionID: view.Document.VersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 		elapsed := time.Since(start)
 		if err != nil || resolved.Status != modelcore.SelectionResolved || len(resolved.Candidates) != 1 {
 			t.Fatal("historical face did not resolve", resolved, err)
 		}
 		t.Logf("stored-growing-query features=%d local_id=%d elapsed_ms=%.3f", len(view.Part.Features), localID, float64(elapsed)/float64(time.Millisecond))
+		if localID > 1 && len(view.Part.Features) <= 2002 {
+			if _, rebuilt := recorder.SnapshotMilliseconds()["naming-view-decode"]; rebuilt {
+				t.Fatal("decoded the same frozen root again for another early face", localID)
+			}
+		}
 	}
+	// Rebind an old survivor on the accepted predecessor (before the final
+	// sketch and solid). A fresh service must reach the same current member.
+	var predecessorVersion string
+	if err = db.QueryRow(ctx, `SELECT id::text, model_json FROM occccad.document_versions WHERE document_id=$1 AND sequence=(SELECT MAX(sequence) FROM occccad.document_versions WHERE document_id=$1)-4`, id).Scan(&predecessorVersion, &raw); err != nil {
+		t.Fatal(err)
+	}
+	var previous workspace.PartModel
+	if err = json.Unmarshal(raw, &previous); err != nil || len(previous.Bodies) != 1 {
+		t.Fatal("missing predecessor", err)
+	}
+	first, err := service.BindPersistentSelection(ctx, id, workspace.BindPersistentSelectionRequest{SourceVersionID: sourceVersion, BodyID: source.Bodies[0].ID, GeometryKey: source.Bodies[0].GeometryKey, Kind: "FACE", LocalID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(s *workspace.Service, selection modelcore.PersistentSelection, from, to string) modelcore.ResolvedTopologyElement {
+		t.Helper()
+		r, err := s.ResolvePersistentSelection(ctx, id, workspace.ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: from, TargetVersionID: to, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+		if err != nil || r.Status != modelcore.SelectionResolved || len(r.Candidates) != 1 {
+			t.Fatal(r, err)
+		}
+		return r.Candidates[0]
+	}
+	old := lookup(service, first, sourceVersion, predecessorVersion)
+	picked, err := service.BindPersistentSelection(ctx, id, workspace.BindPersistentSelectionRequest{SourceVersionID: predecessorVersion, BodyID: previous.Bodies[0].ID, GeometryKey: old.GeometryKey, Kind: "FACE", LocalID: old.LocalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := lookup(service, first, sourceVersion, view.Document.VersionID)
+	reopened := workspace.NewWithArtifacts(db, client, artifacts)
+	start := time.Now()
+	got := lookup(reopened, picked, predecessorVersion, view.Document.VersionID)
+	elapsed := time.Since(start)
+	if got.LocalID != want.LocalID || got.GeometryKey != want.GeometryKey || got.Evidence.EvidenceDigest != want.Evidence.EvidenceDigest {
+		t.Fatal("adjacent revision rebound to a different face", got, want)
+	}
+	t.Logf("stored-adjacent-query features=%d source_features=%d elapsed_ms=%.3f", len(view.Part.Features), len(previous.Features), float64(elapsed)/float64(time.Millisecond))
+
 }
 
 // Hold the exact result at six faces while growing real Feature history. This

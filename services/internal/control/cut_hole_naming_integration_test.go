@@ -217,7 +217,7 @@ func TestCutHolePersistentSelectionThroughRealRouter(t *testing.T) {
 	assertP6Replay(t, service, client, product.Document.ID, reconnectRequestID)
 
 	// Return to the base body, reconnect the original side face and split it
-	// with a side opening. Ambiguous lineage must never auto-pick a candidate.
+	// with a side opening. Functional supports survive; finite selections remain ambiguous.
 	part = apply(part.Document.ID, workspace.CommandRequest{Type: "UNDO"})
 	part = apply(part.Document.ID, workspace.CommandRequest{Type: "UNDO"})
 	product = apply(product.Document.ID, workspace.CommandRequest{Type: "UPDATE_REFERENCES"})
@@ -228,11 +228,89 @@ func TestCutHolePersistentSelectionThroughRealRouter(t *testing.T) {
 	})
 	product = apply(product.Document.ID, workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: faceConstraintID,
 		FirstAssemblyRef: p6AssemblyPick(firstInstance, currentSide), SecondAssemblyRef: p6AssemblyPick(secondInstance, currentSide), DirectionRelation: "SAME"})
+	edge := findP7TopologyPick(t, service, part, "EDGE", func(_ workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
+		e := selection.CreationEvidence
+		return e.GeometryType == "LINE" && math.Abs(e.Direction[0]) > 0.999 && math.Abs(e.Origin[1]) < 1e-7 && math.Abs(e.Origin[2]-10) < 1e-7
+	})
+	// Use a third occurrence to isolate the edge mate from the plane mate.
+	product = apply(product.Document.ID, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID, Name: "Edge occurrence"})
+	product = apply(product.Document.ID, p7Coincident(p7AssemblyPick(firstInstance, edge), p7AssemblyPick(product.Product.Instances[2].ID, edge)))
+	edgeMate := product.Product.Constraints[len(product.Product.Constraints)-1].ID
 	part, notchSketch := addRectangle(part.Document.ID, "XY", "", workspace.SketchPoint2{X: 8, Y: 0}, workspace.SketchPoint2{X: 12, Y: 5})
 	part = addExtrude(part.Document.ID, notchSketch, "REMOVE", 10, false)
 	product = apply(product.Document.ID, workspace.CommandRequest{Type: "UPDATE_REFERENCES"})
-	assertP6Constraint(t, product, faceConstraintID, modelcore.AssemblyConstraintBroken, modelcore.SupportingElementNotConnected, "AMBIGUOUS")
-	recordEvidence("ambiguous-side-split", product, faceConstraintID)
+	for _, id := range []string{edgeMate, faceConstraintID} {
+		assertP6Constraint(t, product, id, modelcore.AssemblyConstraintVerified, modelcore.SupportingElementConnected, "")
+		for _, c := range product.Product.Constraints {
+			if c.ID == id {
+				r := c.First.Resolution.Result
+				if r.Support == nil || len(r.Candidates) != 2 {
+					t.Fatalf("split support and two members required: %+v", r)
+				}
+				strict, err := service.ResolvePersistentSelection(t.Context(), part.Document.ID, workspace.ResolvePersistentSelectionRequest{Selection: *c.First.PersistentSelection, SourceVersionID: c.First.SourceVersionID, TargetVersionID: part.Document.VersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+				if err != nil || strict.Status != modelcore.SelectionAmbiguous {
+					t.Fatalf("finite selection: %s %v", strict.Status, err)
+				}
+			}
+		}
+	}
+	recordEvidence("functional-side-split", product, faceConstraintID)
+	// Select a finite left branch after the split, then translate the cut
+	// through the original midpoint. Candidate ordering may change.
+	midpointX := func(e modelcore.TopologySelectionEvidence) float64 {
+		if e.ParameterStart == nil || e.ParameterEnd == nil {
+			return math.NaN()
+		}
+		return e.Origin[0] + e.Direction[0]*(*e.ParameterStart+*e.ParameterEnd)/2
+	}
+	branch := findP7TopologyPick(t, service, part, "EDGE", func(_ workspace.TopologyElementProperties, picked modelcore.PersistentSelection) bool {
+		e := picked.CreationEvidence
+		return strings.HasPrefix(picked.Anchor.OutputSlot, "SPLIT_FROM/") && e.GeometryType == "LINE" && math.Abs(e.Direction[0]) > .999 && math.Abs(e.Origin[2]-10) < 1e-6 && math.Abs(e.Origin[1]) < 1e-6 && midpointX(e) < 8
+	})
+	splitRevision := part.Document.VersionID
+	var entities, released []string
+	for _, f := range part.Part.Features {
+		if f.ID == notchSketch {
+			for _, c := range f.Sketch.Constraints {
+				for _, r := range c.References {
+					if r.Target != "ENTITY" {
+						released = append(released, c.ID)
+						break
+					}
+				}
+			}
+			for _, e := range f.Sketch.Entities {
+				entities = append(entities, e.ID)
+			}
+		}
+	}
+	part = apply(part.Document.ID, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: notchSketch, Operations: []workspace.SketchOperation{{Type: "TRANSFORM_ENTITIES", OperationID: runID + "-move-cut", EntityIDs: entities, DetachConstraintIDs: released, ConstraintPolicy: "INTERNAL", Translation: &workspace.SketchPoint2{X: 3}}}})
+	resolveBranch := func() modelcore.SelectionResolution {
+		t.Helper()
+		r, err := service.ResolvePersistentSelection(t.Context(), part.Document.ID, workspace.ResolvePersistentSelectionRequest{Selection: branch.Selection, SourceVersionID: splitRevision, TargetVersionID: part.Document.VersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	if r := resolveBranch(); r.Status != modelcore.SelectionResolved || len(r.Candidates) != 1 || math.Abs(midpointX(r.Candidates[0].Evidence)-5.5) > 1e-6 {
+		t.Fatalf("moving the cut changed the selected left branch: %+v", r)
+	}
+	part = apply(part.Document.ID, workspace.CommandRequest{Type: "UNDO"})
+	part = apply(part.Document.ID, workspace.CommandRequest{Type: "UNDO"})
+	product = apply(product.Document.ID, workspace.CommandRequest{Type: "UPDATE_REFERENCES"})
+	if r := resolveBranch(); r.Status == modelcore.SelectionResolved {
+		t.Fatal("cut removal enlarged a finite branch", r)
+	}
+	for _, id := range []string{edgeMate, faceConstraintID} {
+		assertP6Constraint(t, product, id, modelcore.AssemblyConstraintVerified, modelcore.SupportingElementConnected, "")
+	}
+	for _, c := range product.Product.Constraints {
+		if c.ID == edgeMate && (len(c.First.Resolution.Result.Candidates) != 1 || c.First.PersistentSelection.Anchor.OutputSlot != edge.Selection.Anchor.OutputSlot) {
+			t.Fatal("uncut edge did not recover its original anchor")
+		}
+	}
+
 	if evidenceDirectory != "" {
 		data, marshalErr := json.MarshalIndent(struct {
 			SchemaVersion string                 `json:"schemaVersion"`

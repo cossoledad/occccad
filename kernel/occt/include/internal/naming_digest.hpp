@@ -28,29 +28,29 @@ template<class T, class Key> auto canonical_view(const std::vector<T>& values, K
 }
 
 inline std::string topology_history_digest(const TopologyHistory& history) {
-    std::ostringstream canonical;
-    canonical.precision(17);
-    canonical << "schema=" << history.schema_version << "|feature=" << history.feature_id
-              << "|input=" << history.input_geometry_id << "|result=" << history.result_geometry_id
-              << "|policy=" << history.policy_digest;
-    for (const auto& entry : canonical_view(history.lineage,[](const auto& value){return canonical_ref_key(value.result);})) {
-        const auto& item = *entry.second;
-        canonical << "|lineage=" << static_cast<int>(item.kind) << ':' << entry.first << ':' << item.evidence.evidence_digest;
-        for (const auto& source : canonical_view(item.sources,canonical_ref_key)) canonical << ":source=" << source.first;
-        for (const auto& adjacent : canonical_view(item.evidence.adjacent,canonical_ref_key)) canonical << ":adjacent=" << adjacent.first;
-    }
-    for (const auto& entry : canonical_view(history.deleted,[](const auto& value){return canonical_ref_key(value.source);})) {
-        const auto& item = *entry.second;
-        canonical << "|deleted=" << entry.first << ':' << item.reason << ':' << item.evidence.evidence_digest;
-    }
-    for (const auto& entry : canonical_view(history.ambiguous,[](const auto& value){
-        return value.sources.empty()?std::string{}:canonical_ref_key(value.sources.front());
-    })) {
-        const auto& item = *entry.second;
-        canonical << "|ambiguous=" << item.diagnostic_code;
-        for (const auto& source : canonical_view(item.sources,canonical_ref_key)) canonical << ":source=" << source.first;
-        for (const auto& candidate : canonical_view(item.candidates,canonical_ref_key)) canonical << ":candidate=" << candidate.first;
-    }
-    return make_geometry_id(canonical.str());
+    return streamed_geometry_id([&](std::ostream& canonical) {
+        canonical.precision(17);
+        canonical << "schema=" << history.schema_version << "|feature=" << history.feature_id
+                  << "|input=" << history.input_geometry_id << "|result=" << history.result_geometry_id
+                  << "|policy=" << history.policy_digest;
+        for (const auto& entry : canonical_view(history.lineage,[](const auto& value){return canonical_ref_key(value.result);})) {
+            const auto& item = *entry.second;
+            canonical << "|lineage=" << static_cast<int>(item.kind) << ':' << entry.first << ':' << item.evidence.evidence_digest;
+            for (const auto& source : canonical_view(item.sources,canonical_ref_key)) canonical << ":source=" << source.first;
+            for (const auto& adjacent : canonical_view(item.evidence.adjacent,canonical_ref_key)) canonical << ":adjacent=" << adjacent.first;
+        }
+        for (const auto& entry : canonical_view(history.deleted,[](const auto& value){return canonical_ref_key(value.source);})) {
+            const auto& item = *entry.second;
+            canonical << "|deleted=" << entry.first << ':' << item.reason << ':' << item.evidence.evidence_digest;
+        }
+        for (const auto& entry : canonical_view(history.ambiguous,[](const auto& value){
+            return value.sources.empty()?std::string{}:canonical_ref_key(value.sources.front());
+        })) {
+            const auto& item = *entry.second;
+            canonical << "|ambiguous=" << item.diagnostic_code;
+            for (const auto& source : canonical_view(item.sources,canonical_ref_key)) canonical << ":source=" << source.first;
+            for (const auto& candidate : canonical_view(item.candidates,canonical_ref_key)) canonical << ":candidate=" << candidate.first;
+        }
+    });
 }
 }

@@ -228,6 +228,9 @@ func (resolver *assemblySupportResolver) part(instance *ProductInstance) (assemb
 	return value, nil
 }
 func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) (geometry.AssemblyGeometry, error) {
+	return resolver.resolveForUse(reference, finiteElement)
+}
+func (resolver *assemblySupportResolver) resolveForUse(reference AssemblyGeometryRef, use namingUse) (geometry.AssemblyGeometry, error) {
 	service, ctx, model := resolver.service, resolver.ctx, resolver.model
 
 	instance, localPose, occurrenceErr := service.assemblyReferenceOccurrence(ctx, *model, reference)
@@ -241,6 +244,9 @@ func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) 
 		return geometry.AssemblyGeometry{ID: reference.InstanceID + ":BODY", BodyID: reference.InstanceID, Kind: "BODY", LengthUnit: "mm"}, nil
 	}
 	key := assemblyReferenceKey(reference)
+	if use == analyticSupport {
+		key += "/analytic"
+	}
 	if cached, ok := resolver.geometry[key]; ok {
 		return cached, nil
 	}
@@ -288,7 +294,7 @@ func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) 
 		if err := validatePersistentAssemblyReference(reference); err != nil {
 			return geometry.AssemblyGeometry{}, err
 		}
-		resolved, err := service.resolvedAssemblyTopologyProperties(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+		resolved, err := service.resolvedAssemblyTopologyProperties(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{use: use, Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 		if err != nil {
 			return geometry.AssemblyGeometry{}, err
 		}

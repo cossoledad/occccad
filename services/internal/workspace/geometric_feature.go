@@ -447,10 +447,11 @@ func (s *Service) evaluateGeometrySpec(ctx context.Context, requestID string, sp
 	frozen, _ := json.Marshal(struct {
 		Spec              *workerv1.GeometryFeatureSpec
 		Policy, Evaluator string
+		HistorySemantics  string
 		Exact             bool
 		Dependencies      []any
 		DisplayStrategy   string `json:"displayStrategy,omitempty"`
-	}{spec, modelcore.TopologyNamingPolicyDigest, evaluatorVersion, geometry.PartRuntime(ctx).ExactOnly, dependencies, displayStrategy})
+	}{spec, modelcore.TopologyNamingPolicyDigest, evaluatorVersion, "typed-result-evolution-v1", geometry.PartRuntime(ctx).ExactOnly, dependencies, displayStrategy})
 	key := modelcore.ValueDigest(frozen)
 	var exists bool
 	if err := s.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).Scan(&exists); err != nil {
@@ -477,6 +478,9 @@ func (s *Service) evaluateGeometrySpec(ctx context.Context, requestID string, sp
 	return key, nil
 }
 func (s *Service) geometrySource(ctx context.Context, requestID string, model PartModel, input GeometricInput) (*workerv1.GeometryFeatureInput, error) {
+	return s.geometrySourceForUse(ctx, requestID, model, input, finiteElement)
+}
+func (s *Service) geometrySourceForUse(ctx context.Context, requestID string, model PartModel, input GeometricInput, use namingUse) (*workerv1.GeometryFeatureInput, error) {
 	result := &workerv1.GeometryFeatureInput{Reversed: input.Reversed}
 	if input.Kind == "PLANE" {
 		for _, p := range model.DatumPlanes {
@@ -542,15 +546,17 @@ func (s *Service) geometrySource(ctx context.Context, requestID string, model Pa
 	}
 	if input.Kind == "TOPOLOGY" {
 		pick := *input.Selection
-		resolution, e := s.resolveFeaturePick(ctx, pick, key)
+		resolution, e := s.resolveFeaturePickForUse(ctx, pick, key, use)
 		if e != nil {
 			return nil, e
 		}
-		if resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 {
+		if resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) == 0 || use != descendantSet && len(resolution.Candidates) != 1 {
 			return nil, fmt.Errorf("%w: GEOMETRY_INPUT_%s: %s", ErrValidation, resolution.Status, resolution.DiagnosticCode)
 		}
-		a := resolution.Candidates[0].SemanticRef
-		result.Members = []*workerv1.SemanticTopologyRef{{FeatureId: a.FeatureID, OutputSlot: a.OutputSlot, SourceIds: a.SourceIDs}}
+		for _, member := range resolution.Candidates {
+			a := member.SemanticRef
+			result.Members = append(result.Members, &workerv1.SemanticTopologyRef{FeatureId: a.FeatureID, OutputSlot: a.OutputSlot, SourceIds: a.SourceIDs})
+		}
 	}
 	return result, nil
 }
@@ -711,7 +717,11 @@ func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, mod
 			spec.Inputs = append(spec.Inputs, &workerv1.GeometryFeatureInput{Plane: &workerv1.GeometryPlane{Id: geometryReferenceSource(input), Origin: geometryVec(frame.origin), Normal: geometryVec(frame.direction), UDirection: geometryVec(frame.u)}})
 			continue
 		}
-		resolved, e := s.geometrySource(ctx, requestID+"/"+f.ID, model, input)
+		use := finiteElement
+		if d.Kind == "SURFACE_JOIN" || d.Kind == "SURFACE_SEW" {
+			use = descendantSet
+		}
+		resolved, e := s.geometrySourceForUse(ctx, requestID+"/"+f.ID, model, input, use)
 		if e != nil {
 			return nil, e
 		}
@@ -889,7 +899,7 @@ func (s *Service) geometricFeatureInput(ctx context.Context, documentID string, 
 		if err != nil {
 			return FeatureInput{}, err
 		}
-		entry, ok := manifest.Locators[fmt.Sprintf("%d:%d", namingTopologyType(kind), request.LocalID)]
+		entry, ok := manifest.Locators[namingLocatorKey{workerv1.PersistentTopologyType(namingTopologyType(kind)), request.LocalID}]
 		if !ok || entry.Result == nil || *entry.Result != *a.Result {
 			return FeatureInput{}, ErrNotFound
 		}

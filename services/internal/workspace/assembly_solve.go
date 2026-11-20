@@ -297,8 +297,8 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	geometryValues := make([]geometry.AssemblyGeometry, 0)
 	seenGeometry := map[string]bool{}
 	resolvedGeometry := map[string]geometry.AssemblyGeometry{}
-	resolveRef := func(reference AssemblyGeometryRef) (string, error) {
-		value, err := resolver.resolve(reference)
+	resolveRef := func(kind string, reference AssemblyGeometryRef) (string, error) {
+		value, err := resolver.resolveForUse(reference, assemblyNamingUse(kind, &reference))
 		if err != nil {
 			return "", err
 		}
@@ -351,7 +351,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 				if endpoint.ref == nil {
 					continue
 				}
-				if _, err := resolveRef(*endpoint.ref); err != nil {
+				if _, err := resolveRef(constraint.Kind, *endpoint.ref); err != nil {
 					reportCompileFailure(constraint.ID, endpoint.name, "RESOLVING_GEOMETRY", err)
 				}
 			}
@@ -366,7 +366,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			// gate; unrelated connected constraints can still be solved.
 			continue
 		}
-		firstGeometry, err := resolveRef(constraint.First)
+		firstGeometry, err := resolveRef(constraint.Kind, constraint.First)
 		if err != nil {
 			if markAssemblyImpossible(constraint, err) {
 				hasUnresolvedActiveConstraint = true
@@ -402,7 +402,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			value.FixedPose = &fixed
 		}
 		if constraint.Kind != "FIX" && constraint.Second != nil {
-			secondGeometry, resolveErr := resolveRef(*constraint.Second)
+			secondGeometry, resolveErr := resolveRef(constraint.Kind, *constraint.Second)
 			if resolveErr != nil {
 				if markAssemblyImpossible(constraint, resolveErr) {
 					hasUnresolvedActiveConstraint = true
@@ -414,7 +414,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			value.SecondBodyID, value.SecondGeometryID = constraint.Second.InstanceID, secondGeometry
 		}
 		if value.Kind == "ANGLE" && constraint.AngleAxis != nil {
-			axisKey, err := resolveRef(*constraint.AngleAxis)
+			axisKey, err := resolveRef(constraint.Kind, *constraint.AngleAxis)
 			if err != nil {
 				if markAssemblyImpossible(constraint, err) {
 					hasUnresolvedActiveConstraint = true

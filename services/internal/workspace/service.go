@@ -83,6 +83,7 @@ func (service *Service) BranchWorkspace(ctx context.Context, documentID string, 
 
 type Service struct {
 	prepared                 preparedCache
+	namingSeeds              immutableViewCache[*namingAssociationSeed]
 	namingViews              namingViewCache
 	namingBlocks             immutableViewCache[*decodedNamingBlock]
 	database                 database.DB

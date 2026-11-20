@@ -86,7 +86,7 @@ func TestNamingHistoryCarriesRemainLosslessAndQueriesUseOnlyEvents(t *testing.T)
 	ev := &workerv1.NamingEvidence{EvidenceDigest: "evidence", Adjacent: []uint32{1, 2}, Geometry: &workerv1.NamingEvidence_Plane{Plane: &workerv1.NamingFrame{Direction: &workerv1.Vec3{Z: 1}}}}
 	values := &workerv1.PartTopologyManifest{SchemaVersion: 3, PolicyId: modelcore.TopologyNamingPolicyID, EvaluatorVersion: modelcore.TopologyNamingEvaluator, PolicyDigest: modelcore.TopologyNamingPolicyDigest, GeometryId: "second", CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", SemanticRefs: []*workerv1.SemanticTopologyRef{a, b}, Evidence: []*workerv1.NamingEvidence{ev}, Transitions: []*workerv1.NamingTransition{
 		{FeatureId: "base", BodyId: "body-main", ResultGeometryId: "base", Complete: true, Lineage: []*workerv1.NamingLineage{{Result: 1, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED}, {Result: 2, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED}}},
-		{FeatureId: "second", BodyId: "body-main", InputFeatureId: "base", ResultGeometryId: "second", Complete: true, Lineage: []*workerv1.NamingLineage{{Result: 1, Sources: []uint32{1}, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_UNCHANGED}, {Result: 2, Sources: []uint32{2}, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_UNCHANGED}}},
+		{FeatureId: "second", BodyId: "body-main", InputFeatureId: "base", InputGeometryId: "base", ResultGeometryId: "second", Complete: true, Lineage: []*workerv1.NamingLineage{{Result: 1, Sources: []uint32{1}, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_UNCHANGED}, {Result: 2, Sources: []uint32{2}, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_UNCHANGED}}},
 	}, Bodies: []*workerv1.NamingBody{{BodyId: "body-main", Transitions: []uint32{1, 2}, TipTransition: 2, Tip: []*workerv1.NamingTopologyLocator{{TopologyType: 1, LocalId: 1, SemanticRef: 1, Evidence: 1}, {TopologyType: 1, LocalId: 2, SemanticRef: 2, Evidence: 1}}}}}
 	root, payloads := namingRootFixture(t, values, func(i int, b *workerv1.NamingHistoryBlock) {
 		if i == 1 {
@@ -96,9 +96,29 @@ func TestNamingHistoryCarriesRemainLosslessAndQueriesUseOnlyEvents(t *testing.T)
 			b.Layout = []*workerv1.NamingHistorySpan{{Carry: true, Count: 1}, {Count: 1}}
 		}
 	})
+	t.Run("exact-stage-adoption", func(t *testing.T) { checkExactNamingSuffix(t, root, payloads) })
 	sparse, err := unpackNamingRoot(t.Context(), root, fixtureHistoryLoader(payloads))
 	if err != nil {
 		t.Fatal(err)
+	}
+	for prefixIndex, prefix := range root.History {
+		ctx := context.WithValue(t.Context(), namingPrefixKey{}, prefix.Sha256)
+		reads := 0
+		projected, err := unpackNamingRoot(ctx, root, func(ctx context.Context, ref *workerv1.NamingHistoryReference) (*decodedNamingBlock, error) {
+			reads++
+			if ref.Sha256 == prefix.Sha256 {
+				t.Fatal("read certified prefix")
+			}
+			return fixtureHistoryLoader(payloads)(ctx, ref)
+		})
+		if err != nil || reads != len(root.History)-prefixIndex-1 {
+			t.Fatal("suffix", reads, err)
+		}
+		selection := testSelection()
+		selection.Anchor = semanticRef(a)
+		if got, want := resolveManifest(selection, "key", projected), resolveManifest(selection, "key", sparse); !reflect.DeepEqual(got, want) {
+			t.Fatal("suffix differed", got, want)
+		}
 	}
 	full, err := unpackNamingValues(values)
 	if err != nil {

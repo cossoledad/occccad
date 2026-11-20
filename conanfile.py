@@ -11,6 +11,7 @@ class OccccadDependencies(ConanFile):
         "opencascade/7.9.1",
         "spdlog/1.15.3",
         "grpc/1.71.0",
+        "openssl/3.6.5",
         "eigen/3.4.0",
         "boost/1.86.0",
     )

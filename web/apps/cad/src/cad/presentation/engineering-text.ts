@@ -22,6 +22,10 @@ const topologyRoles: Record<string, string> = {
  'import.topology': '导入元素', START_CAP: '起始端面', END_CAP: '终止端面',
  SIDE_FROM_PROFILE_EDGE: '轮廓侧面', DERIVED_FACE_FROM_ADJACENCY: '派生面',
  DERIVED_EDGE_FROM_ADJACENCY: '派生边', DERIVED_VERTEX_FROM_ADJACENCY: '派生顶点',
+ SPLIT_FROM: '分割结果', MERGED_FROM: '合并结果', split: '分割曲线', trim: '裁剪曲线', extend: '延伸曲线',
+ START_VERTEX_FROM_PROFILE_ENDPOINTS: '起始端点', END_VERTEX_FROM_PROFILE_ENDPOINTS: '终止端点',
+ START_BOUNDARY_FROM_PROFILE_EDGE: '起始轮廓边', END_BOUNDARY_FROM_PROFILE_EDGE: '终止轮廓边',
+ VERTICAL_FROM_PROFILE_ENDPOINTS: '轮廓端点生成的纵边',
  DRAFTED_FROM: '拔模面', LOFT_BOUNDARY_SIDE: '放样边界侧面', boundary: '边界',
  curve: '生成曲线', point: '生成点', surface: '生成曲面', merged: '合并元素',
 };

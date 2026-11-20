@@ -137,6 +137,10 @@ func (s *Service) featureStageAtVersion(ctx context.Context, documentID, version
 }
 
 func (s *Service) resolveFeaturePick(ctx context.Context, pick FeatureSelection, targetKey string) (modelcore.SelectionResolution, error) {
+	return s.resolveFeaturePickForUse(ctx, pick, targetKey, finiteElement)
+}
+
+func (s *Service) resolveFeaturePickForUse(ctx context.Context, pick FeatureSelection, targetKey string, use namingUse) (modelcore.SelectionResolution, error) {
 	if r := pick.Selection.SourceResult; r != nil {
 		if pick.SourceFeatureID != "" && pick.SourceFeatureID != r.FeatureID {
 			return unavailableSelectionResolution("RESULT_STAGE_MISMATCH", "selected result and source stage disagree"), nil
@@ -151,12 +155,12 @@ func (s *Service) resolveFeaturePick(ctx context.Context, pick FeatureSelection,
 	var source *topologyManifest
 	var err error
 	if result := pick.Selection.SourceResult; result != nil {
-		source, _, _, err = s.resultManifestForVersion(ctx, pick.Selection.SourceDocumentID, pick.SourceVersionID, result)
+		source, _, _, err = s.resultManifestForVersion(namingCreationContext(ctx, pick.Selection), pick.Selection.SourceDocumentID, pick.SourceVersionID, result)
 	} else {
 		var key string
 		key, err = s.featureStageAtVersion(ctx, pick.Selection.SourceDocumentID, pick.SourceVersionID, pick.SourceFeatureID, pick.Selection.SourceBodyID)
 		if err == nil {
-			source, _, err = s.topologyManifestForGeometryKey(ctx, key)
+			source, _, err = s.topologyManifestForGeometryKey(namingCreationContext(ctx, pick.Selection), key)
 		}
 	}
 	if err != nil {
@@ -166,14 +170,16 @@ func (s *Service) resolveFeaturePick(ctx context.Context, pick FeatureSelection,
 	if !topologyHistoryComplete(source) || output == nil || pick.Selection.CreationEvidence.EvidenceDigest != output.GetEvidence().GetEvidenceDigest() {
 		return unavailableSelectionResolution("CREATION_EVIDENCE_MISMATCH", "source stage does not contain the selected topology"), nil
 	}
-	target, _, err := s.topologyManifestForGeometryKey(ctx, targetKey)
+	pick.Selection.CreationEvidence.GeometryType = output.GetEvidence().GetGeometryType()
+	pick.Selection.CreationEvidence.MeasureDimension = output.GetEvidence().GetMeasureDimension()
+	target, _, err := s.topologyManifestForGeometryKey(namingTargetContext(ctx, pick.Selection, source), targetKey)
 	if err != nil {
 		return modelcore.SelectionResolution{}, err
 	}
 	if !topologyHistoryComplete(target) {
 		return unavailableSelectionResolution("TOPOLOGY_HISTORY_INCOMPLETE", "feature input history is incomplete"), nil
 	}
-	return resolveManifest(pick.Selection, targetKey, target), nil
+	return resolveBetweenNamingViews(pick.Selection, source, target, targetKey, use), nil
 }
 
 func (s *Service) GetFeatureInput(ctx context.Context, documentID string, request FeatureInputRequest) (FeatureInput, error) {

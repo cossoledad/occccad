@@ -24,7 +24,8 @@ SemanticTopologyRef derived(const std::string&, const std::string&,
 bool contains(const TopoDS_Shape&, const TopoDS_Shape&);
 void add(GeometryFeatureBuild&, const SemanticTopologyRef&, const TopoDS_Shape&,
          std::vector<SemanticTopologyRef> sources = {},
-         std::vector<SemanticTopologyRef> roles = {});
+         std::vector<SemanticTopologyRef> roles = {},
+         TopologyLineageKind evolution = TopologyLineageKind::generated);
 TopoDS_Shape compound(const std::vector<TopoDS_Shape>&);
 std::vector<TopoDS_Shape> members(const TopoDS_Shape&, TopAbs_ShapeEnum);
 TopoDS_Wire wire(const TopoDS_Shape&);
@@ -41,7 +42,7 @@ void history(GeometryFeatureBuild& b, const GeometryFeatureBuild& source, Builde
              const std::string& id, const std::string& role) {
     for (const auto& n : source.named) {
         if (contains(b.shape, n.shape))
-            add(b, derived(id, role + "/retained", {n.ref}), n.shape, {n.ref});
+            add(b, derived(id, role + "/retained", {n.ref}), n.shape, {n.ref}, {}, TopologyLineageKind::unchanged);
         for (const auto& entry : std::vector<std::pair<std::string, TopTools_ListOfShape>>{
                  {"modified", operation.Modified(n.shape)},
                  {"generated", operation.Generated(n.shape)}}) {
@@ -64,7 +65,8 @@ void history(GeometryFeatureBuild& b, const GeometryFeatureBuild& source, Builde
                 add(b,
                     derived(id, role + "/" + entry.first + "/" + std::to_string(v.ShapeType()),
                             {n.ref}),
-                    v, {n.ref});
+                    v, {n.ref}, {}, entry.first == "modified" && v.ShapeType() == n.shape.ShapeType()
+                        ? TopologyLineageKind::modified : TopologyLineageKind::generated);
             }
         }
     }

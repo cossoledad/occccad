@@ -646,7 +646,7 @@ export type SelectionEvidence = { geometryType?: string; measureSI?: number; mea
 export type PersistentSelection = { schemaVersion: number; sourceDocumentId: string; sourceBodyId: string;sourceResult?:GeometryResultReference;
   anchor: SemanticTopologyRef; expectedType: "FACE" | "EDGE" | "VERTEX";
   selector: { kind: string; operands?: SemanticTopologyRef[] }; creationEvidence: SelectionEvidence };
-export type SelectionResolution = { status: string; supportingElementStatus: "CONNECTED" | "NOT_CONNECTED";
+export type SelectionResolution = { support?: {geometryType:"LINE"|"PLANE"|"CYLINDER";origin:Vec3;direction:Vec3;radiusMM?:number;materialSide?:number}; status: string; supportingElementStatus: "CONNECTED" | "NOT_CONNECTED";
   candidates?: Array<{ geometryId: string; geometryKey: string; type: string; localId: number;
     semanticRef: SemanticTopologyRef; evidence: SelectionEvidence }>;
   diagnosticCode?: string; diagnostic?: string; evidenceDigest?: string };

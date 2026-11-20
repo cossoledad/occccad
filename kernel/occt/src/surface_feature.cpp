@@ -28,6 +28,7 @@
 #include <Geom_BezierCurve.hxx>
 #include <Geom_RectangularTrimmedSurface.hxx>
 #include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
@@ -87,27 +88,43 @@ void joint_history(GeometryFeatureBuild& out, const std::vector<GeometryFeatureB
     struct Candidate {
         TopoDS_Shape shape;
         std::vector<SemanticTopologyRef> sources;
+        TopologyLineageKind evolution;
     };
+    TopTools_IndexedMapOfShape reachable;
+    TopExp::MapShapes(out.shape, reachable);
+    std::vector<std::size_t> positions(reachable.Extent()+1, 0);
     std::vector<Candidate> candidates;
-    const auto collect = [&](const TopoDS_Shape& shape, const SemanticTopologyRef& source) {
-        if (shape.IsNull() || !contains(out.shape, shape) ||
-            (shape.ShapeType() != TopAbs_FACE && shape.ShapeType() != TopAbs_EDGE &&
-             shape.ShapeType() != TopAbs_VERTEX))
+    const auto collect = [&](const TopoDS_Shape& shape, const SemanticTopologyRef& source,
+                             TopologyLineageKind evolution) {
+        if (shape.IsNull() || (shape.ShapeType() != TopAbs_FACE && shape.ShapeType() != TopAbs_EDGE &&
+                               shape.ShapeType() != TopAbs_VERTEX))
             return;
-        auto it = std::find_if(candidates.begin(), candidates.end(),
-                               [&](const auto& c) { return c.shape.IsSame(shape); });
-        if (it == candidates.end())
-            candidates.push_back({shape, {source}});
-        else if (std::none_of(it->sources.begin(), it->sources.end(),
-                              [&](const auto& r) { return key(r) == key(source); }))
-            it->sources.push_back(source);
+        const auto index = reachable.FindIndex(shape);
+        if (!index) return;
+        auto& position = positions[index];
+        if (!position) {
+            candidates.push_back({shape, {source}, evolution});
+            position = candidates.size();
+            return;
+        }
+        auto& candidate = candidates[position-1];
+        if (candidate.evolution != evolution) {
+            const bool generated = candidate.evolution == TopologyLineageKind::generated ||
+                                   evolution == TopologyLineageKind::generated;
+            candidate.evolution = generated ? TopologyLineageKind::generated : TopologyLineageKind::modified;
+        }
+        if (std::none_of(candidate.sources.begin(), candidate.sources.end(),
+                         [&](const auto& ref) { return ref.feature_id == source.feature_id &&
+                             ref.output_slot == source.output_slot && ref.source_ids == source.source_ids; }))
+            candidate.sources.push_back(source);
     };
     for (const auto& input : inputs)
         for (const auto& n : input.named) {
-            collect(n.shape, n.ref);
-            for (const auto& list : {op.Modified(n.shape), op.Generated(n.shape)})
-                for (TopTools_ListIteratorOfListOfShape it(list); it.More(); it.Next())
-                    collect(it.Value(), n.ref);
+            collect(n.shape, n.ref, TopologyLineageKind::unchanged);
+            for (TopTools_ListIteratorOfListOfShape it(op.Modified(n.shape)); it.More(); it.Next())
+                collect(it.Value(), n.ref, it.Value().ShapeType()==n.shape.ShapeType() ? TopologyLineageKind::modified : TopologyLineageKind::generated);
+            for (TopTools_ListIteratorOfListOfShape it(op.Generated(n.shape)); it.More(); it.Next())
+                collect(it.Value(), n.ref, TopologyLineageKind::generated);
         }
     std::map<std::string, std::vector<const Candidate*>> groups;
     for (const auto& c : candidates)
@@ -119,7 +136,7 @@ void joint_history(GeometryFeatureBuild& out, const std::vector<GeometryFeatureB
             continue;
         const auto& c = *group.front();
         add(out, derived(id, role + "/history/" + std::to_string(c.shape.ShapeType()), c.sources),
-            c.shape, c.sources);
+            c.shape, c.sources, {}, c.sources.size()>1 && c.evolution!=TopologyLineageKind::generated ? TopologyLineageKind::merged : c.evolution);
     }
 }
 void named_boundary(GeometryFeatureBuild& out, const TopoDS_Shape& boundary, const std::string& id,
@@ -164,7 +181,7 @@ GeometryFeatureBuild sewn(const std::vector<GeometryFeatureBuild>& inputs,
                                 : sew.IsModifiedSubShape(n.shape) ? sew.ModifiedSubShape(n.shape)
                                                                   : n.shape;
             add(out, derived(s.feature_id, join ? "join/member" : "sew/member", {n.ref}), mapped,
-                {n.ref});
+                {n.ref}, {}, mapped.IsSame(n.shape) ? TopologyLineageKind::unchanged : TopologyLineageKind::modified);
         }
     return out;
 }

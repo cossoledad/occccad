@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -39,6 +40,8 @@ func queuePartCheckpoints(batch *database.Batch, manifest modelcore.EvaluationMa
 }
 
 type partCheckpoint struct {
+	visual       Representation
+	object       artifactstore.Object
 	key          string
 	position     int
 	continuation *workerv1.PartContinuation
@@ -128,6 +131,8 @@ func (s *Service) partCheckpoint(ctx context.Context, model PartModel) (partChec
 	}
 	checkpoint.continuation.ValidationPolicy = a.ValidationPolicy
 	checkpoint.continuation.Naming = &workerv1.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType}
+	checkpoint.visual = a.Representations["VISUAL"]
+	checkpoint.object = object
 	checkpoint.naming = root
 	return checkpoint, nil
 }

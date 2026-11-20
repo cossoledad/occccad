@@ -3,6 +3,9 @@ add_library(occccad_kernel_api STATIC
     src/mesh_glb.cpp
 )
 
+find_package(OpenSSL CONFIG REQUIRED)
+target_link_libraries(occccad_kernel_api PRIVATE OpenSSL::Crypto)
+
 target_include_directories(
     occccad_kernel_api
     PUBLIC

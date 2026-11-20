@@ -37,11 +37,11 @@ func (service *Service) validatePublicAssemblySupports(ctx context.Context, mode
 		return fmt.Errorf("%w: binary definition missing second support", ErrValidation)
 	}
 	r := newAssemblySupportResolver(ctx, service, model)
-	a, err := r.resolve(c.First)
+	a, err := r.resolveForUse(c.First, assemblyNamingUse(c.Kind, &c.First))
 	if err != nil {
 		return err
 	}
-	b, err := r.resolve(*c.Second)
+	b, err := r.resolveForUse(*c.Second, assemblyNamingUse(c.Kind, c.Second))
 	if err != nil {
 		return err
 	}

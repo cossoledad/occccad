@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"fmt"
 	"testing"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
@@ -152,12 +151,12 @@ func TestTopologyHistoryCompleteRequiresEveryFeature(t *testing.T) {
 
 func testBodyTips(m *topologyManifest) *topologyManifest {
 	m.Tips = map[string]*workerv1.FeatureResult{}
-	m.Locators = map[string]namingLocator{}
+	m.Locators = map[namingLocatorKey]namingLocator{}
 	for _, f := range m.FeatureResults {
 		m.Tips[f.BodyId] = f
 		m.GeometryID = f.ResultGeometryId
 		for _, o := range f.SemanticOutputs {
-			m.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)] = namingLocator{BodyID: f.BodyId, Output: o}
+			m.Locators[namingLocatorKey{o.TopologyType, o.LocalId}] = namingLocator{BodyID: f.BodyId, Output: o}
 		}
 	}
 	return m

@@ -11,17 +11,19 @@ test("assembly suppression is visible and reversible from the tree", async ({ pa
   const constraint=page.getByRole("treeitem").filter({hasText:"#COINCIDENT.1"});
   await expect(constraint).toBeVisible();
   await constraint.click({button:"right"});
-  await page.getByRole("menuitem",{name:/ 抑制$/}).click();
-  await expect(constraint.getByLabel("状态 停用")).toBeVisible();
+  await page.getByRole("menuitem",{name:"对象",exact:true}).hover();
+  await page.getByRole("menuitem",{name:"抑制",exact:true}).click();
+  await expect(constraint.getByLabel("状态 已抑制")).toBeVisible();
   await constraint.click({button:"right"});
+  await page.getByRole("menuitem",{name:"对象",exact:true}).hover();
   await page.getByRole("menuitem",{name:/解除抑制$/}).click();
-  await expect(constraint.getByLabel("状态 停用")).toHaveCount(0);
+  await expect(constraint.getByLabel("状态 已抑制")).toHaveCount(0);
   await constraint.dblclick();
   const dialog=page.getByRole("dialog",{name:"约束定义",exact:true});
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button",{name:"停用约束",exact:true}).click();
   await expect(dialog).toHaveCount(0);
-  await expect(constraint.getByLabel("状态 停用")).toBeVisible();
+  await expect(constraint.getByLabel("状态 已抑制")).toBeVisible();
   expect(errors).toEqual([]);
 });
 

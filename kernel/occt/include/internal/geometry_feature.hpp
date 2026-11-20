@@ -13,6 +13,7 @@ struct GeometryNamedShape {
     TopoDS_Shape shape;
     std::vector<SemanticTopologyRef> sources;
     std::vector<SemanticTopologyRef> roles;
+    TopologyLineageKind evolution = TopologyLineageKind::generated;
 };
 struct GeometryFeatureBuild {
     TopoDS_Shape shape;

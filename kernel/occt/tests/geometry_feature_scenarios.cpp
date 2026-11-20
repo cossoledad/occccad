@@ -296,6 +296,11 @@ TEST(GeometryFeature, FiniteCurveOperationsRespectDirectionAndSemanticMembers) {
     s.parameters.start = .2;
     s.parameters.end = .6;
     const auto trim = k.evaluateGeometryFeature(s);
+    const auto count_evolution = [](const auto& result, TopologyLineageKind kind) {
+        const auto& rows = result.feature_results.back().topology_history.lineage;
+        return std::count_if(rows.begin(), rows.end(), [kind](const auto& row) { return row.kind == kind; });
+    };
+    EXPECT_EQ(count_evolution(trim, TopologyLineageKind::modified), 1);
     const auto bounds = k.getBoundingBox(trim.geometry_id);
     EXPECT_NEAR(bounds.min.x, 10, 1e-6);
     EXPECT_NEAR(bounds.max.x, 30, 1e-6);
@@ -308,6 +313,7 @@ TEST(GeometryFeature, FiniteCurveOperationsRespectDirectionAndSemanticMembers) {
     s.feature_id = "split";
     const auto split = k.evaluateGeometryFeature(s);
     EXPECT_EQ(k.getTopologySummary(split.geometry_id).edge_count, 2U);
+    EXPECT_EQ(count_evolution(split, TopologyLineageKind::split), 2);
     s.operation = "EXTEND";
     s.feature_id = "extend";
     s.parameters.distance = 5;

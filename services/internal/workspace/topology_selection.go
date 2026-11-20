@@ -24,6 +24,7 @@ type BindPersistentSelectionRequest struct {
 }
 
 type ResolvePersistentSelectionRequest struct {
+	use             namingUse
 	Selection       modelcore.PersistentSelection `json:"persistentSelection"`
 	SourceVersionID string                        `json:"sourcePartRevisionId"`
 	TargetVersionID string                        `json:"targetPartRevisionId"`
@@ -86,7 +87,7 @@ func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductMo
 		reference.PersistentSelection, reference.SourceVersionID = selection, instance.ReferencedVersionID
 	}
 	reference.GeometryKey, reference.TopologyID = "", 0
-	_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID, reference.PersistentSelection.SourceBodyID)
+	_, _, digest, err := service.selectionManifestForVersion(context.WithValue(ctx, namingTipOnlyKey{}, true), instance.ReferencedDocumentID, instance.ReferencedVersionID, *reference.PersistentSelection)
 	if err != nil {
 		return err
 	}
@@ -196,7 +197,7 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 		instances[product.Instances[i].ID] = &product.Instances[i]
 	}
 	acceptedParts := map[string]PartModel{}
-	resolveEndpoint := func(reference *AssemblyGeometryRef) (modelcore.SelectionResolutionStatus, error) {
+	resolveEndpoint := func(kind string, reference *AssemblyGeometryRef) (modelcore.SelectionResolutionStatus, error) {
 		if reference == nil {
 			return modelcore.SelectionResolved, nil
 		}
@@ -281,7 +282,7 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 				PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
 			return modelcore.SelectionSourceUnavailable, nil
 		}
-		_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID, reference.PersistentSelection.SourceBodyID)
+		_, _, digest, err := service.selectionManifestForVersion(context.WithValue(ctx, namingTipOnlyKey{}, true), instance.ReferencedDocumentID, instance.ReferencedVersionID, *reference.PersistentSelection)
 		if err != nil {
 			if diagnostic, ok := namingDiagnostic(err); ok {
 				resolution := unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic)
@@ -296,7 +297,7 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 			}
 			return modelcore.SelectionSourceUnavailable, err
 		}
-		resolution, err := service.ResolvePersistentSelection(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+		resolution, err := service.ResolvePersistentSelection(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{use: assemblyNamingUse(kind, reference), Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 		if err != nil {
 			return modelcore.SelectionSourceUnavailable, err
 		}
@@ -326,11 +327,11 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 			}
 			continue
 		}
-		first, firstErr := resolveEndpoint(&constraint.First)
-		second, secondErr := resolveEndpoint(constraint.Second)
+		first, firstErr := resolveEndpoint(constraint.Kind, &constraint.First)
+		second, secondErr := resolveEndpoint(constraint.Kind, constraint.Second)
 		axis, axisErr := modelcore.SelectionResolved, error(nil)
 		if constraint.Kind == "ANGLE" && (constraint.AngleRelation == "DIRECTED" || constraint.AngleRelation == "") {
-			axis, axisErr = resolveEndpoint(constraint.AngleAxis)
+			axis, axisErr = resolveEndpoint(constraint.Kind, constraint.AngleAxis)
 		}
 		if constraint.Suppressed {
 			if firstErr != nil || secondErr != nil || axisErr != nil || first != modelcore.SelectionResolved || second != modelcore.SelectionResolved || axis != modelcore.SelectionResolved {
@@ -465,6 +466,21 @@ func (service *Service) resolvedAssemblyTopologyProperties(ctx context.Context, 
 	}
 	resolution, err := service.ResolvePersistentSelection(ctx, documentID, request)
 	result := ResolvedTopologyProperties{Resolution: resolution}
+	if support := resolution.Support; err == nil && support != nil && resolution.Status == modelcore.SelectionResolved {
+		field := "direction"
+		if support.GeometryType == "PLANE" {
+			field = "normal"
+		}
+		properties := map[string]any{"origin": support.Origin, "lengthUnit": "mm"}
+		if support.GeometryType == "CYLINDER" {
+			field = "axis"
+			properties["radius"] = support.RadiusMM
+			properties["materialSide"] = support.MaterialSide
+		}
+		properties[field] = support.Direction
+		result.Properties = &TopologyElementProperties{GeometryType: support.GeometryType, Properties: properties}
+		return result, nil
+	}
 	if err != nil || resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 {
 		return result, err
 	}
@@ -603,7 +619,7 @@ func containsString(values []string, expected string) bool {
 }
 
 func manifestOutput(manifest *topologyManifest, kind modelcore.PersistentTopologyType, localID uint64) (*workerv1.SemanticTopologyOutput, string) {
-	entry, ok := manifest.Locators[fmt.Sprintf("%d:%d", namingTopologyType(kind), localID)]
+	entry, ok := manifest.Locators[namingLocatorKey{workerv1.PersistentTopologyType(namingTopologyType(kind)), localID}]
 	if !ok {
 		return nil, ""
 	}
@@ -642,7 +658,7 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 }
 
 func (service *Service) topologyManifestForVersion(ctx context.Context, documentID, versionID, bodyID string) (*topologyManifest, string, string, error) {
-	value, err := assemblyRead(ctx, assemblyReadKey{"manifest", documentID, versionID + "/" + bodyID}, func() (assemblyManifestRead, error) {
+	value, err := assemblyRead(ctx, assemblyManifestKey{documentID, versionID, bodyID, ctx.Value(namingTipOnlyKey{}) == true, ctx.Value(namingResolverOnlyKey{}) == true, namingPrefix(ctx)}, func() (assemblyManifestRead, error) {
 		manifest, geometry, digest, err := service.loadTopologyManifestForVersion(ctx, documentID, versionID, bodyID)
 		return assemblyManifestRead{manifest, geometry, digest}, err
 	})
@@ -695,7 +711,7 @@ func (service *Service) BindPersistentSelection(ctx context.Context, documentID 
 	if geometryKey != request.GeometryKey {
 		return modelcore.PersistentSelection{}, fmt.Errorf("%w: geometryKey does not belong to source revision", ErrValidation)
 	}
-	entry, exists := manifest.Locators[fmt.Sprintf("%d:%d", namingTopologyType(kind), request.LocalID)]
+	entry, exists := manifest.Locators[namingLocatorKey{workerv1.PersistentTopologyType(namingTopologyType(kind)), request.LocalID}]
 	output, bodyID := entry.Output, entry.BodyID
 	if !exists || output == nil || bodyID != request.BodyID || (request.Result == nil) != (entry.Result == nil) || (request.Result != nil && *request.Result != *entry.Result) {
 		return modelcore.PersistentSelection{}, ErrNotFound
@@ -714,8 +730,12 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.PolicyDigest != modelcore.TopologyNamingPolicyDigest {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "RESOLVER_POLICY_MISMATCH"}, nil
 	}
-	source := context.WithValue(ctx, namingTipOnlyKey{}, true)
-	sourceManifest, _, _, err := service.selectionManifestForVersion(source, documentID, request.SourceVersionID, request.Selection)
+	source := namingCreationContext(ctx, request.Selection)
+	sameTip := request.TargetVersionID == request.SourceVersionID && request.Selection.Selector.Kind == modelcore.SelectionLineageDescendant
+	if sameTip {
+		source = context.WithValue(ctx, namingTipOnlyKey{}, true)
+	}
+	sourceManifest, sourceKey, sourceDigest, err := service.selectionManifestForVersion(source, documentID, request.SourceVersionID, request.Selection)
 	if err != nil {
 		if diagnostic, ok := namingDiagnostic(err); ok {
 			return unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic), nil
@@ -735,7 +755,15 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.Selection.CreationEvidence.EvidenceDigest != "" && request.Selection.CreationEvidence.EvidenceDigest != sourceOutput.GetEvidence().GetEvidenceDigest() {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "CREATION_EVIDENCE_MISMATCH"}, nil
 	}
-	target := context.WithValue(ctx, namingResolverOnlyKey{}, true)
+	request.Selection.CreationEvidence.GeometryType = sourceOutput.GetEvidence().GetGeometryType()
+	request.Selection.CreationEvidence.MeasureDimension = sourceOutput.GetEvidence().GetMeasureDimension()
+	if sameTip {
+		if request.ManifestDigest != "" && !strings.EqualFold(request.ManifestDigest, sourceDigest) {
+			return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "TARGET_MANIFEST_MISMATCH"}, nil
+		}
+		return namingSearch(sourceManifest).resolveForUse(request.Selection, sourceKey, sourceManifest.GeometryID, nil, request.use), nil
+	}
+	target := namingTargetContext(ctx, request.Selection, sourceManifest)
 	manifest, geometryKey, digest, err := service.selectionManifestForVersion(target, documentID, request.TargetVersionID, request.Selection)
 	if err != nil {
 		if diagnostic, ok := namingDiagnostic(err); ok {
@@ -752,7 +780,7 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.ManifestDigest != "" && !strings.EqualFold(request.ManifestDigest, digest) {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "TARGET_MANIFEST_MISMATCH"}, nil
 	}
-	return resolveManifest(request.Selection, geometryKey, manifest), nil
+	return resolveBetweenNamingViews(request.Selection, sourceManifest, manifest, geometryKey, request.use), nil
 }
 
 func datumAssemblyReferenceExists(part PartModel, reference AssemblyGeometryRef) bool {

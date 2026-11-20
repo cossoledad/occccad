@@ -339,3 +339,42 @@ Gear Cover 的权威 B-Rep SHA-256 在四组观测中一致。均衡档未读持
 并行组使用四线程 OCCT 池。首次切除的 B‑Rep 分析器用时约 397 ms，结果材料检查约 8 ms，Boolean Build 约 94 ms。核对了冻结支撑面、切除材料体积、已提交结果与完整冷重建的 BREP 和 Naming，以及预览提升未重复执行 Worker。
 
 浏览器通过七项端到端场景，包括切换显示精度、绘制草图时保留显示资源、倒角边拾取、阵列归属高亮、Product 树选择、取消与提交，以及缝合曲面的视图区实体化。倒角用例按视图区的真实边命中等待接纳后再点击。小样本用于区分热点，汽车 B 柱、1,000 步持续增拓扑和浏览器硬件 GPU 延迟仍缺少本轮数据。原始记录与对照脚本归 `build/performance/part-locality-20261119/`。
+
+## 切分引用与长链 Naming（2026-11-20）
+
+增长夹具包含 501 个草图和 501 个实体 Feature，每次只编辑末步高度。前后使用同一已接纳前缀和三个相同的参数。为避开数据库中此前测过的最终制品，本轮仅在测试覆盖层为最终预览缓存键加区分值。每次实际执行 1 步，复用 500 块。三组的 BREP、NAMING、VISUAL 摘要逐一相等。[逐次计时与摘要](../../tests/test.data/performance/part-naming-resolution-performance.json)
+
+| 末步高度增量 | 预览原耗时 → 本次 | 服务端 Naming 接纳原耗时 → 本次 |
+|---|---:|---:|
+| +0.1875 mm，新 Router / Worker | 2865 → 1901 ms | 770 → 196 ms |
+| +0.5625 mm，同进程第二次编辑 | 2712 → 1651 ms | 746 → 46 ms |
+| +0.9375 mm，同进程第三次编辑 | 2723 → 1651 ms | 751 → 56 ms |
+
+原先草图端点输入使接纳路径退回历史重读。现在从冻结显示关联恢复前驱贡献，只接纳新增块。同一前驱上的多次编辑共享有预算的关联索引。需查询已退役来源或阵列种子别名的后缀仍走完整历史。原生历史摘要改为流式 SHA-256。在 100 步增长原生用例中，末步追加的 Naming 为 33.61 → 19.15 ms，末步编辑为 33.74 → 19.05 ms。以上均为本机样本。
+
+- 完整冷重建 1002 个 Feature 耗时 240.89 s，与已有冻结制品核对几何及 501 个阶段的解码 Naming。跨制品编码时使用精确内容对照。500 步之前选的面在新服务中首次查询 592 ms，另两个旧面复用索引为 4.9 和 4.7 ms。在相邻前驱重新绑定同一面，再从新服务解析为 45.8 ms。
+- 固定拓扑夹具恢复 1000 个前驱、执行 1 步，预览 455 ms，提交 364 ms，相同参数完整冷算 18.05 s。验证精确几何、命名和显示对应关系。
+- 真实 Router 验证切槽后边和面的装配约束、撤销恢复、先选子段再平移切槽、删除切槽以及缺失检查点的恢复。原生用例覆盖曲线 Split/Trim 与曲面操作，浏览器用两个 occurrence 的已解码实体网格验证多个支撑成员的 hover/select。另以 456 面 STEP 验证面上草图、第一次切除和冷重放。
+- Go 的已建索引查询基准在 100/300/1000 步合成事件流分别约为 2.5/7.7/20.6 µs，计时范围不含读取制品、建索引或几何求值。
+
+三次末步预览可用 `TestStoredNamingTipPreviewTimingThroughRouter` 复测。以 `OCCCCAD_TEST_NAMING_TIMING_DOCUMENT` 指定夹具，`OCCCCAD_TEST_NAMING_OFFSET_MM` 指定未计算过的高度增量；命中最终制品缓存时该用例不计作一次真实求值。
+
+复验入口为 `TestCutHolePersistentSelectionThroughRealRouter`、`TestFiniteSplitFollowsBoundaryAcrossReorderedSiblings`、`TestStoredGrowingNamingQueriesThroughRouter`、`TestStoredGrowingTopologyNamingReplayThroughRouter` 和 `BenchmarkNamingIndexedQueryGrowingHistory`。增长及固定夹具的存储文档分别通过 `OCCCCAD_TEST_NAMING_REPLAY_DOCUMENT`、`OCCCCAD_TEST_FIXED_REPLAY_DOCUMENT` 传入。
+
+### 1,000 次持续新增拓扑
+
+真实 Router 从空 Part 交替追加圆形与矩形凸台。每步创建并编辑一张草图、再创建一个实体 Feature。含底板在内，最终有 2,002 个 Feature、3,506 面、7,512 边和 5,008 点。以下每行取该步的一次追加提交；Worker 两项计时均包含在提交耗时中。
+
+| 追加步数 | 完整提交 | Worker 精确几何 | Worker Naming | 新写 Naming 历史块 |
+|---:|---:|---:|---:|---:|
+| 100 | 363 ms | 90 ms | 25 ms | 44 KB |
+| 500 | 1,829 ms | 717 ms | 179 ms | 159 KB |
+| 1,000 | 4,467 ms | 2,152 ms | 408 ms | 306 KB |
+
+第 1,000 步复用 1,000 个前驱，仅执行一个阶段。末步高度编辑提交 4,452 ms。随后在新进程用另三个未命中最终制品缓存的高度进行预览，分别为 4,891、4,307 和 4,151 ms，服务端 Naming 接纳为 191、131 和 130 ms。追加时 B-Rep 检查约 1,049 ms，布尔构造约 546 ms。这两个值均属于精确几何。
+
+旧的根视图费用估算使 5.61 MB 的根超出 64 MiB 接纳预算。按解码对象和共享引用估算后，同一文档从最早阶段绑定三个面，新服务三次查询为 **511、9.2、8.9 ms**；调整前为 **559、440、442 ms**。后两次通过 recorder 验证未重新解码根。在相邻前驱重绑再从新服务查询为 88 ms。
+
+Undo/Redo、显式材料体积、跨 Revision 选择、错摘要拒绝及重开均通过。禁用复用后，Worker 完整执行 1,001 个实体阶段，RPC 耗时 **1,391.44 s（23.19 分钟）**，其中精确几何 1,159.50 s、Naming 205.88 s。与增量提交逐项比较，BREP 数值标记只有零的符号差异，1,001 个阶段的类型化 Naming 与当前定位一致，预览保留原 Head。
+
+复验运行 `TestGrowingTopologyPartFeaturesAndNamingThroughRouter` 并设置 `OCCCCAD_TEST_NAMING_STEPS=1000`。本组有当前实现的追加、预览、查询和冷算样本，历史版本仅有 500 步同参数预览对照。远端汽车 B 柱、生产网络和 P95 仍缺少本轮实测。

@@ -68,6 +68,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <tuple>
 #include <stdexcept>
 
 namespace occccad::kernel::detail {
@@ -125,24 +126,25 @@ bool contains(const TopoDS_Shape& parent, const TopoDS_Shape& child) {
     return false;
 }
 void add(GeometryFeatureBuild& b, const SemanticTopologyRef& r, const TopoDS_Shape& shape,
-         std::vector<SemanticTopologyRef> sources, std::vector<SemanticTopologyRef> roles) {
+         std::vector<SemanticTopologyRef> sources, std::vector<SemanticTopologyRef> roles,
+         TopologyLineageKind evolution) {
     if (shape.IsNull() || !contains(b.shape, shape))
         return;
     if (shape.ShapeType() != TopAbs_FACE && shape.ShapeType() != TopAbs_EDGE &&
         shape.ShapeType() != TopAbs_VERTEX)
         return;
-    const auto unique = [](auto& refs) {
-        std::sort(refs.begin(), refs.end(),
-                  [](const auto& a, const auto& c) { return key(a) < key(c); });
-        refs.erase(std::unique(refs.begin(), refs.end(),
-                               [](const auto& a, const auto& c) { return key(a) == key(c); }),
-                   refs.end());
+    const auto tuple = [](const SemanticTopologyRef& ref) {
+        return std::tie(ref.feature_id, ref.output_slot, ref.source_ids);
+    };
+    const auto unique = [&](auto& refs) {
+        std::sort(refs.begin(), refs.end(), [&](const auto& a, const auto& c) { return tuple(a) < tuple(c); });
+        refs.erase(std::unique(refs.begin(), refs.end(), [&](const auto& a, const auto& c) { return tuple(a) == tuple(c); }), refs.end());
     };
     if (roles.empty())
         roles.push_back(r);
     for (auto& n : b.named)
         if (n.shape.IsSame(shape)) {
-            if (key(n.ref) != key(r)) {
+            if (tuple(n.ref) != tuple(r)) {
                 if (n.roles.empty())
                     n.roles.push_back(n.ref);
                 n.roles.insert(n.roles.end(), roles.begin(), roles.end());
@@ -150,10 +152,17 @@ void add(GeometryFeatureBuild& b, const SemanticTopologyRef& r, const TopoDS_Sha
                 n.sources.insert(n.sources.end(), sources.begin(), sources.end());
                 unique(n.sources);
                 n.ref = derived(r.feature_id, "merged", n.roles);
+                // A generating/tool relation cannot authorize continuation.
+                if (evolution == TopologyLineageKind::generated || n.evolution == TopologyLineageKind::generated)
+                    n.evolution = TopologyLineageKind::generated;
+                else if (n.sources.size() > 1)
+                    n.evolution = TopologyLineageKind::merged;
+                else
+                    n.evolution = TopologyLineageKind::modified;
             }
             return;
         }
-    b.named.push_back({r, shape, std::move(sources), std::move(roles)});
+    b.named.push_back({r, shape, std::move(sources), std::move(roles), evolution});
 }
 TopoDS_Shape compound(const std::vector<TopoDS_Shape>& shapes) {
     if (shapes.size() == 1)
@@ -183,9 +192,9 @@ void endpoints(GeometryFeatureBuild& b, const std::string& id, const TopoDS_Edge
 }
 void curve_result(GeometryFeatureBuild& b, const std::string& id, const TopoDS_Edge& e,
                   const std::vector<SemanticTopologyRef>& sources,
-                  const std::string& role = "curve") {
+                  const std::string& role = "curve", TopologyLineageKind evolution = TopologyLineageKind::generated) {
     b.shape = e;
-    add(b, derived(id, role, sources), e, sources);
+    add(b, derived(id, role, sources), e, sources, {}, evolution);
     endpoints(b, id, e, role, sources);
 }
 TopoDS_Wire wire(const TopoDS_Shape& s) {
@@ -902,7 +911,7 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
                     e.Reverse();
                 shapes.push_back(e);
                 GeometryFeatureBuild part;
-                curve_result(part, s.feature_id, e, {r}, "split/" + range.first);
+                curve_result(part, s.feature_id, e, {r}, "split/" + range.first, TopologyLineageKind::split);
                 out.named.insert(out.named.end(), part.named.begin(), part.named.end());
             }
             out.shape = compound(shapes);
@@ -913,7 +922,7 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
             auto e = BRepBuilderAPI_MakeEdge(c, std::min(a, z), std::max(a, z)).Edge();
             if (a > z)
                 e.Reverse();
-            curve_result(out, s.feature_id, e, {r}, "trim");
+            curve_result(out, s.feature_id, e, {r}, "trim", TopologyLineageKind::modified);
         } else {
             if (p.distance <= tolerance ||
                 (p.side != "START" && p.side != "END" && p.side != "BOTH"))
@@ -940,7 +949,7 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
             auto e = BRepBuilderAPI_MakeEdge(c, first, last).Edge();
             if (reverse)
                 e.Reverse();
-            curve_result(out, s.feature_id, e, {r}, "extend");
+            curve_result(out, s.feature_id, e, {r}, "extend", TopologyLineageKind::modified);
         }
     } else if (s.operation == "G1_CONNECT") {
         require(2);

@@ -150,7 +150,16 @@ type ResolvedTopologyElement struct {
 	Evidence    TopologySelectionEvidence `json:"evidence"`
 }
 
+type AnalyticSupport struct {
+	RadiusMM     float64    `json:"radiusMM,omitempty"`
+	MaterialSide int32      `json:"materialSide,omitempty"`
+	GeometryType string     `json:"geometryType"`
+	Origin       [3]float64 `json:"origin"`
+	Direction    [3]float64 `json:"direction"`
+}
+
 type SelectionResolution struct {
+	Support                 *AnalyticSupport          `json:"support,omitempty"`
 	Status                  SelectionResolutionStatus `json:"status"`
 	SupportingElementStatus SupportingElementStatus   `json:"supportingElementStatus"`
 	Candidates              []ResolvedTopologyElement `json:"candidates,omitempty"`

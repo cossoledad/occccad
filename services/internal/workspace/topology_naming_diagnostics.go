@@ -14,6 +14,7 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -48,6 +49,7 @@ type namingTipOnlyKey struct{}
 type namingResolverOnlyKey struct{}
 
 func decodeTopologyManifestContext(ctx context.Context, data []byte, digest string, loaders ...namingHistoryLoader) (*topologyManifest, error) {
+	defer perf.Start(ctx, "naming-view-decode")()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -59,6 +61,10 @@ func decodeTopologyManifestContext(ctx context.Context, data []byte, digest stri
 	if err := proto.Unmarshal(data, stored); err != nil {
 		return nil, namingError("CORRUPT", "TOPOLOGY_MANIFEST_INVALID", "拓扑命名制品无法解码，需要重新生成制品。")
 	}
+	return unpackVerifiedNamingRoot(ctx, stored, len(data), true, loaders...)
+}
+
+func unpackVerifiedNamingRoot(ctx context.Context, stored *workerv1.PartTopologyManifest, rawSize int, buildSearch bool, loaders ...namingHistoryLoader) (*topologyManifest, error) {
 	if stored.GetSchemaVersion() != 3 || stored.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest || stored.PolicyId != modelcore.TopologyNamingPolicyID || stored.EvaluatorVersion != modelcore.TopologyNamingEvaluator {
 		return nil, namingError("INCOMPATIBLE", "TOPOLOGY_MANIFEST_CONTRACT_MISMATCH", "拓扑命名制品与当前求值合同不匹配，需要重新求值。")
 	}
@@ -87,26 +93,30 @@ func decodeTopologyManifestContext(ctx context.Context, data []byte, digest stri
 	if !topologyHistoryComplete(manifest) {
 		return nil, namingError("FAILED", "TOPOLOGY_HISTORY_INCOMPLETE", "当前几何未生成完整拓扑命名，暂不支持持久面、边、点引用。")
 	}
-	if !tipOnly {
-		manifest.search, err = buildNamingSearchIndex(ctx, manifest)
-		if err != nil {
-			return nil, err
-		}
+	manifest.historyTipDigest = stored.History[len(stored.History)-1].Sha256
+	// Acceptance consumes events and terminal locators. Persistent selectors
+	// build their index from the accepted, immutable root on demand.
+	if !buildSearch {
+		return manifest, nil
+	}
+	manifest.search, err = buildNamingSearchIndex(ctx, manifest)
+	if err != nil {
+		return nil, err
 	}
 	if resolverOnly, _ := ctx.Value(namingResolverOnlyKey{}).(bool); resolverOnly && !tipOnly {
 		// Keep the event index and frozen terminal outputs. Cached historical
 		// records belong to the separate block budget, so a large prefix need
 		// not force a full reread for every query against its accepted tip.
 		manifest.history, manifest.historyReferences, manifest.FeatureResults = nil, nil, nil
+		manifest.retainedBytes = 0
 		for _, tip := range manifest.Tips {
 			tip.TopologyHistory = nil
 		}
 		for _, tip := range manifest.Results {
 			tip.TopologyHistory = nil
 		}
-		manifest.retainedBytes = manifest.search.retainedBytes()
 	}
-	manifest.retainedBytes += len(data) * 16
+	manifest.retainedBytes += manifest.search.retainedBytes() + namingTipCharge(stored, rawSize, len(manifest.Locators))
 	return manifest, nil
 }
 
@@ -121,7 +131,7 @@ func (service *Service) readTopologyManifest(ctx context.Context, inline []byte,
 	if tipOnly, _ := ctx.Value(namingTipOnlyKey{}).(bool); tipOnly {
 		key += "\x00tip"
 	} else if resolverOnly, _ := ctx.Value(namingResolverOnlyKey{}).(bool); resolverOnly {
-		key += "\x00resolver"
+		key += "\x00resolver" + namingPrefix(ctx)
 	}
 	manifest, err := service.namingViews.read(ctx, key, namingViewBudget, func() (*topologyManifest, int64, error) {
 		value, _, err := service.loadTopologyManifest(ctx, inline, objectID, digest)

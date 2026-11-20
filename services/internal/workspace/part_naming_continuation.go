@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
@@ -15,64 +16,35 @@ import (
 // events. A reference to a retired state or an alias that needs prior events
 // uses the full ordered reader. The resolver still independently reads the
 // reachable history when a caller requests lineage or an audit.
-func (s *Service) adoptNamingContinuation(ctx context.Context, checkpoint partCheckpoint, root artifactstore.Object, stored *workerv1.PartTopologyManifest, objects map[string]artifactstore.Object) (*topologyManifest, error) {
+func (s *Service) adoptNamingContinuation(ctx context.Context, checkpoint partCheckpoint, root artifactstore.Object, stored *workerv1.PartTopologyManifest, objects map[string]artifactstore.Object, displayAssociations bool) (*topologyManifest, error) {
 	finish := perf.Start(ctx, "naming-continuation")
 	defer finish()
 	previous := checkpoint.naming
 	n := len(previous.History)
-	if n == 0 || n >= len(stored.History) || stored.PolicyId != modelcore.TopologyNamingPolicyID || stored.PolicyDigest != modelcore.TopologyNamingPolicyDigest || stored.EvaluatorVersion != modelcore.TopologyNamingEvaluator {
+	if len(previous.Bodies) != 1 || n == 0 || n >= len(stored.History) || stored.PolicyId != modelcore.TopologyNamingPolicyID || stored.PolicyDigest != modelcore.TopologyNamingPolicyDigest || stored.EvaluatorVersion != modelcore.TopologyNamingEvaluator {
 		return nil, nil
 	}
-	source, err := s.loadArtifact(ctx, checkpoint.key)
-	if err != nil {
-		return nil, err
-	}
-	oldTip, err := unpackNamingTip(previous)
-	if err != nil || !topologyHistoryComplete(oldTip) {
-		return nil, ctx.Err()
-	}
+
 	nextTip, err := unpackNamingTip(stored)
 	if err != nil || !topologyHistoryComplete(nextTip) {
 		return nil, ctx.Err()
 	}
-	before, after := oldTip.FeatureResults[0], nextTip.FeatureResults[0]
-	if before.BodyId == "" || before.BodyId != after.BodyId || before.BodyId != checkpoint.continuation.BodyId {
+	before := previous.GetBodies()[0]
+	if before.BodyId == "" || before.BodyId != nextTip.FeatureResults[0].BodyId || before.BodyId != checkpoint.continuation.BodyId {
 		return nil, nil
 	}
-	visual := source.Representations["VISUAL"]
-	if visual.ObjectID == "" {
-		return nil, nil
-	}
-	_, reader, err := s.artifacts.Open(ctx, visual.ObjectID)
-	if err != nil {
-		return nil, ctx.Err()
-	}
-	associations, err := readFrozenAssociations(reader, visual.Size, previous.GeometryId, checkpoint.continuation.Naming.Sha256)
-	reader.Close()
-	if err != nil || associations == nil || len(associations.Elements) != len(before.SemanticOutputs) {
-		return nil, ctx.Err()
-	}
-	states := make(map[string]FeatureTopologyAssociation, len(before.SemanticOutputs))
-	byLocator := make(map[string]FeatureTopologyAssociation, len(associations.Elements))
-	for _, element := range associations.Elements {
-		byLocator[fmt.Sprintf("%s:%d", element.Kind, element.LocalID)] = element
-	}
-	for _, output := range before.SemanticOutputs {
-		kind := strings.TrimPrefix(output.TopologyType.String(), "PERSISTENT_TOPOLOGY_TYPE_")
-		element, ok := byLocator[fmt.Sprintf("%s:%d", kind, output.LocalId)]
-		if !ok {
-			return nil, nil
+	var seed *namingAssociationSeed
+	if displayAssociations {
+		seed, err = s.namingAssociationSeed(ctx, checkpoint)
+		if err != nil || seed == nil {
+			return nil, err
 		}
-		states[associationRefKey(output.SemanticRef)] = element
 	}
 	prefixFeatures := make(map[string]bool, n)
 	for _, stage := range previous.History {
 		prefixFeatures[stage.FeatureId] = true
 	}
-	known := make(map[string]bool, len(states))
-	for key := range states {
-		known[key] = true
-	}
+	known := map[string]bool{}
 	predecessor := previous.History[n-1]
 	var suffix []*workerv1.FeatureResult
 	var suffixObjects []artifactstore.Object
@@ -86,35 +58,37 @@ func (s *Service) adoptNamingContinuation(ctx context.Context, checkpoint partCh
 			return nil, err
 		}
 		feature := block.view.FeatureResults[0]
+		if feature.FeatureId != reference.FeatureId || feature.ResultGeometryId != reference.ResultGeometryId || block.fullRows != reference.FullLineageCount {
+			return nil, fmt.Errorf("naming suffix reference mismatch")
+		}
 		if block.previous != predecessor.Sha256 || block.previousRows != predecessor.FullLineageCount || feature.BodyId != before.BodyId || feature.Result != nil || feature.InputFeatureId != predecessor.FeatureId || feature.TopologyHistory.InputGeometryId != predecessor.ResultGeometryId || !feature.TopologyHistoryComplete || prefixFeatures[feature.FeatureId] ||
 			feature.TopologyHistory.PolicyDigest != stored.PolicyDigest || block.policyID != stored.PolicyId || block.evaluator != stored.EvaluatorVersion {
 			return nil, nil
 		}
-		for _, line := range feature.TopologyHistory.Lineage {
-			for _, source := range line.Sources {
-				if known[associationRefKey(source)] {
-					continue
-				}
-				role, _, _ := strings.Cut(source.OutputSlot, "/")
-				profile := role == "PROFILE_EDGE" || role == "PROFILE_REGION" || role == "PROFILE_POINT"
-				if role == "MEMBER" || role == "MODIFIER_GENERATED" || source.FeatureId != feature.FeatureId && !profile {
-					return nil, nil
+		if seed != nil {
+			for _, line := range feature.TopologyHistory.Lineage {
+				for _, source := range line.Sources {
+					k := associationRefKey(source)
+					if _, present := seed.states[k]; present || known[k] {
+						continue
+					}
+					role, id, qualified := strings.Cut(source.OutputSlot, "/")
+					profile := qualified && id != "" && !prefixFeatures[source.FeatureId] && isProfileNamingRole(role)
+					if role == "MEMBER" || role == "MODIFIER_GENERATED" || source.FeatureId != feature.FeatureId && !profile {
+						return nil, nil
+					}
 				}
 			}
-		}
-		for _, line := range feature.TopologyHistory.Lineage {
-			known[associationRefKey(line.Result)] = true
+			for _, line := range feature.TopologyHistory.Lineage {
+				known[associationRefKey(line.Result)] = true
+			}
 		}
 		prefixFeatures[feature.FeatureId] = true
 		suffix = append(suffix, feature)
 		suffixObjects = append(suffixObjects, object)
 		predecessor = reference
 	}
-	parent, err := s.representationObject(ctx, checkpoint.key, "NAMING")
-	if err != nil {
-		return nil, err
-	}
-	dependencies, err := s.artifacts.Dependencies(ctx, parent.ID)
+	dependencies, err := s.artifacts.Dependencies(ctx, checkpoint.object.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +100,75 @@ func (s *Service) adoptNamingContinuation(ctx context.Context, checkpoint partCh
 		return nil, err
 	}
 	nextTip.FeatureResults = suffix
-	nextTip.associations = deriveFeatureAssociationsFrom(nextTip, states, associations.Features)
+	if seed != nil {
+		nextTip.associations = deriveFeatureAssociationsFrom(nextTip, maps.Clone(seed.states), seed.features)
+	}
 	return nextTip, nil
+}
+
+// Immutable display contributions of an accepted tip. A suffix may update a
+// private map; inherited slices are read-only in deriveFeatureAssociationsFrom.
+type namingAssociationSeed struct {
+	states   map[string]FeatureTopologyAssociation
+	features []string
+}
+
+func (s *Service) namingAssociationSeed(ctx context.Context, checkpoint partCheckpoint) (*namingAssociationSeed, error) {
+	visual := checkpoint.visual
+	if visual.ObjectID == "" {
+		return nil, nil
+	}
+	root := checkpoint.naming
+	key := checkpoint.object.ID + "\x00" + checkpoint.object.SHA256 + "\x00" + visual.ObjectID + "\x00" + visual.Digest
+	return s.namingSeeds.read(ctx, key, 32<<20, func() (*namingAssociationSeed, int64, error) {
+		defer perf.Start(ctx, "naming-association-restore")()
+		_, reader, err := s.artifacts.Open(ctx, visual.ObjectID)
+		if err != nil {
+			return nil, 0, ctx.Err()
+		}
+		associations, err := readFrozenAssociations(reader, visual.Size, root.GeometryId, checkpoint.continuation.Naming.Sha256)
+		reader.Close()
+		outputs := root.Bodies[0].Tip
+		if err != nil || associations == nil || len(associations.Elements) != len(outputs) {
+			return nil, 0, ctx.Err()
+		}
+		refs, err := namingReferences(root)
+		if err != nil {
+			return nil, 0, nil
+		}
+		type locator struct {
+			kind string
+			id   uint64
+		}
+		byLocator := make(map[locator]FeatureTopologyAssociation, len(outputs))
+		for _, element := range associations.Elements {
+			byLocator[locator{element.Kind, element.LocalID}] = element
+		}
+		seed := &namingAssociationSeed{features: associations.Features, states: make(map[string]FeatureTopologyAssociation, len(outputs))}
+		charge := int64(512)
+		for _, f := range seed.features {
+			charge += int64(16 + len(f))
+		}
+		for _, o := range outputs {
+			if o.SemanticRef == 0 || int(o.SemanticRef) > len(refs) {
+				return nil, 0, nil
+			}
+			element, ok := byLocator[locator{string(topologyType(o.TopologyType)), o.LocalId}]
+			if !ok {
+				return nil, 0, nil
+			}
+			k := associationRefKey(refs[o.SemanticRef-1])
+			seed.states[k] = element
+			charge += int64(320 + len(k))
+			for _, ids := range [][]string{element.Primary, element.Origins, element.Supports, element.Modifiers} {
+				for _, id := range ids {
+					charge += int64(len(id) + 16)
+				}
+			}
+			for _, member := range element.Members {
+				charge += int64(24 + len(member.PatternID))
+			}
+		}
+		return seed, charge, nil
+	})
 }

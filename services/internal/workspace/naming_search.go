@@ -22,11 +22,12 @@ type namingEvent struct {
 	deleted          bool
 }
 type namingOwnerSearch struct {
-	seen     map[int]bool
-	events   []namingEvent
-	bySource map[int][]int
-	outputs  []*workerv1.SemanticTopologyOutput
-	byOutput map[int][]int
+	splitParent map[int]*workerv1.SemanticTopologyRef
+	seen        map[int]bool
+	events      []namingEvent
+	bySource    map[int][]int
+	outputs     []*workerv1.SemanticTopologyOutput
+	byOutput    map[int][]int
 }
 type namingSearchIndex struct {
 	symbols  map[string]int
@@ -45,7 +46,8 @@ func (index *namingSearchIndex) retainedBytes() int {
 		bytes += len(text) + 64
 	}
 	for _, owner := range index.owners {
-		bytes += 256 + len(owner.seen)*32 + cap(owner.events)*56 + cap(owner.outputs)*8
+		bytes += 256 + len(owner.splitParent)*64 + len(owner.seen)*32 + cap(owner.events)*56 + cap(owner.outputs)*8
+		bytes += splitParentCharge(owner.splitParent)
 		for _, event := range owner.events {
 			bytes += (cap(event.sources) + cap(event.targets)) * 8
 		}
@@ -164,6 +166,12 @@ func buildNamingSearchIndex(ctx context.Context, manifest *topologyManifest) (*n
 				}
 			}
 			target := intern(lineage.Result)
+			if lineage.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_SPLIT && len(lineage.Sources) == 1 {
+				if owner.splitParent == nil {
+					owner.splitParent = map[int]*workerv1.SemanticTopologyRef{}
+				}
+				owner.splitParent[target] = lineage.Sources[0]
+			}
 			owner.seen[target] = true
 			var sources []int
 			for _, source := range lineage.Sources {
@@ -267,6 +275,9 @@ func (index *namingSearchIndex) semanticOutput(selection modelcore.PersistentSel
 // order. An unordered transitive closure would resurrect deleted references or
 // follow a rule that occurred before its source became live.
 func (index *namingSearchIndex) resolve(selection modelcore.PersistentSelection, geometryKey, geometryID string, stats *namingQueryStats) modelcore.SelectionResolution {
+	return index.resolveForUse(selection, geometryKey, geometryID, stats, finiteElement)
+}
+func (index *namingSearchIndex) resolveForUse(selection modelcore.PersistentSelection, geometryKey, geometryID string, stats *namingQueryStats, use namingUse) modelcore.SelectionResolution {
 	result := modelcore.SelectionResolution{Status: modelcore.SelectionMissing, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "PERSISTENT_SELECTION_MISSING", Diagnostic: "semantic anchor has no result in the target body tip"}
 	id, ok := index.findSymbol(selection.Anchor)
 	owner := index.owners[namingSelectionOwner(selection)]
@@ -340,7 +351,10 @@ func (index *namingSearchIndex) resolve(selection modelcore.PersistentSelection,
 			continue
 		}
 		ref, evidence := semanticRef(output.SemanticRef), selectionEvidence(output.Evidence)
-		if !candidateMatchesRecipe(selection, ref, evidence) {
+		if use == analyticSupport && selection.Selector.Kind == modelcore.SelectionLineageDescendant && selection.CreationEvidence.GeometryType != "" && evidence.GeometryType != selection.CreationEvidence.GeometryType {
+			return modelcore.SelectionResolution{Status: modelcore.SelectionTypeMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "PERSISTENT_SELECTION_TYPE_MISMATCH", Diagnostic: "descendant geometry is incompatible with the requested support"}
+		}
+		if !(use == descendantSet && selection.Selector.Kind == modelcore.SelectionLineageDescendant) && !candidateMatchesRecipe(selection, ref, evidence) {
 			continue
 		}
 		result.Candidates = append(result.Candidates, modelcore.ResolvedTopologyElement{GeometryID: geometryID, GeometryKey: geometryKey, Type: selection.ExpectedType, LocalID: output.LocalId, SemanticRef: ref, Evidence: evidence})
@@ -364,5 +378,5 @@ func (index *namingSearchIndex) resolve(selection modelcore.PersistentSelection,
 		result.DiagnosticCode = "PERSISTENT_SELECTION_AMBIGUOUS"
 		result.Diagnostic = "lineage produced multiple valid candidates; reconnect or use a more specific recipe"
 	}
-	return result
+	return resolveNamingUse(result, use, selection)
 }

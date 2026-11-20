@@ -2630,7 +2630,13 @@ export class CadViewportEngine {
       this.selectionIndex.register(selection, group);
       this.selectionIndex.registerPick(glyph, () => selection, 90);
       this.assemblyConstraintMarkers.set(key,{signature,group,selection});
-      this.assemblyConstraintReferences.set(key, located.map((value) => value.selection));
+      this.assemblyConstraintReferences.set(key, located.flatMap(({reference,selection}) => {
+        const result=reference.resolution?.result;
+        if (!result?.support || result.status!=="RESOLVED" || !result.candidates?.length ||
+            (selection.kind!=="edge" && selection.kind!=="face")) return [selection];
+        return result.candidates.map(member=>({...selection,topologyId:member.localId,
+          id:`${selection.occurrencePath}:${member.geometryKey}:${selection.kind}:${member.localId}`}));
+      }));
       for (const value of located) {
         // Topology references are highlighted by exact face/edge/vertex overlays. Associating
         // their owning mesh group would incorrectly highlight the complete occurrence.
@@ -2750,6 +2756,12 @@ export class CadViewportEngine {
         return datum ? new THREE.Vector3().fromArray(datum.normal).transformDirection(value.object.matrixWorld) : undefined;
       }
       if (reference.kind !== "FACE") return undefined;
+      const resolved = reference.resolution?.result;
+      if (resolved?.status === "RESOLVED") {
+        const plane = resolved.support ?? resolved.candidates?.[0]?.evidence;
+        if (plane?.geometryType === "PLANE" && plane.direction)
+          return new THREE.Vector3().fromArray(plane.direction).transformDirection(value.object.matrixWorld);
+      }
       const binding=[...this.solidBindings.values()].find((candidate)=>candidate.context.instanceId===reference.instanceId&&candidate.artifact.geometryKey===reference.geometryKey);
       if(!binding||!reference.topologyId)return undefined;const normal=new THREE.Vector3();const samples:THREE.Vector3[]=[];
       const topology=meshTopologyIndex(binding.artifact.mesh),positions=topology.buffers.positions;
@@ -2804,6 +2816,7 @@ export class CadViewportEngine {
     const resolvedTopology = reference.resolution?.result.status === "RESOLVED" ? reference.resolution.result.candidates?.[0] : undefined;
     const geometryKey = resolvedTopology?.geometryKey ?? reference.geometryKey;
     const topologyId = resolvedTopology?.localId ?? reference.topologyId;
+    const members = reference.resolution?.result.support ? reference.resolution.result.candidates : undefined;
     const binding = [...this.solidBindings.values()].find((candidate) => (ownerOccurrence || candidate.context.instanceId === reference.instanceId) &&
       (!scopedPath || candidate.context.occurrencePath === scopedPath) &&
       (!geometryKey || candidate.artifact.geometryKey === geometryKey));
@@ -2812,19 +2825,28 @@ export class CadViewportEngine {
     if (reference.kind === "FACE" && binding && topologyId) {
       const anchor = new THREE.Vector3(); let count = 0;
       const topology=meshTopologyIndex(binding.artifact.mesh),positions=topology.buffers.positions;
-      topology.forEachFaceTriangle(topologyId,(a,b,c) => {
-        for (const vertexIndex of [a,b,c]) { anchor.add(binding.mesh.localToWorld(new THREE.Vector3().fromArray(positions,vertexIndex*3))); count++; }
-      });
+      const sample = new THREE.Vector3();
+      for (const id of members?.map(member => member.localId) ?? [topologyId]) {
+        topology.forEachFaceTriangle(id, (a, b, c) => {
+          for (const index of [a, b, c]) { anchor.add(sample.fromArray(positions, index * 3)); count++; }
+        });
+      }
       const selection: SelectionItem = { kind: "face", id: `${binding.context.occurrencePath}:${binding.artifact.geometryKey}:face:${topologyId}`,
         topologyId, ...binding.context };
-      return { selection, object: binding.group, anchor: count ? anchor.multiplyScalar(1 / count) : instanceCenter() };
+      return { selection, object: binding.group, anchor: count ? binding.mesh.localToWorld(anchor.multiplyScalar(1 / count)) : instanceCenter() };
     }
     if (reference.kind === "EDGE" && binding && topologyId) {
-      const edge=binding.artifact.mesh.edges?.find((candidate)=>candidate.localId===topologyId);
-      const anchor=new THREE.Vector3();for(const point of edge?.points??[])anchor.add(binding.mesh.localToWorld(new THREE.Vector3().fromArray(point)));
+      const ids = new Set(members?.map(member => member.localId) ?? [topologyId]);
+      const anchor = new THREE.Vector3(), sample = new THREE.Vector3();
+      let count = 0;
+      for (const edge of binding.artifact.mesh.edges ?? []) {
+        if (!ids.has(edge.localId)) continue;
+        for (const point of edge.points) { anchor.add(sample.fromArray(point)); count++; }
+        if (ids.size === 1) break;
+      }
       const selection:SelectionItem={kind:"edge",id:`${binding.context.occurrencePath}:${binding.artifact.geometryKey}:edge:${topologyId}`,
         topologyId,...binding.context};
-      return {selection,object:binding.group,anchor:edge?.points.length?anchor.multiplyScalar(1/edge.points.length):instanceCenter()};
+      return {selection,object:binding.group,anchor:count ? binding.mesh.localToWorld(anchor.multiplyScalar(1/count)) : instanceCenter()};
     }
     if (reference.kind === "VERTEX" && binding && topologyId) {
       const vertex=binding.artifact.mesh.topologyVertices?.find((candidate)=>candidate.localId===topologyId);
