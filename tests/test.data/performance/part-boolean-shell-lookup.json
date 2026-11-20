@@ -1,0 +1,216 @@
+{
+  "kind": "isolated Linux GCC 15 Release Worker comparison",
+  "baseline_commit": "ef8c67f3",
+  "occt": "7.9.1",
+  "units": "ms",
+  "paired_tip_previews": {
+    "500": [
+      {
+        "delta_mm": 0.1875,
+        "prefix": 500,
+        "baseline": {
+          "boolean_ms": 232.852,
+          "exact_ms": 482.327,
+          "preview_ms": 1789.662
+        },
+        "candidate": {
+          "boolean_ms": 155.008,
+          "exact_ms": 390.525,
+          "preview_ms": 1635.435
+        },
+        "brep": "1c7095712bd674e7c3bf3512a0ef7a55f0ffe5ec92447f8c768a16a8172a0a06",
+        "naming": "6498d60190e110a51da8f4a1fde49c89c9aa163bfd38607da126e175734344a2",
+        "visual": "5881093b9916e3d621195737ec33099fa9d467afdb38ef033c49ddc6929c805b"
+      },
+      {
+        "delta_mm": 0.5625,
+        "prefix": 500,
+        "baseline": {
+          "boolean_ms": 220.48,
+          "exact_ms": 464.156,
+          "preview_ms": 1472.986
+        },
+        "candidate": {
+          "boolean_ms": 153.249,
+          "exact_ms": 380.928,
+          "preview_ms": 1405.281
+        },
+        "brep": "838ec794ea4fb78999766cb55e78e4fabc46103bbe8fa42631f4a55836d20e85",
+        "naming": "7c15dbf8500253625bcb81a8154a087ce9b329bd84f6f2625d9b15e7546fb89c",
+        "visual": "f440491d6109d9ad306196fc1e7f40cd6b9fd01c1e89163826d00c6dc7061be4"
+      },
+      {
+        "delta_mm": 0.9375,
+        "prefix": 500,
+        "baseline": {
+          "boolean_ms": 220.07,
+          "exact_ms": 469.157,
+          "preview_ms": 1475.843
+        },
+        "candidate": {
+          "boolean_ms": 149.004,
+          "exact_ms": 389.178,
+          "preview_ms": 1389.44
+        },
+        "brep": "b1301ecbd3e2f37910373c4c8e5e15d949b33a8bffd178d77fc4b2f285ee6c9e",
+        "naming": "743dbf7014c379cbd00d20c4a23d86d80d755120bed0b69857df037d52788423",
+        "visual": "d2ef7818a141113d2574c7b6f7cdc81222ba1616684188f9e700dd83d9b14c9a"
+      }
+    ],
+    "1000": [
+      {
+        "delta_mm": 0.140713,
+        "prefix": 1000,
+        "baseline": {
+          "boolean_ms": 568.703,
+          "exact_ms": 1112.167,
+          "preview_ms": 3568.738
+        },
+        "candidate": {
+          "boolean_ms": 328.877,
+          "exact_ms": 885.286,
+          "preview_ms": 3286.897
+        },
+        "brep": "938cb360d19f9b56b1c6b9833706c5c5defc3b4d3230bf0c737ca097b04b9053",
+        "naming": "94b4ebd2aa613086d31d6fc2a914b99cebe6a8bfc25d84c6ef88b2aed0eb4118",
+        "visual": "1e82ea4ea1f902d66359d8f4d6551b6a84d3aa56b9b5d6141c4db6939f6681ac"
+      },
+      {
+        "delta_mm": 0.515713,
+        "prefix": 1000,
+        "baseline": {
+          "boolean_ms": 576.171,
+          "exact_ms": 1119.559,
+          "preview_ms": 3331.528
+        },
+        "candidate": {
+          "boolean_ms": 299.847,
+          "exact_ms": 807.991,
+          "preview_ms": 3039.279
+        },
+        "brep": "cde424e75f7bba562b7d1defc2121ca6696a26e3c510ceb27005dbd5d4e6b2a9",
+        "naming": "cbc46fbdaaceae9cbdfe1f960fde918e29f2f56ff7ae6f730787161ba779d9e2",
+        "visual": "c82856400898b6105a28414281452c60ea762a082f4ef441f3783449015ad876"
+      },
+      {
+        "delta_mm": 0.890713,
+        "prefix": 1000,
+        "baseline": {
+          "boolean_ms": 549.783,
+          "exact_ms": 1083.075,
+          "preview_ms": 3160.223
+        },
+        "candidate": {
+          "boolean_ms": 318.414,
+          "exact_ms": 842.227,
+          "preview_ms": 3068.894
+        },
+        "brep": "4652f8c693200327c463cd2f0e39e33b16026608556ebdef5fd623d3e0ba6fc5",
+        "naming": "0fd69eba388d6663dfc0e0768662ea25bbeb0a557d3ba0428a78078f13087c27",
+        "visual": "0218609563a5799cca93281cfbb7c21d118fbcda50078ca721b597a99d32bc43"
+      }
+    ]
+  },
+  "generated_step_first_cut": {
+    "baseline": {
+      "faces": 456,
+      "preview_ms": 678.075,
+      "exact_ms": 247.561095,
+      "boolean_build_ms": 96.24085,
+      "naming_ms": 49.015668,
+      "display_ms": 209.720876,
+      "peak_rss_bytes": 415793152
+    },
+    "candidate": {
+      "faces": 456,
+      "preview_ms": 633.202,
+      "exact_ms": 241.230875,
+      "boolean_build_ms": 75.931869,
+      "naming_ms": 44.74588,
+      "display_ms": 185.167219,
+      "peak_rss_bytes": 343113728
+    }
+  },
+  "nested_probe_ms": {
+    "baseline": {
+      "BOPAlgo_PaveFiller::PerformEF": [
+        7.744,
+        8.019,
+        7.625
+      ],
+      "BOPAlgo_PaveFiller::PerformFF": [
+        3.221,
+        3.232,
+        3.204
+      ],
+      "BOPAlgo_BuilderSolid::PerformLoops": [
+        184.903,
+        184.011,
+        184.43
+      ],
+      "BOPAlgo_BuilderSolid::Perform": [
+        226.514,
+        137.499,
+        223.459,
+        135.124,
+        225.155,
+        137.733
+      ],
+      "BOPAlgo_Builder::FillImagesSolids": [
+        308.193,
+        287.827,
+        290.386
+      ],
+      "BOPAlgo_Builder::PostTreat": [
+        46.757,
+        45.667,
+        46.468
+      ],
+      "BOPAlgo_Builder::PerformWithFiller": [
+        534.686,
+        507.39,
+        513.79
+      ]
+    },
+    "candidate": {
+      "BOPAlgo_PaveFiller::PerformEF": [
+        7.836,
+        7.698,
+        7.722
+      ],
+      "BOPAlgo_PaveFiller::PerformFF": [
+        3.478,
+        3.376,
+        3.282
+      ],
+      "BOPAlgo_BuilderSolid::PerformLoops": [
+        20.749,
+        21.012,
+        20.674
+      ],
+      "BOPAlgo_BuilderSolid::Perform": [
+        62.264,
+        55.817,
+        61.492,
+        53.508,
+        61.412,
+        54.55
+      ],
+      "BOPAlgo_Builder::FillImagesSolids": [
+        135.9,
+        123.991,
+        128.833
+      ],
+      "BOPAlgo_Builder::PostTreat": [
+        46.378,
+        44.932,
+        45.218
+      ],
+      "BOPAlgo_Builder::PerformWithFiller": [
+        277.216,
+        261.178,
+        268.52
+      ]
+    }
+  }
+}

@@ -1,0 +1,175 @@
+--- a/src/BOPAlgo/BOPAlgo_ShellSplitter.cxx
++++ b/src/BOPAlgo/BOPAlgo_ShellSplitter.cxx
+@@ -17,6 +17,7 @@
+ 
+ #include <BOPAlgo_ShellSplitter.hxx>
+ #include <BOPTools_AlgoTools.hxx>
++#include <BOPTools_FaceEdgeLookup.hxx>
+ #include <BOPTools_CoupleOfShape.hxx>
+ #include <BOPTools_Parallel.hxx>
+ #include <BRep_Builder.hxx>
+@@ -438,6 +439,7 @@
+                  const TopTools_IndexedDataMapOfShapeListOfShape& theMEF,
+                  TopTools_ListOfShape&                            theLShSp)
+ {
++  BOPTools_FaceEdgeLookup aLookup;
+   TopoDS_Iterator aIt(theShell);
+   if (!aIt.More())
+   {
+@@ -464,8 +466,8 @@
+       const TopoDS_Face& aF1 = TopoDS::Face(aLF.First());
+       const TopoDS_Face& aF2 = TopoDS::Face(aLF.Last());
+ 
+-      TopoDS_Shape aE1 = FindShape(aE, aF1);
+-      TopoDS_Shape aE2 = FindShape(aE, aF2);
++      TopoDS_Shape aE1 = aLookup.Find(aE, aF1);
++      TopoDS_Shape aE2 = aLookup.Find(aE, aF2);
+ 
+       if (aE1.Orientation() == aE2.Orientation())
+       {
+@@ -482,19 +484,9 @@
+     {
+       const TopoDS_Face& aF = TopoDS::Face(aItLF.Value());
+       ++aNbF;
+-      TopExp_Explorer aExp(aF, TopAbs_EDGE);
+-      for (; aExp.More(); aExp.Next())
+-      {
+-        const TopoDS_Shape& aEF = aExp.Current();
+-        if (aEF.IsSame(aE))
+-        {
+-          if (aEF.Orientation() == TopAbs_INTERNAL)
+-          {
+-            ++aNbF;
+-          }
+-          break;
+-        }
+-      }
++      const TopoDS_Shape anEdge = aLookup.Find(aE, aF);
++      if (!anEdge.IsNull() && anEdge.Orientation() == TopAbs_INTERNAL)
++        ++aNbF;
+     }
+     //
+     if (aNbF > 2)
+--- a/src/BOPTools/BOPTools_AlgoTools.cxx
++++ b/src/BOPTools/BOPTools_AlgoTools.cxx
+@@ -16,6 +16,7 @@
+ // commercial license or contractual agreement.
+ 
+ #include <BOPTools_AlgoTools.hxx>
++#include <BOPTools_FaceEdgeLookup.hxx>
+ #include <BOPAlgo_Alerts.hxx>
+ #include <BOPTools_AlgoTools2D.hxx>
+ #include <BOPTools_AlgoTools3D.hxx>
+@@ -72,7 +73,6 @@
+                                         const TopTools_ListOfShape&     thLF,
+                                         BOPTools_ListOfCoupleOfShape&   theLCFF,
+                                         const Handle(IntTools_Context)& theContext);
+-static TopAbs_Orientation Orientation(const TopoDS_Edge& anE, const TopoDS_Face& aF);
+ 
+ static Standard_Boolean GetFaceDir(const TopoDS_Edge&              aE,
+                                    const TopoDS_Face&              aF,
+@@ -354,6 +354,7 @@
+   TopoDS_Face                               aF1x, aF2x;
+   TopoDS_Shape                              aShellNew;
+   TopTools_IndexedDataMapOfShapeListOfShape aEFMap;
++  BOPTools_FaceEdgeLookup aLookup;
+   TopTools_IndexedMapOfShape                aProcessedFaces;
+   BRep_Builder                              aBB;
+   //
+@@ -434,8 +435,10 @@
+       aF2x = (*(TopoDS_Face*)(&aProcessedFaces.FindKey(j)));
+     }
+     //
+-    anOrE1 = Orientation(aE, aF1x);
+-    anOrE2 = Orientation(aE, aF2x);
++    const TopoDS_Shape anEdge1 = aLookup.Find(aE, aF1x);
++    anOrE1 = anEdge1.IsNull() ? TopAbs_INTERNAL : anEdge1.Orientation();
++    const TopoDS_Shape anEdge2 = aLookup.Find(aE, aF2x);
++    anOrE2 = anEdge2.IsNull() ? TopAbs_INTERNAL : anEdge2.Orientation();
+     //
+     if (bIsProcessed1 && !bIsProcessed2)
+     {
+@@ -489,26 +492,6 @@
+     }
+   }
+   aShell = aShellNew;
+-}
+-
+-//=================================================================================================
+-
+-TopAbs_Orientation Orientation(const TopoDS_Edge& anE, const TopoDS_Face& aF)
+-{
+-  TopAbs_Orientation anOr = TopAbs_INTERNAL;
+-
+-  TopExp_Explorer anExp;
+-  anExp.Init(aF, TopAbs_EDGE);
+-  for (; anExp.More(); anExp.Next())
+-  {
+-    const TopoDS_Edge& anEF1 = (*(TopoDS_Edge*)(&anExp.Current()));
+-    if (anEF1.IsSame(anE))
+-    {
+-      anOr = anEF1.Orientation();
+-      break;
+-    }
+-  }
+-  return anOr;
+ }
+ 
+ //=======================================================================
+--- a/src/BOPTools/FILES
++++ b/src/BOPTools/FILES
+@@ -1,5 +1,6 @@
+ BOPTools_AlgoTools.cxx
+ BOPTools_AlgoTools.hxx
++BOPTools_FaceEdgeLookup.hxx
+ BOPTools_AlgoTools2D.cxx
+ BOPTools_AlgoTools2D.hxx
+ BOPTools_AlgoTools2D_1.cxx
+--- /dev/null
++++ b/src/BOPTools/BOPTools_FaceEdgeLookup.hxx
+@@ -0,0 +1,45 @@
++// This file is part of the occccad modification to Open CASCADE Technology.
++// SPDX-License-Identifier: LGPL-2.1-only WITH OCCT-exception-1.0
++#ifndef _BOPTools_FaceEdgeLookup_HeaderFile
++#define _BOPTools_FaceEdgeLookup_HeaderFile
++
++#include <NCollection_DataMap.hxx>
++#include <TopExp_Explorer.hxx>
++#include <TopoDS_Face.hxx>
++#include <TopTools_IndexedMapOfShape.hxx>
++
++// Operation-local lookup for the first occurrence of an edge in an oriented,
++// located face. An IsSame edge key must retain the first encountered orientation
++// even on a seam. The face key includes orientation because the explorer composes it.
++class BOPTools_FaceEdgeLookup
++{
++  static constexpr int THE_LINEAR_SEARCH_LIMIT = 32;
++
++public:
++  TopoDS_Shape Find(const TopoDS_Shape& theEdge, const TopoDS_Face& theFace)
++  {
++    const TopTools_IndexedMapOfShape* aMap = myFaces.Seek(theFace);
++    if (!aMap)
++    {
++      TopExp_Explorer anExp(theFace, TopAbs_EDGE);
++      for (int i = 0; anExp.More() && i < THE_LINEAR_SEARCH_LIMIT; anExp.Next(), ++i)
++      {
++        if (anExp.Current().IsSame(theEdge))
++          return anExp.Current();
++      }
++      if (!anExp.More())
++        return TopoDS_Shape();
++
++      TopTools_IndexedMapOfShape* aNew = myFaces.Bound(theFace, TopTools_IndexedMapOfShape());
++      for (anExp.Init(theFace, TopAbs_EDGE); anExp.More(); anExp.Next())
++        aNew->Add(anExp.Current());
++      aMap = aNew;
++    }
++    const int anIndex = aMap->FindIndex(theEdge);
++    return anIndex ? aMap->FindKey(anIndex) : TopoDS_Shape();
++  }
++
++private:
++  NCollection_DataMap<TopoDS_Shape, TopTools_IndexedMapOfShape> myFaces;
++};
++#endif
