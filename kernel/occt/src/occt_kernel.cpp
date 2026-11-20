@@ -1,4 +1,5 @@
 #include "internal/named_boundary_index.hpp"
+#include "internal/body_validation.hpp"
 #include <BinTools.hxx>
 #include <Standard_Version.hxx>
 #include "internal/immutable_prefix.hpp"
@@ -1535,6 +1536,7 @@ struct ShapeFacts {
     struct NamedEvidence { std::string ref; const SelectionEvidence* value; };
     std::unordered_map<TopoDS_Shape, bool> materials;
     std::unordered_set<TopoDS_Shape> validated;
+    bool allow_incremental_checks = false;
     std::unordered_map<TopoDS_Shape, SelectionEvidence> faces;
     std::unordered_map<TopoDS_Shape, NamedEvidence> named;
     std::function<bool()> cancelled;
@@ -1588,18 +1590,18 @@ int solid_count(const TopoDS_Shape& shape) {
     return solids.Extent();
 }
 
-void validate_body_solid_set(const TopoDS_Shape& shape, ShapeFacts* facts = nullptr) {
+void validate_body_solid_set(const TopoDS_Shape& shape, ShapeFacts* facts = nullptr,
+                             const TopoDS_Shape& predecessor = {}) {
     if(facts){facts->check();if(facts->validated.find(shape)!=facts->validated.end())return;}
     const auto started = std::chrono::steady_clock::now();
     if (shape.IsNull() || solid_count(shape) == 0)
         throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
-    TopExp_Explorer faces(shape, TopAbs_FACE);
-    for (int i = 0; i < 128 && faces.More(); ++i) faces.Next();
-    // Use the Worker's bounded OCCT pool for large results. Keep both the
-    // geometric checks and the distance method of the existing analyzer.
-    const bool parallel = faces.More();
+    const bool certified = facts && facts->allow_incremental_checks && !predecessor.IsNull() &&
+                           facts->validated.count(predecessor);
+    bool parallel = false;
     const auto analyzer_started = std::chrono::steady_clock::now();
-    if (!BRepCheck_Analyzer(shape, Standard_True, parallel).IsValid())
+    if (!detail::valid_body_boundary(shape, certified ? predecessor : TopoDS_Shape{},
+                                     facts ? facts->cancelled : std::function<bool()>{}, parallel))
         throw std::runtime_error("INVALID_RESULT: solid operation produced invalid B-Rep");
     const auto topology_started = std::chrono::steady_clock::now();
     if (facts) facts->check();
@@ -2671,6 +2673,11 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     const auto changed_material = [&](const auto& algorithm, bool addition) {
         const auto start = std::chrono::steady_clock::now();
         if (facts) facts->check();
+        if (facts && facts->allow_incremental_checks && facts->validated.count(input) &&
+            detail::proves_material_change(input, tool.shape, result, addition, facts->cancelled)) {
+            if (timings) timings->material_witness_ms += elapsed(start);
+            return true;
+        }
         const Handle(Message_ProgressIndicator) progress=new PartProgress(facts?facts->cancelled:std::function<bool()>{});
         TopTools_ListOfShape arguments, tools;
         arguments.Append(addition ? tool.shape : input);
@@ -2756,7 +2763,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     }
     result = unifier.Shape();
     if (timings) timings->same_domain_ms += elapsed(unify_started);
-    validate_body_solid_set(result, facts);
+    validate_body_solid_set(result, facts, input);
     auto derived = complete_boolean_topology_naming(result, mapped, tool.feature_id);
     std::vector<std::string> diagnostics;
     if (!derived.empty())
@@ -3872,7 +3879,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
         if (!algorithm.IsDone())
             throw std::runtime_error("MODIFIER_ALGORITHM_FAILED:" + spec.generator);
         const auto result = algorithm.Shape();
-        validate_body_solid_set(result,facts);
+        validate_body_solid_set(result, facts, upstream);
         std::vector<NamedShape> mapped;
         std::vector<TopologyLineage> derived;
         TopTools_IndexedMapOfShape members;
@@ -4690,6 +4697,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     const auto accounting_serializations_started=impl_->accounting_serializations;
     ShapeFacts facts;
     facts.cancelled = runtime.cancelled;
+    facts.allow_incremental_checks = !runtime.force_cold;
     facts.stats = &stats;
     const auto base_started=std::chrono::steady_clock::now();
     const auto evictions_before = impl_->stage_evictions;

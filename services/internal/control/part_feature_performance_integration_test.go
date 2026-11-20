@@ -790,6 +790,7 @@ func TestStoredNamingTipPreviewTimingThroughRouter(t *testing.T) {
 			t.Fatal("expected one suffix stage", mustRuntimeJSON(run))
 		}
 		rep := candidate.Artifact.Representations
+		t.Logf("delta_mm=%.9g exact_ms=%.3f boolean_ms=%.3f witness_ms=%.3f brep_check_ms=%.3f solid_material_ms=%.3f", add, run.ExactMs, run.BooleanBuildMs, run.MaterialWitnessMs, run.BrepCheckMs, run.SolidMaterialMs)
 		t.Logf("delta_mm=%.9g elapsed_ms=%.3f stages=%v prefix=%d brep=%s naming=%s visual=%s", add, float64(elapsed)/float64(time.Millisecond), rec.SnapshotMilliseconds(), run.FrozenPrefixStages, rep["BREP"].Digest, rep["NAMING"].Digest, rep["VISUAL"].Digest)
 	}
 	current, err := service.GetDocument(t.Context(), id)
