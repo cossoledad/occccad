@@ -2,8 +2,6 @@ package workspace
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -95,33 +93,19 @@ func (s *Service) namingHistoryLoader(ctx context.Context, parent *string) namin
 func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvaluationManifest, geometryID, brep string, displayAssociations bool) (artifactstore.Object, *topologyManifest, error) {
 	defer perf.Start(ctx, "naming-adopt")()
 	finish := perf.Start(ctx, "naming-stage-root")
-	root, err := s.adoptEvaluationObject(ctx, m.TopologyManifestArtifact, artifactstore.KindTopologyManifest)
+	ref := m.GetTopologyManifestArtifact()
+	if s.artifacts == nil || ref.GetObjectKey() == "" {
+		return artifactstore.Object{}, nil, fmt.Errorf("persistent result requires Naming ArtifactReference")
+	}
+	if err := validateTopologyManifestDigests(m.TopologyManifestDigest, ref.Sha256, ""); err != nil {
+		return artifactstore.Object{}, nil, err
+	}
+	root, data, err := s.artifacts.AdoptVerifiedBytes(ctx, artifactstore.KindTopologyManifest, ref.ContentType, ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes))
 	finish()
 	if err != nil {
 		return root, nil, err
 	}
-	if err = validateTopologyManifestDigests(m.TopologyManifestDigest, m.GetTopologyManifestArtifact().GetSha256(), root.SHA256); err != nil {
-		return root, nil, err
-	}
-	finish = perf.Start(ctx, "naming-root-read")
-	reader, err := s.artifacts.OpenReadyObject(ctx, root)
-	if err != nil {
-		return root, nil, err
-	}
-	data, err := io.ReadAll(reader)
-	closeErr := reader.Close()
-	if err != nil {
-		return root, nil, err
-	}
-	if closeErr != nil {
-		return root, nil, closeErr
-	}
-	finish()
 	finish = perf.Start(ctx, "naming-root-decode")
-	sum := sha256.Sum256(data)
-	if hex.EncodeToString(sum[:]) != root.SHA256 {
-		return root, nil, fmt.Errorf("adopted Naming digest mismatch")
-	}
 	stored := &workerv1.PartTopologyManifest{}
 	if err = proto.Unmarshal(data, stored); err != nil {
 		return root, nil, err

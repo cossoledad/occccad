@@ -68,7 +68,13 @@ func (store *LocalStore) Put(ctx context.Context, kind Kind, contentType string,
 	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return StoredObject{}, err
 	}
-	if info, err := os.Stat(target); err == nil {
+	if kind == KindTopologyManifest {
+		// Admission decodes the verified input bytes. Atomically install that
+		// exact payload even if a same-size file already exists at its digest.
+		if err := os.Rename(temporaryName, target); err != nil {
+			return StoredObject{}, err
+		}
+	} else if info, err := os.Stat(target); err == nil {
 		if info.Size() != size {
 			return StoredObject{}, fmt.Errorf("artifact collision for %s", digest)
 		}

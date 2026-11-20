@@ -1,11 +1,13 @@
 package artifact
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"path/filepath"
 	"strings"
 
@@ -103,6 +105,43 @@ func (service *Service) Adopt(ctx context.Context, kind Kind, contentType, stagi
 		return Object{}, err
 	}
 	return result, nil
+}
+
+// AdoptVerifiedBytes checks the complete staging payload before publication
+// and returns those same bytes for immediate decoding, including with S3.
+func (service *Service) AdoptVerifiedBytes(ctx context.Context, kind Kind, contentType, stagingKey, digest string, size int64) (Object, []byte, error) {
+	if size < 0 || size == math.MaxInt64 || len(digest) != sha256.Size*2 {
+		return Object{}, nil, fmt.Errorf("invalid staged object reference")
+	}
+	source, err := service.staging.Open(ctx, stagingKey)
+	if err != nil {
+		return Object{}, nil, err
+	}
+	var captured bytes.Buffer
+	n, readErr := captured.ReadFrom(io.LimitReader(contextReader{ctx, source}, size+1))
+	closeErr := source.Close()
+	if readErr != nil {
+		return Object{}, nil, readErr
+	}
+	if closeErr != nil {
+		return Object{}, nil, closeErr
+	}
+	data := captured.Bytes()
+	sum := sha256.Sum256(data)
+	if n != size || hex.EncodeToString(sum[:]) != digest {
+		return Object{}, nil, fmt.Errorf("staged artifact integrity mismatch")
+	}
+	object, err := service.Put(ctx, kind, contentType, bytes.NewReader(data))
+	if err != nil {
+		return Object{}, nil, err
+	}
+	if object.SHA256 != digest || object.Size != size {
+		return Object{}, nil, fmt.Errorf("stored artifact integrity mismatch")
+	}
+	if err := service.staging.Delete(ctx, stagingKey); err != nil {
+		return Object{}, nil, err
+	}
+	return object, data, nil
 }
 
 func StagingKey(requestID, fileName string) string {

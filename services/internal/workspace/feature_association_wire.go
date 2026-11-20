@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -11,12 +12,77 @@ import (
 // A row contains kind, locator, mapping status, origins, primary, modifiers,
 // supports, and pattern members. Members are pairs of symbol ordinal and slot.
 type featureAssociationTable struct {
-	Version  int        `json:"version"`
-	Symbols  []string   `json:"symbols"`
-	Features []uint32   `json:"features"`
-	Lists    [][]uint32 `json:"lists,omitempty"`
-	Members  [][]uint32 `json:"members,omitempty"`
-	Rows     [][]uint32 `json:"rows"`
+	Version  int                 `json:"version"`
+	Symbols  []string            `json:"symbols"`
+	Features []uint32            `json:"features"`
+	Lists    associationOrdinals `json:"lists,omitempty"`
+	Members  associationOrdinals `json:"members,omitempty"`
+	Rows     associationOrdinals `json:"rows"`
+}
+
+// The writer emits compact arrays of unsigned decimal integers. Decode that
+// common case into one backing array instead of growing a slice per row and
+// invoking the reflective JSON decoder for every ordinal. Other JSON inputs
+// use the standard decoder, including its null, whitespace and overflow rules.
+type associationOrdinals [][]uint32
+
+func (rows *associationOrdinals) UnmarshalJSON(data []byte) error {
+	if packed, ok := compactAssociationOrdinals(data); ok {
+		*rows = packed
+		return nil
+	}
+	return json.Unmarshal(data, (*[][]uint32)(rows))
+}
+
+func compactAssociationOrdinals(data []byte) (associationOrdinals, bool) {
+	if len(data) < 4 || data[0] != '[' || data[1] != '[' || data[len(data)-1] != ']' {
+		return nil, false
+	}
+	// Estimate compact rows in bulk. Bound speculative allocation by input
+	// size even when a non-numeric JSON string contains many delimiters.
+	values := make([]uint32, 0, min(bytes.Count(data, []byte(","))+1, len(data)/4+1))
+	rows := make(associationOrdinals, 0, min(bytes.Count(data, []byte("["))-1, len(data)/24+1))
+	for i := 1; i < len(data)-1; {
+		if data[i] != '[' {
+			return nil, false
+		}
+		i++
+		start := len(values)
+		if data[i] != ']' {
+			for {
+				first := i
+				var value uint64
+				for i < len(data) && data[i] >= '0' && data[i] <= '9' {
+					value = value*10 + uint64(data[i]-'0')
+					if value > math.MaxUint32 {
+						return nil, false
+					}
+					i++
+				}
+				if i == first || i-first > 1 && data[first] == '0' || i >= len(data) {
+					return nil, false
+				}
+				values = append(values, uint32(value))
+				if data[i] != ',' {
+					break
+				}
+				i++
+			}
+		}
+		if data[i] != ']' {
+			return nil, false
+		}
+		rows = append(rows, values[start:len(values):len(values)])
+		i++
+		if i == len(data)-1 {
+			return rows, true
+		}
+		if i >= len(data)-1 || data[i] != ',' {
+			return nil, false
+		}
+		i++
+	}
+	return nil, false
 }
 
 var associationKinds = [...]string{"FACE", "EDGE", "VERTEX"}
@@ -44,7 +110,7 @@ func packFeatureAssociations(index *FeatureAssociationIndex) (*featureAssociatio
 	// Reuse scratch for all rows. Each distinct immutable list is copied once.
 	var key []byte
 	var values []uint32
-	intern := func(values []uint32, known map[string]uint32, pool *[][]uint32) uint32 {
+	intern := func(values []uint32, known map[string]uint32, pool *associationOrdinals) uint32 {
 		if len(values) == 0 {
 			return 0
 		}
@@ -60,12 +126,28 @@ func packFeatureAssociations(index *FeatureAssociationIndex) (*featureAssociatio
 		known[string(key)] = ordinal
 		return ordinal
 	}
+	// Restored and carried rows borrow immutable lists. Only identical slices
+	// skip the value interner; equal independently allocated lists still deduplicate.
+	type listSlice struct {
+		first  *string
+		length int
+	}
+	shared := map[listSlice]uint32{}
 	list := func(ids []string) uint32 {
+		if len(ids) == 0 {
+			return 0
+		}
+		key := listSlice{&ids[0], len(ids)}
+		if ordinal := shared[key]; ordinal != 0 {
+			return ordinal
+		}
 		values = values[:0]
 		for _, id := range ids {
 			values = append(values, symbol(id))
 		}
-		return intern(values, lists, &table.Lists)
+		ordinal := intern(values, lists, &table.Lists)
+		shared[key] = ordinal
+		return ordinal
 	}
 	for _, row := range index.Elements {
 		var kind, status uint32

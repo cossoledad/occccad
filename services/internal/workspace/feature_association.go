@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"math/bits"
 	"slices"
 	"sort"
 	"strconv"
@@ -41,7 +42,15 @@ func associationRefKey(ref *workerv1.SemanticTopologyRef) string {
 }
 
 func semanticTupleKey(feature, slot string, sources []string) string {
+	// Reserve the complete length-prefixed tuple once. Long profile and
+	// modifier references otherwise copy their strings at each growth step.
+	fieldSize := func(s string) int { return len(s) + (bits.Len(uint(len(s))|1)+6)/7 }
+	size := fieldSize(feature) + fieldSize(slot)
+	for _, id := range sources {
+		size += fieldSize(id)
+	}
 	var key strings.Builder
+	key.Grow(size)
 	put := func(value string) {
 		var length [binary.MaxVarintLen64]byte
 		n := binary.PutUvarint(length[:], uint64(len(value)))
@@ -87,10 +96,22 @@ func associationMember(ref *workerv1.SemanticTopologyRef) (FeatureAssociationMem
 	return FeatureAssociationMember{patternID, slot}, digest, ok
 }
 func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
-	return deriveFeatureAssociationsFrom(m, map[string]FeatureTopologyAssociation{}, nil)
+	return deriveFeatureAssociationsFrom(m, nil)
 }
 
-func deriveFeatureAssociationsFrom(m *topologyManifest, states map[string]FeatureTopologyAssociation, inherited []string) *FeatureAssociationIndex {
+func deriveFeatureAssociationsFrom(m *topologyManifest, seed *namingAssociationSeed) *FeatureAssociationIndex {
+	states := map[string]FeatureTopologyAssociation{}
+	var inherited []string
+	if seed != nil {
+		inherited = seed.features
+	}
+	lookup := func(key string) (FeatureTopologyAssociation, bool) {
+		value, ok := states[key]
+		if !ok && seed != nil {
+			value, ok = seed.states[key]
+		}
+		return value, ok
+	}
 	index := &FeatureAssociationIndex{Features: append([]string{}, inherited...), Elements: []FeatureTopologyAssociation{}}
 	// Naming v2 interns these immutable refs. Pointers only memoize their full
 	// canonical value within this call; equal refs still share a value key.
@@ -134,14 +155,14 @@ func deriveFeatureAssociationsFrom(m *topologyManifest, states map[string]Featur
 		return refs[digest]
 	}
 	sourceState := func(r *workerv1.SemanticTopologyRef) FeatureTopologyAssociation {
-		if v, ok := states[refKey(r)]; ok {
+		if v, ok := lookup(refKey(r)); ok {
 			return v
 		}
 		v := FeatureTopologyAssociation{Origins: []string{r.FeatureId}, Primary: []string{r.FeatureId}, Status: "MAPPED"}
 		if member, digest, ok := associationMember(r); ok {
 			v.Members = []FeatureAssociationMember{member}
 			if seed := digestRef(digest); seed != nil {
-				if origin, ok := states[refKey(seed)]; ok {
+				if origin, ok := lookup(refKey(seed)); ok {
 					v.Origins = append(v.Origins, origin.Origins...)
 				} else {
 					v.Origins = append(v.Origins, seed.FeatureId)
@@ -156,7 +177,7 @@ func deriveFeatureAssociationsFrom(m *topologyManifest, states map[string]Featur
 		parts := strings.Split(r.OutputSlot, "/")
 		if len(parts) == 3 && parts[0] == "MODIFIER_GENERATED" {
 			if source := digestRef("sha256:" + parts[1]); source != nil {
-				if origin, ok := states[refKey(source)]; ok {
+				if origin, ok := lookup(refKey(source)); ok {
 					v.Supports = append(v.Supports, origin.Origins...)
 					v.Supports = append(v.Supports, origin.Supports...)
 					v.Members = append(v.Members, origin.Members...)
@@ -182,7 +203,7 @@ func deriveFeatureAssociationsFrom(m *topologyManifest, states map[string]Featur
 			}
 			resultKey := refKey(l.Result)
 			if l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_UNCHANGED && len(l.Sources) == 1 && refKey(l.Sources[0]) == resultKey {
-				if previous, ok := states[resultKey]; ok && len(previous.Origins) > 0 && len(previous.Primary) > 0 {
+				if previous, ok := lookup(resultKey); ok && len(previous.Origins) > 0 && len(previous.Primary) > 0 {
 					// An identity transition adds no ownership, support or modifier.
 					// Share its immutable sorted sets instead of rebuilding them.
 					next[resultKey] = previous
@@ -198,7 +219,7 @@ func deriveFeatureAssociationsFrom(m *topologyManifest, states map[string]Featur
 				// Its flattened PROFILE sources are section inputs, not existing
 				// solid contributors. Preserve them as supports of the generating
 				// Feature, while keeping real solid-source merges multi-owner.
-				_, known := states[refKey(s)]
+				_, known := lookup(refKey(s))
 				role, id, profile := strings.Cut(s.OutputSlot, "/")
 				if !known && profile && id != "" && isProfileNamingRole(role) &&
 					l.Result.FeatureId == f.FeatureId && (l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MERGED || l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_SPLIT) {
@@ -281,23 +302,36 @@ func deriveFeatureAssociationsFrom(m *topologyManifest, states map[string]Featur
 	for _, tip := range m.Results {
 		tips = append(tips, tip)
 	}
+	count := 0
 	for _, tip := range tips {
-		for _, o := range tip.SemanticOutputs {
-			a, ok := states[refKey(o.SemanticRef)]
-			if !ok {
-				a.Status = "MAPPING_MISSING"
-			}
-			a.LocalID = o.LocalId
-			a.Kind = strings.TrimPrefix(o.TopologyType.String(), "PERSISTENT_TOPOLOGY_TYPE_")
-			index.Elements = append(index.Elements, a)
-		}
+		count += len(tip.SemanticOutputs)
 	}
-	sort.Slice(index.Elements, func(i, j int) bool {
-		if index.Elements[i].Kind != index.Elements[j].Kind {
-			return index.Elements[i].Kind < index.Elements[j].Kind
+	outputs := make([]*workerv1.SemanticTopologyOutput, 0, count)
+	for _, tip := range tips {
+		outputs = append(outputs, tip.SemanticOutputs...)
+	}
+	// Sort small locators before projecting their larger display rows.
+	sort.Slice(outputs, func(i, j int) bool {
+		a, b := outputs[i], outputs[j]
+		if a.TopologyType != b.TopologyType {
+			return topologyType(a.TopologyType) < topologyType(b.TopologyType)
 		}
-		return index.Elements[i].LocalID < index.Elements[j].LocalID
+		return a.LocalId < b.LocalId
 	})
+	index.Elements = make([]FeatureTopologyAssociation, 0, count)
+	for _, o := range outputs {
+		key, ok := keys[o.SemanticRef]
+		if !ok {
+			key = associationRefKey(o.SemanticRef)
+		}
+		a, ok := lookup(key)
+		if !ok {
+			a.Status = "MAPPING_MISSING"
+		}
+		a.LocalID = o.LocalId
+		a.Kind = string(topologyType(o.TopologyType))
+		index.Elements = append(index.Elements, a)
+	}
 	return index
 }
 

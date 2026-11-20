@@ -44,6 +44,32 @@ func TestFeatureAssociationsTrackContributionsNotBodyReaders(t *testing.T) {
 		t.Fatal(index)
 	}
 }
+func TestFeatureAssociationPreviewsShareImmutablePredecessor(t *testing.T) {
+	ref := testRef("pad", "side")
+	key := associationRefKey(ref)
+	seed := &namingAssociationSeed{
+		features: []string{"pad"},
+		states:   map[string]FeatureTopologyAssociation{key: {Origins: []string{"pad"}, Primary: []string{"pad"}, Status: "MAPPED"}},
+	}
+	for _, id := range []string{"cut-a", "cut-b"} {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+			tip := &workerv1.FeatureResult{
+				FeatureId: id,
+				TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{
+					Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MODIFIED, Result: ref, Sources: []*workerv1.SemanticTopologyRef{ref},
+				}}},
+				SemanticOutputs: []*workerv1.SemanticTopologyOutput{{LocalId: 1, TopologyType: 1, SemanticRef: ref}},
+			}
+			view := &topologyManifest{FeatureResults: []*workerv1.FeatureResult{tip}, Tips: map[string]*workerv1.FeatureResult{"body": tip}}
+			got := deriveFeatureAssociationsFrom(view, seed)
+			if len(got.Elements) != 1 || !slices.Equal(got.Elements[0].Modifiers, []string{id}) || len(seed.states[key].Modifiers) != 0 {
+				t.Fatal("sibling preview modified shared contribution state", got)
+			}
+		})
+	}
+}
+
 func TestFeatureInputProjectionIncludesOrderedLoftSharedAndSeedReferences(t *testing.T) {
 	model := PartModel{Bodies: []PartBody{{ID: "b"}}, ActiveBodyID: "b", Features: []Feature{{ID: "s1", BodyID: "b", Type: "SKETCH"}, {ID: "s2", BodyID: "b", Type: "SKETCH"}, {ID: "pad", BodyID: "b", Type: "PAD", Profile: "s1"}, {ID: "loft", BodyID: "b", Type: "LOFT", Sections: []LoftSection{{SketchID: "s2"}, {SketchID: "s1"}}}, {ID: "array", BodyID: "b", Type: "SOLID_PATTERN", Pattern: &FeaturePattern{Source: FeatureStageRef{FeatureID: "pad", BodyID: "b"}}}}}
 	var body DocumentStructureNode

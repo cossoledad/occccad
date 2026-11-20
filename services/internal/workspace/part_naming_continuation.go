@@ -3,7 +3,6 @@ package workspace
 import (
 	"context"
 	"fmt"
-	"maps"
 	"strings"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
@@ -25,7 +24,7 @@ func (s *Service) adoptNamingContinuation(ctx context.Context, checkpoint partCh
 		return nil, nil
 	}
 
-	nextTip, err := unpackNamingTip(stored)
+	nextTip, err := unpackNamingTipWithEvidence(stored, false)
 	if err != nil || !topologyHistoryComplete(nextTip) {
 		return nil, ctx.Err()
 	}
@@ -101,13 +100,13 @@ func (s *Service) adoptNamingContinuation(ctx context.Context, checkpoint partCh
 	}
 	nextTip.FeatureResults = suffix
 	if seed != nil {
-		nextTip.associations = deriveFeatureAssociationsFrom(nextTip, maps.Clone(seed.states), seed.features)
+		nextTip.associations = deriveFeatureAssociationsFrom(nextTip, seed)
 	}
 	return nextTip, nil
 }
 
-// Immutable display contributions of an accepted tip. A suffix may update a
-// private map; inherited slices are read-only in deriveFeatureAssociationsFrom.
+// Immutable display contributions of an accepted tip. Each suffix writes
+// its own changes and reads through to the shared predecessor.
 type namingAssociationSeed struct {
 	states   map[string]FeatureTopologyAssociation
 	features []string
@@ -140,9 +139,9 @@ func (s *Service) namingAssociationSeed(ctx context.Context, checkpoint partChec
 			kind string
 			id   uint64
 		}
-		byLocator := make(map[locator]FeatureTopologyAssociation, len(outputs))
-		for _, element := range associations.Elements {
-			byLocator[locator{element.Kind, element.LocalID}] = element
+		byLocator := make(map[locator]int, len(outputs))
+		for i, element := range associations.Elements {
+			byLocator[locator{element.Kind, element.LocalID}] = i
 		}
 		seed := &namingAssociationSeed{features: associations.Features, states: make(map[string]FeatureTopologyAssociation, len(outputs))}
 		charge := int64(512) + listBytes
@@ -150,12 +149,12 @@ func (s *Service) namingAssociationSeed(ctx context.Context, checkpoint partChec
 			if o.SemanticRef == 0 || int(o.SemanticRef) > len(refs) {
 				return nil, 0, nil
 			}
-			element, ok := byLocator[locator{string(topologyType(o.TopologyType)), o.LocalId}]
+			index, ok := byLocator[locator{string(topologyType(o.TopologyType)), o.LocalId}]
 			if !ok {
 				return nil, 0, nil
 			}
 			k := associationRefKey(refs[o.SemanticRef-1])
-			seed.states[k] = element
+			seed.states[k] = associations.Elements[index]
 			charge += int64(320 + len(k))
 		}
 		return seed, charge, nil

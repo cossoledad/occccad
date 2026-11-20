@@ -15,6 +15,7 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/occccad/occccad/internal/visual"
 )
 
@@ -60,6 +61,7 @@ func (s *Service) adoptEvaluationObject(ctx context.Context, ref *workerv1.Artif
 	return o, err
 }
 func (s *Service) persistGeometry(ctx context.Context, key string, a Artifact, objects map[string]artifactstore.Object) error {
+	defer perf.Start(ctx, "part-persist-geometry")()
 	bbox, _ := json.Marshal(a.BBox)
 	topology, _ := json.Marshal(a.Topology)
 	// Reference geometry is business metadata; large display primitives live only in GLB.
@@ -107,7 +109,9 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 	if (e.GetRepresentationKind() != "PERSISTENT" && e.GetRepresentationKind() != "EXACT_STAGE") || solid && (geometryDomain(e) != "SOLID_SET" || e.GetTopology().GetSolidCount() == 0 || e.GetValidationPolicy() != geometryValidationPolicy) {
 		return fmt.Errorf("%w: persistent solid result required", ErrValidation)
 	}
+	finish := perf.Start(ctx, "part-adopt-brep")
 	brep, err := s.adoptEvaluationObject(ctx, e.BrepArtifact, artifactstore.KindBREP)
+	finish()
 	if err != nil {
 		return err
 	}
@@ -122,11 +126,13 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 		}
 
 		if e.GetRepresentationKind() != "EXACT_STAGE" {
+			finish = perf.Start(ctx, "part-display-associations")
 			v.FeatureAssociations = manifest.associations
 			if v.FeatureAssociations == nil {
 				v.FeatureAssociations = deriveFeatureAssociations(manifest)
 			}
 			v.FeatureContributions = featureContributionStatuses(v.FeatureAssociations)
+			finish()
 		}
 		objects["NAMING"] = naming
 	}
@@ -141,17 +147,22 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 		return fmt.Errorf("visual ArtifactReference required")
 	}
 	v.Precision = e.GetVisualPrecision()
+	finish = perf.Start(ctx, "part-adopt-visual")
 	visual, err := s.artifacts.AdoptTransformed(ctx, artifactstore.KindGLB, "model/gltf-binary", ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), func(data io.Reader, size int64) (io.Reader, error) {
+		defer perf.Start(ctx, "part-assemble-glb")()
 		return glbWithVisualizationReader(data, size, v, map[string]string{"geometryId": e.GeometryId, "namingDigest": e.GetEvaluationManifest().GetTopologyManifestDigest()})
 	})
+	finish()
 	if err != nil {
 		return err
 	}
 	objects["VISUAL"] = visual
 	if seed := e.GetMeshSeedArtifact(); seed != nil && seed.ContentType == "application/vnd.occccad.mesh-seed.v1" {
+		finish = perf.Start(ctx, "part-adopt-mesh-seed")
 		if object, seedErr := s.adoptEvaluationObject(ctx, seed, artifactstore.KindBREP); seedErr == nil {
 			objects["MESH_SEED"] = object
 		}
+		finish()
 	}
 	worker := s.worker.WorkerFor(key)
 	return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, ValidationPolicy: e.ValidationPolicy, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount, "domain": geometryDomain(e)}, TriangleCount: e.TriangleCount, DisplayVertexCount: e.DisplayVertexCount, Visualization: v}, objects)

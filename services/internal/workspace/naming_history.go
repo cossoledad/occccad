@@ -141,6 +141,10 @@ func namingBlockForQueries(block *decodedNamingBlock) *decodedNamingBlock {
 }
 
 func unpackNamingTip(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
+	return unpackNamingTipWithEvidence(m, true)
+}
+
+func unpackNamingTipWithEvidence(m *workerv1.PartTopologyManifest, includeEvidence bool) (*topologyManifest, error) {
 	if m.SchemaVersion != 3 || len(m.Transitions) != 0 || len(m.History) == 0 || len(m.Bodies)+len(m.Results) != 1 {
 		return nil, fmt.Errorf("invalid naming root contract")
 	}
@@ -176,7 +180,7 @@ func unpackNamingTip(m *workerv1.PartTopologyManifest) (*topologyManifest, error
 	} else {
 		values.Results = []*workerv1.NamingGeometryResult{{Reference: result, Transitions: []uint32{1}, TipTransition: 1, Tip: m.Results[0].Tip}}
 	}
-	return unpackNamingValues(values)
+	return unpackNamingValuesWithEvidence(values, includeEvidence, nil)
 }
 
 func unpackNamingRoot(ctx context.Context, m *workerv1.PartTopologyManifest, load namingHistoryLoader) (*topologyManifest, error) {

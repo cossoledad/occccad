@@ -97,6 +97,27 @@ func TestNamingHistoryCarriesRemainLosslessAndQueriesUseOnlyEvents(t *testing.T)
 		}
 	})
 	t.Run("exact-stage-adoption", func(t *testing.T) { checkExactNamingSuffix(t, root, payloads) })
+	t.Run("admission-tip", func(t *testing.T) {
+		tip, err := unpackNamingTipWithEvidence(root, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		output := tip.Tips["body-main"].SemanticOutputs[0]
+		if output.Evidence != nil || !proto.Equal(output.SemanticRef, a) {
+			t.Fatal("unexpected tip projection", output)
+		}
+		for _, corrupt := range []func(*workerv1.PartTopologyManifest){
+			func(m *workerv1.PartTopologyManifest) { m.Evidence[0].Adjacent = []uint32{3} },
+			func(m *workerv1.PartTopologyManifest) { m.Bodies[0].Tip[0].Evidence = 2 },
+			func(m *workerv1.PartTopologyManifest) { m.Bodies[0].Tip[0].LocalId = 0 },
+		} {
+			invalid := proto.CloneOf(root)
+			corrupt(invalid)
+			if _, err := unpackNamingTipWithEvidence(invalid, false); err == nil {
+				t.Fatal("accepted invalid tip")
+			}
+		}
+	})
 	sparse, err := unpackNamingRoot(t.Context(), root, fixtureHistoryLoader(payloads))
 	if err != nil {
 		t.Fatal(err)

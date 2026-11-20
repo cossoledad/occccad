@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,5 +78,71 @@ func TestTransformedPublicationVerifiesDiscardedSourceBeforeReady(t *testing.T) 
 	hash := sha256.Sum256(expected)
 	if !bytes.Equal(data, expected) || object.SHA256 != hex.EncodeToString(hash[:]) {
 		t.Fatal("transformed bytes or final digest changed", string(data))
+	}
+}
+
+func TestAdoptVerifiedBytesPublishesOnlyExactStagedPayload(t *testing.T) {
+	db, err := database.Open(t.Context(), "sqlite:"+filepath.Join(t.TempDir(), "artifact.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	stage, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db, dest, stage)
+	input := []byte("immutable topology root")
+	staged, err := stage.Put(t.Context(), KindTopologyManifest, "application/octet-stream", bytes.NewReader(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		digest string
+		size   int64
+	}{
+		{strings.Repeat("0", 64), staged.Size}, {staged.SHA256, staged.Size - 1}, {staged.SHA256, staged.Size + 1},
+	} {
+		_, data, err := service.AdoptVerifiedBytes(t.Context(), KindTopologyManifest, staged.ContentType, staged.Key, tc.digest, tc.size)
+		if err == nil || data != nil {
+			t.Fatal("accepted invalid staged data")
+		}
+	}
+	var count int
+	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.artifact_objects WHERE state='READY'`).Scan(&count); err != nil || count != 0 {
+		t.Fatal(count, err)
+	}
+	existing, err := dest.Put(t.Context(), KindTopologyManifest, staged.ContentType, bytes.NewReader(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The durable copy must match the bytes decoded by admission even when
+	// an earlier file at that key has suffered same-size corruption.
+	if err := os.WriteFile(filepath.Join(dest.Root(), existing.Key), bytes.Repeat([]byte{'x'}, len(input)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	o, data, err := service.AdoptVerifiedBytes(t.Context(), KindTopologyManifest, staged.ContentType, staged.Key, staged.SHA256, staged.Size)
+	if err != nil || !bytes.Equal(data, input) || o.SHA256 != staged.SHA256 {
+		t.Fatal(o, data, err)
+	}
+	reader, err := dest.Open(t.Context(), o.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	saved, err := io.ReadAll(reader)
+	if err != nil || !bytes.Equal(saved, data) {
+		t.Fatal(saved, err)
+	}
+	if reader, err := stage.Open(t.Context(), staged.Key); err == nil {
+		reader.Close()
+		t.Fatal("accepted stage was retained")
 	}
 }
