@@ -60,8 +60,12 @@ bool valid_body_boundary(const TopoDS_Shape& result, const TopoDS_Shape& predece
             return full_check(result, parallel);
     }
     std::unordered_set<TopoDS_Shape> inherited;
-    for (TopExp_Explorer old(predecessor, TopAbs_FACE); old.More(); old.Next())
+    std::vector<TopoDS_Face> trimmed_predecessors;
+    for (TopExp_Explorer old(predecessor, TopAbs_FACE); old.More(); old.Next()) {
         inherited.insert(old.Current());
+        if (old.Current().NbChildren() >= 2 * planar_batch_size)
+            trimmed_predecessors.push_back(TopoDS::Face(old.Current()));
+    }
     BRep_Builder builder;
     TopoDS_Compound changed;
     builder.MakeCompound(changed);
@@ -71,7 +75,7 @@ bool valid_body_boundary(const TopoDS_Shape& result, const TopoDS_Shape& predece
         if (inherited.count(face.Current()))
             ++inherited_count;
         else {
-            if (append_planar_face_checks(TopoDS::Face(face.Current()), changed, cancelled))
+            if (append_planar_face_checks(TopoDS::Face(face.Current()), changed, cancelled, trimmed_predecessors))
                 partitioned = true;
             else
                 builder.Add(changed, face.Current());

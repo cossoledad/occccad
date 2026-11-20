@@ -775,78 +775,33 @@ void append_generated(ToolBuild& build, const SemanticTopologyRef& source,
 template <typename Algorithm>
 std::vector<NamedShape> map_named_shapes(const std::vector<NamedShape>& sources,
                                          Algorithm& algorithm, const TopoDS_Shape& result) {
-    TopTools_IndexedMapOfShape result_faces;
-    TopTools_IndexedMapOfShape result_edges;
-    TopTools_IndexedMapOfShape result_vertices;
-    TopExp::MapShapes(result, TopAbs_FACE, result_faces);
-    TopExp::MapShapes(result, TopAbs_EDGE, result_edges);
-    TopExp::MapShapes(result, TopAbs_VERTEX, result_vertices);
-    const auto contains = [&](const TopoDS_Shape& shape) {
-        switch (shape.ShapeType()) {
-            case TopAbs_FACE:
-                return result_faces.Contains(shape);
-            case TopAbs_EDGE:
-                return result_edges.Contains(shape);
-            case TopAbs_VERTEX:
-                return result_vertices.Contains(shape);
-            default:
-                return false;
-        }
-    };
+    TopTools_IndexedMapOfShape members;
+    TopExp::MapShapes(result, members);
     std::vector<NamedShape> mapped;
+    mapped.reserve(sources.size());
     for (const auto& source : sources) {
-        TopTools_ListOfShape candidates = algorithm.Modified(source.shape);
-        const auto generated = algorithm.Generated(source.shape);
-        for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next())
-            candidates.Append(it.Value());
-        // A composed history may remove an intermediate tool occurrence while
-        // the exact source TShape survives in another Boolean argument. Final
-        // membership is authoritative; never rename that survivor via closure.
-        if (contains(source.shape)) {
-            candidates.Append(source.shape);
-        }
-        for (TopTools_ListIteratorOfListOfShape it(candidates); it.More(); it.Next()) {
-            if (it.Value().ShapeType() == source.shape.ShapeType() && contains(it.Value()))
-                mapped.push_back({source.ref, it.Value()});
-        }
+        const auto type = source.shape.ShapeType();
+        if (type != TopAbs_FACE && type != TopAbs_EDGE && type != TopAbs_VERTEX)
+            continue;
+        const auto append_images = [&](const TopTools_ListOfShape& images) {
+            for (const auto& image : images)
+                if (image.ShapeType() == type && members.Contains(image))
+                    mapped.push_back({source.ref, image});
+        };
+        // Native builders may reuse the returned list on the next query.
+        // Consume each list in order, including duplicate contributions.
+        append_images(algorithm.Modified(source.shape));
+        append_images(algorithm.Generated(source.shape));
+        if (members.Contains(source.shape))
+            mapped.push_back(source);
     }
     return mapped;
 }
 
 std::vector<NamedShape> map_named_history(const std::vector<NamedShape>& sources,
-                                          const Handle(BRepTools_History) & history,
+                                          const Handle(BRepTools_History)& history,
                                           const TopoDS_Shape& result) {
-    TopTools_IndexedMapOfShape result_faces;
-    TopTools_IndexedMapOfShape result_edges;
-    TopTools_IndexedMapOfShape result_vertices;
-    TopExp::MapShapes(result, TopAbs_FACE, result_faces);
-    TopExp::MapShapes(result, TopAbs_EDGE, result_edges);
-    TopExp::MapShapes(result, TopAbs_VERTEX, result_vertices);
-    const auto contains = [&](const TopoDS_Shape& shape) {
-        switch (shape.ShapeType()) {
-            case TopAbs_FACE:
-                return result_faces.Contains(shape);
-            case TopAbs_EDGE:
-                return result_edges.Contains(shape);
-            case TopAbs_VERTEX:
-                return result_vertices.Contains(shape);
-            default:
-                return false;
-        }
-    };
-    std::vector<NamedShape> mapped;
-    for (const auto& source : sources) {
-        TopTools_ListOfShape candidates = history->Modified(source.shape);
-        const auto& generated = history->Generated(source.shape);
-        for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next())
-            candidates.Append(it.Value());
-        if (contains(source.shape))
-            candidates.Append(source.shape);
-        for (TopTools_ListIteratorOfListOfShape it(candidates); it.More(); it.Next())
-            if (it.Value().ShapeType() == source.shape.ShapeType() && contains(it.Value()))
-                mapped.push_back({source.ref, it.Value()});
-    }
-    return mapped;
+    return map_named_shapes(sources, *history, result);
 }
 
 // Pick the exact split cell adjacent to the entire profile cap. A remote cap
@@ -4982,7 +4937,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             if(spec.start_offset!=0&&spec.extent=="THROUGH_ALL")throw std::invalid_argument("THROUGH_ALL_START_OFFSET_UNSUPPORTED");
             const auto input_shape = result;
             const auto input_id = result_id;
-            const auto input_named = live_named;
+            const auto& input_named = live_named;
             if (range_starts.count(spec.feature_id) && !material_range_start(spec))
                 throw std::invalid_argument("PATTERN_RANGE_INVALID");
             if ((cache_stages || range_starts.count(spec.feature_id)) && material_range_start(spec)) {
@@ -5223,9 +5178,14 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             for(const auto& source:input_named)if(survivor_members.Contains(source.shape))operation.unchanged.push_back(source);
             detail::MeshReuse::Correspondence survivors;
             const detail::SemanticRefIndex<NamedShape> input_index(input_named,[](const auto& value)->const auto&{return value.ref;});
+            // Request-local indices into immutable input_named. Zero means no
+            // image yet; -1 excludes a survivor or an ambiguous continuation.
+            std::vector<int> candidate_ids(input_named.size());
             for(const auto& unchanged:operation.unchanged) {
                 const auto& previous=input_index.all(unchanged.ref);
-                if(previous.size()!=1 || previous.front()->shape.ShapeType()!=unchanged.shape.ShapeType())continue;
+                if (previous.size() != 1) continue;
+                candidate_ids[previous.front() - input_named.data()] = -1;
+                if (previous.front()->shape.ShapeType() != unchanged.shape.ShapeType()) continue;
                 const auto& before=previous.front()->shape;
                 if(before.Location()!=unchanged.shape.Location() ||
                    (before.ShapeType()==TopAbs_FACE&&before.Orientation()!=unchanged.shape.Orientation()))continue;
@@ -5241,21 +5201,26 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             // records. A one-to-one typed history continuation may also reuse
             // geometry when its complete support/trim evidence is exactly equal.
             // Stable refs alone never grant this certificate.
-            std::unordered_set<std::string> certified;
-            for(const auto& unchanged:operation.unchanged)certified.insert(ref_key(unchanged.ref));
-            const detail::SemanticRefIndex<NamedShape> images(operation.named,[](const auto& value)->const auto&{return value.ref;});
-            for(const auto& source:input_named){
-                const auto key=ref_key(source.ref);if(certified.count(key)||input_index.all(source.ref).size()!=1)continue;
-                const auto& descendants=images.all(source.ref);TopTools_IndexedMapOfShape unique;
-                for(const auto* image:descendants)if(image->shape.ShapeType()==source.shape.ShapeType()&&survivor_members.Contains(image->shape))unique.Add(image->shape);
-                if(unique.Extent()!=1)continue;
-                const auto known=facts.named.find(source.shape);if(known==facts.named.end()||known->second.ref!=key)continue;
-                const auto target=survivor_members(survivor_members.FindIndex(unique(1)));
+            for (const auto& image : operation.named) {
+                const auto& sources = input_index.all(image.ref);
+                if (sources.size() != 1 || sources.front()->shape.ShapeType() != image.shape.ShapeType())
+                    continue;
+                auto& candidate = candidate_ids[sources.front() - input_named.data()];
+                if (candidate < 0) continue;
+                const int member = survivor_members.FindIndex(image.shape);
+                if (member) candidate = !candidate || candidate == member ? member : -1;
+            }
+            for (std::size_t i = 0; i < candidate_ids.size(); ++i) {
+                if (candidate_ids[i] <= 0) continue;
+                const auto& source = input_named[i];
+                const auto known = facts.named.find(source.shape);
+                if (known == facts.named.end() || known->second.ref != ref_key(source.ref)) continue;
+                const auto& target = survivor_members(candidate_ids[i]);
                 if(source.shape.Location()!=target.Location()||(target.ShapeType()==TopAbs_FACE&&source.shape.Orientation()!=target.Orientation()))continue;
                 auto evidence=topology_evidence(target,&facts);append_semantic_role(evidence,source.ref,persistent_topology_type(target));
                 if(evidence.evidence_digest!=known->second.value->evidence_digest)continue;
                 survivors.emplace_back(source.shape,target);operation.unchanged.push_back({source.ref,target});
-                facts.named.insert_or_assign(target,known->second);certified.insert(key);
+                facts.named.insert_or_assign(target,known->second);
             }
             impl_->mesh_reuse.inherit(survivors,input_id,input_shape,result_id,result);
 
@@ -5290,7 +5255,6 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 }
             }
             std::vector<std::pair<SemanticTopologyOutput, TopoDS_Shape>> outputs;
-            std::unordered_map<std::string, std::size_t> source_counts;
             for (auto& group : groups) {
                 // OCCT history uses IsSame identity, which ignores orientation.
                 // Generated/tool faces can have the opposite orientation from the
@@ -5310,9 +5274,14 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 return topology_evidence(left.shape, &facts).evidence_digest <
                        topology_evidence(right.shape, &facts).evidence_digest;
             });
+            // Every mapped source appears in a final group. This index also
+            // answers the live/deleted query without another image table.
+            std::unordered_map<std::reference_wrapper<const SemanticTopologyRef>, std::size_t,
+                               detail::SemanticRefHash, detail::SemanticRefEqual> source_counts;
+            source_counts.reserve(operation.named.size());
             for (const auto& group : groups)
                 for (const auto& source : group.sources)
-                    ++source_counts[ref_key(source)];
+                    ++source_counts[source];
             std::unordered_map<std::string, std::size_t> merged_counts, merged_indices;
             std::unordered_set<std::string> merged_evidence;
             for (const auto& group : groups)
@@ -5375,7 +5344,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     kind = TopologyLineageKind::merged;
                 } else {
                     const auto& source = group.sources.front();
-                    if (source_counts[ref_key(source)] > 1U) {
+                    if (source_counts.at(source) > 1U) {
                         output_ref = {spec.feature_id,
                                       "SPLIT_FROM/" + source.feature_id + "/" + source.output_slot +
                                           "/" + std::to_string(++split_indices[ref_key(source)]),
@@ -5508,7 +5477,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             }
             const auto record_deleted = [&](const auto& sources) {
                 for (const auto& source : sources) {
-                    if (images.first(source.ref)) continue;
+                    if (source_counts.count(source.ref)) continue;
                     auto evidence = named_evidence(source.shape,source.ref,persistent_topology_type(source.shape),facts);
                     feature.topology_history.deleted.push_back(
                         {source.ref, "OCCT_IS_DELETED_OR_OUTSIDE_RESULT", std::move(evidence)});

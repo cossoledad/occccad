@@ -97,7 +97,6 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		if err != nil {
 			return CommandPreview{}, err
 		}
-		modelHash := canonicalModelHash(nextJSON)
 		// Sketch drawing needs a solved sketch candidate, not a new Body mesh.
 		// Real consumers of an edited profile remain dirty and use normal preview.
 		if prepared.command.TypeURI == typeEditSketch && executionPlan(ctx) != nil {
@@ -116,7 +115,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 					headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 					payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
 					expiresAt: time.Now().Add(interactionCandidateTTL)})
-				return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: modelHash,
+				return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: canonicalModelHash(nextJSON),
 					SketchCandidates: solvedSketchPreviewCandidates(prepared.command, model)}, nil
 			}
 		}
@@ -126,7 +125,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 				payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
 				expiresAt: time.Now().Add(interactionCandidateTTL)})
-			return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: modelHash}, nil
+			return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: canonicalModelHash(nextJSON)}, nil
 		}
 		diagnostic.stage("GEOMETRY")
 		finishGeometry := perf.Start(ctx, "geometry-evaluate")
@@ -218,7 +217,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			}
 		}
 		nextJSON, _ = json.Marshal(model)
-		modelHash = canonicalModelHash(nextJSON)
+		modelHash := canonicalModelHash(nextJSON)
 		previewID := newID("preview")
 		service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
 			headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,

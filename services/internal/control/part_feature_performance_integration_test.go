@@ -792,7 +792,7 @@ func TestStoredNamingTipPreviewTimingThroughRouter(t *testing.T) {
 		rep := candidate.Artifact.Representations
 		t.Logf("tip_work delta_mm=%.9g base_ms=%.3f input_prepare_ms=%.3f naming_kernel_ms=%.3f naming_pack_ms=%.3f adjacency_ms=%.3f face_evidence_reused=%d face_evidence_computed=%d rows_carried=%d rows_literal=%d block_bytes=%d root_bytes=%d display_ms=%.3f mesh_ms=%.3f faces_reused=%d faces_computed=%d profiles_reused=%d profiles_computed=%d glb_bytes=%d peak_rss=%d",
 			add, run.BaseMs, run.InputPrepareMs, run.NamingKernelMs, run.NamingArtifactMs, run.AdjacencyMs, run.FaceEvidenceReused, run.FaceEvidenceComputed, run.NamingCarriedLineageRows, run.NamingLiteralLineageRows, run.NamingBlockBytesWritten, run.NamingRootBytes, run.DisplayMs, run.MeshMs, run.MeshReusedFaces, run.MeshComputedFaces, run.EdgeProfilesReused, run.EdgeProfilesComputed, rep["VISUAL"].Size, run.PeakRssBytes)
-		t.Logf("delta_mm=%.9g exact_ms=%.3f boolean_ms=%.3f witness_ms=%.3f brep_check_ms=%.3f solid_material_ms=%.3f", add, run.ExactMs, run.BooleanBuildMs, run.MaterialWitnessMs, run.BrepCheckMs, run.SolidMaterialMs)
+		t.Logf("delta_mm=%.9g exact_ms=%.3f boolean_ms=%.3f witness_ms=%.3f brep_check_ms=%.3f solid_material_ms=%.3f same_domain_ms=%.3f snapshot_ms=%.3f correspondence_ms=%.3f", add, run.ExactMs, run.BooleanBuildMs, run.MaterialWitnessMs, run.BrepCheckMs, run.SolidMaterialMs, run.SameDomainMs, run.BrepSnapshotMs, run.CorrespondenceMs)
 		t.Logf("delta_mm=%.9g elapsed_ms=%.3f stages=%v prefix=%d brep=%s naming=%s visual=%s", add, float64(elapsed)/float64(time.Millisecond), rec.SnapshotMilliseconds(), run.FrozenPrefixStages, rep["BREP"].Digest, rep["NAMING"].Digest, rep["VISUAL"].Digest)
 	}
 	current, err := service.GetDocument(t.Context(), id)
@@ -1049,10 +1049,14 @@ func TestPartSketchEditingIsolationThroughRouter(t *testing.T) {
 			t.Fatal(e)
 		}
 		var manifest struct {
-			Runtime workspace.EvaluationRuntime `json:"runtime"`
+			ModelHash string                      `json:"modelHash"`
+			Runtime   workspace.EvaluationRuntime `json:"runtime"`
 		}
 		if e = json.Unmarshal(raw, &manifest); e != nil {
 			t.Fatal(e)
+		}
+		if preview.ModelHash == "" || preview.ModelHash != manifest.ModelHash {
+			t.Fatal("sketch candidate digest differs from promoted model", preview.ModelHash, manifest.ModelHash)
 		}
 		if len(manifest.Runtime.WorkerRuns) != 0 {
 			t.Fatal("unused sketch invoked Body Worker", string(raw))

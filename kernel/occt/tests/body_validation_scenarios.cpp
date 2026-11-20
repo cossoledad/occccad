@@ -81,6 +81,83 @@ TEST(BodyValidation, SeparatedPlanarChecksMatchWholeFace) {
     }
 }
 
+TEST(BodyValidation, RebuiltPlanarLoopsRequireExactOrientedEdgesAndSeparatedChanges) {
+    const auto old = perforated(HoleCase::separate);
+    ASSERT_TRUE(BRepCheck_Analyzer(old).IsValid());
+    const BRep_Builder builder;
+    const auto rebuild = [&](bool rotate) {
+        auto face = TopoDS::Face(old.EmptyCopied());
+        for (TopoDS_Iterator it(old); it.More(); it.Next()) {
+            const auto loop = TopoDS::Wire(it.Value());
+            auto copy = TopoDS::Wire(loop.EmptyCopied());
+            copy.Closed(loop.Closed());
+            TopoDS_Iterator edge(loop);
+            const auto first = edge.Value();
+            if (rotate) edge.Next();
+            for (; edge.More(); edge.Next()) builder.Add(copy, edge.Value());
+            if (rotate) builder.Add(copy, first);
+            builder.Add(face, copy);
+        }
+        return face;
+    };
+    const auto checks_for = [&](const TopoDS_Face& face, const std::vector<TopoDS_Face>& previous) {
+        TopoDS_Compound checks;
+        builder.MakeCompound(checks);
+        EXPECT_TRUE(append_planar_face_checks(face, checks, {}, previous));
+        return checks;
+    };
+    auto face = rebuild(true);
+    auto complete = checks_for(face, {});
+    auto inherited = checks_for(face, {old});
+    // With every loop proven, only the new face with its outer wire is checked.
+    EXPECT_GT(TopoDS_Iterator(complete).Value().NbChildren(), 1);
+    const auto batches = TopoDS_Iterator(inherited).Value();
+    ASSERT_EQ(batches.NbChildren(), 1);
+    EXPECT_EQ(TopoDS_Iterator(batches).Value().NbChildren(), 1);
+    EXPECT_TRUE(BRepCheck_Analyzer(inherited).IsValid());
+    EXPECT_TRUE(BRepCheck_Analyzer(face).IsValid());
+
+    int polls = 0;
+    TopoDS_Compound interrupted;
+    builder.MakeCompound(interrupted);
+    EXPECT_THROW(append_planar_face_checks(face, interrupted, [&] { return ++polls == 3; }, {old}),
+                 std::runtime_error);
+    EXPECT_EQ(interrupted.NbChildren(), 0);
+
+    for (const double x : {6., 11.}) {
+        auto changed = rebuild(false);
+        builder.Add(changed, rectangle(x, 101.5, 2, 1).Reversed());
+        auto checks = checks_for(changed, {old});
+        const bool oracle = BRepCheck_Analyzer(changed).IsValid();
+        EXPECT_EQ(oracle, x == 11.);
+        EXPECT_EQ(BRepCheck_Analyzer(checks).IsValid(), oracle);
+    }
+    auto reversed = TopoDS::Face(old.EmptyCopied());
+    int index = 0;
+    for (TopoDS_Iterator it(old); it.More(); it.Next(), ++index)
+        builder.Add(reversed, index == 35 ? it.Value().Reversed() : it.Value());
+    EXPECT_FALSE(BRepCheck_Analyzer(checks_for(reversed, {old})).IsValid());
+    EXPECT_FALSE(BRepCheck_Analyzer(reversed).IsValid());
+
+    auto notched = TopoDS::Face(old.EmptyCopied());
+    const auto outside = perforated(HoleCase::outside);
+    builder.Add(notched, TopoDS_Iterator(outside).Value());
+    TopoDS_Iterator holes(old);
+    for (holes.Next(); holes.More(); holes.Next()) builder.Add(notched, holes.Value());
+    auto notched_checks = checks_for(notched, {old});
+    EXPECT_FALSE(BRepCheck_Analyzer(notched_checks).IsValid());
+    EXPECT_FALSE(BRepCheck_Analyzer(notched).IsValid());
+
+    // All edges remain the same, but this distinct plane owns another
+    // pcurve context and cannot inherit these checks.
+    BRepBuilderAPI_MakeFace other(gp_Pln(gp::XOY()), TopoDS::Wire(TopoDS_Iterator(old).Value()), true);
+    TopoDS_Iterator loop(old);
+    for (loop.Next(); loop.More(); loop.Next()) other.Add(TopoDS::Wire(loop.Value()));
+    auto separate = checks_for(other.Face(), {old});
+    EXPECT_EQ(TopoDS_Iterator(separate).Value().NbChildren(),
+              TopoDS_Iterator(complete).Value().NbChildren());
+}
+
 TEST(BodyValidation, CancelledBoundaryAndWitnessProbesStop) {
     const auto face = perforated(HoleCase::separate);
     TopoDS_Compound checks;

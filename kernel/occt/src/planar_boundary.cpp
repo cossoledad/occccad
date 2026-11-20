@@ -18,6 +18,7 @@
 #include <array>
 #include <cmath>
 #include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 namespace occccad::kernel::detail {
@@ -27,7 +28,68 @@ struct Boundary {
     std::array<double, 2> low, high;
 };
 
-constexpr std::size_t batch_size = 24;
+// A Boolean may rebuild a wire container while carrying its exact edges.
+class ValidatedLoops {
+public:
+    ValidatedLoops(const TopoDS_Face& forward, const std::function<bool()>& cancelled) {
+        std::size_t count = 0;
+        for (TopoDS_Iterator wire(forward); wire.More(); wire.Next()) {
+            if (count++ % 64 == 0 && cancelled && cancelled())
+                throw std::runtime_error("EVALUATION_CANCELLED");
+            if (wire.Value().ShapeType() != TopAbs_WIRE) continue;
+            for (TopoDS_Iterator edge(wire.Value()); edge.More(); edge.Next())
+                owners_.emplace(edge.Value(), TopoDS::Wire(wire.Value()));
+        }
+    }
+    ValidatedLoops() = default;
+    bool contains(const TopoDS_Wire& wire) const {
+        TopoDS_Iterator current(wire);
+        if (!current.More()) return false;
+        const auto found = owners_.find(current.Value());
+        if (found == owners_.end()) return false;
+        const auto& old = found->second;
+        if (old.IsEqual(wire)) return true;
+        if (old.NbChildren() != wire.NbChildren() || old.Location() != wire.Location() ||
+            old.Orientation() != wire.Orientation() || old.Closed() != wire.Closed() ||
+            old.Orientable() != wire.Orientable() || old.Infinite() != wire.Infinite() ||
+            old.Convex() != wire.Convex())
+            return false;
+        TopoDS_Iterator previous(old);
+        while (previous.More() && !previous.Value().IsEqual(current.Value())) previous.Next();
+        if (!previous.More()) return false;
+        // Only the start of a closed loop may rotate. Each oriented edge and
+        // its placement must be identical, including repeated occurrences.
+        for (; current.More(); current.Next(), previous.Next()) {
+            if (!previous.More()) {
+                if (!wire.Closed()) return false;
+                previous.Initialize(old);
+            }
+            if (!previous.Value().IsEqual(current.Value())) return false;
+        }
+        return true;
+    }
+private:
+    std::unordered_map<TopoDS_Shape, TopoDS_Wire> owners_;
+};
+
+ValidatedLoops certified_wires(const TopoDS_Face& forward, const TopoDS_Wire& outer,
+                               const std::vector<TopoDS_Face>& validated,
+                               const std::function<bool()>& cancelled) {
+    TopLoc_Location location;
+    const auto& surface = BRep_Tool::Surface(forward, location);
+    for (const auto& face : validated) {
+        TopLoc_Location old_location;
+        if (BRep_Tool::Surface(face, old_location) != surface || location != old_location ||
+            BRep_Tool::Tolerance(face) != BRep_Tool::Tolerance(forward) ||
+            BRep_Tool::NaturalRestriction(face) ||
+            (face.Orientation() != TopAbs_FORWARD && face.Orientation() != TopAbs_REVERSED))
+            continue;
+        ValidatedLoops loops(TopoDS::Face(face.Oriented(TopAbs_FORWARD)), cancelled);
+        if (loops.contains(outer))
+            return loops;
+    }
+    return {};
+}
 
 bool wire_box(Boundary& loop, const TopoDS_Face& face, double gap, int owner,
               TopTools_DataMapOfShapeInteger& owners) {
@@ -79,7 +141,7 @@ std::vector<std::size_t> separate(std::vector<Boundary>& holes, int axis) {
     double high = holes.front().high[axis];
     std::size_t start = 0;
     for (std::size_t i = 1; i < holes.size(); ++i) {
-        if (i - start >= batch_size && high < holes[i].low[axis]) {
+        if (i - start >= planar_batch_size && high < holes[i].low[axis]) {
             ends.push_back(i);
             start = i;
         }
@@ -91,8 +153,9 @@ std::vector<std::size_t> separate(std::vector<Boundary>& holes, int axis) {
 }  // namespace
 
 bool append_planar_face_checks(const TopoDS_Face& face, TopoDS_Compound& checks,
-                               const std::function<bool()>& cancelled) {
-    if (face.NbChildren() < static_cast<int>(2 * batch_size) || BRep_Tool::NaturalRestriction(face))
+                               const std::function<bool()>& cancelled,
+                               const std::vector<TopoDS_Face>& validated_faces) {
+    if (face.NbChildren() < static_cast<int>(2 * planar_batch_size) || BRep_Tool::NaturalRestriction(face))
         return false;
     TopLoc_Location location;
     if (Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(face, location)).IsNull() ||
@@ -149,13 +212,21 @@ bool append_planar_face_checks(const TopoDS_Face& face, TopoDS_Compound& checks,
             return false;
         TopoDS_Compound batches;
         builder.MakeCompound(batches);
+        const auto inherited = certified_wires(forward, outer.wire, validated_faces, cancelled);
         std::size_t start = 0;
         for (const auto end : ends) {
+            if (!validated_faces.empty() && std::all_of(wires.begin() + start, wires.begin() + end,
+                    [&](const Boundary& loop) { return inherited.contains(loop.wire); })) {
+                start = end;
+                continue;
+            }
             auto batch = make_outer();
             for (; start < end; ++start)
                 builder.Add(batch, wires[start].wire);
             builder.Add(batches, batch.Oriented(face.Orientation()));
         }
+        if (!batches.NbChildren())
+            builder.Add(batches, make_outer().Oriented(face.Orientation()));
         builder.Add(checks, batches);
         return true;
     } catch (const Standard_Failure&) {
