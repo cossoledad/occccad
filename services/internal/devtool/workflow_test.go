@@ -219,7 +219,7 @@ func TestConanManifestRequiresPresentFilesDespiteSuccessReceipt(t *testing.T) {
 func TestRecipeLockProfileCompilerAndGeneratedOutputsInvalidate(t *testing.T) {
 	a := fixture(t)
 	root := repoRoot(t)
-	for _, name := range []string{"conanfile.py", "conan.lock", "build-support/conan/profiles/linux-gcc15-release", "build-support/conan/profiles/linux-gcc15-debug"} {
+	for _, name := range append([]string{"conanfile.py", "conan.lock", "build-support/conan/profiles/linux-gcc15-release", "build-support/conan/profiles/linux-gcc15-debug"}, occtRecipeInputs...) {
 		b, e := os.ReadFile(filepath.Join(root, name))
 		if e != nil {
 			t.Fatal(e)
@@ -252,7 +252,7 @@ func TestRecipeLockProfileCompilerAndGeneratedOutputsInvalidate(t *testing.T) {
 	if latest, _ := a.depIdentity(o); latest != id {
 		t.Fatal("jobs/runtime entered compilation identity")
 	}
-	for _, name := range []string{"conanfile.py", "conan.lock", "build-support/conan/profiles/linux-gcc15-release"} {
+	for _, name := range append([]string{"conanfile.py", "conan.lock", "build-support/conan/profiles/linux-gcc15-release"}, occtRecipeInputs...) {
 		p := filepath.Join(a.Root, name)
 		b, _ := os.ReadFile(p)
 		os.WriteFile(p, append(b, '\n', '#', 'x'), 0644)

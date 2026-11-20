@@ -32,7 +32,7 @@ services unit 使用 `./cmd/...`、`./internal/...`、`./gen/...` 三个源码�
 - `associated_extrude`、`thin_feature`、`sweep`、`engineering_hole`、`loft_boundary`、`pattern_reexecution` 的 integration 文件：各生成器参数、失败/修复、预览、补偿历史、重开与冷重建；重执行文件还输出分阶段小样本测量。
 - `sketch_design_input`、`sketch_inference`、`sketch_linked_offset`、`profile_available_regions`、`feature_repair_context`、`feature_insert_generators`：显式尺寸/公式、诊断、来源和历史边界；`TestSketchDimensionsDriveSolidThroughRouter` 不依赖绘制时的数值框。
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp`：精确体积、导数、实体有效性、真实拓扑历史、取消与检查点；`web/apps/cad/browser/solid-feature-live.spec.ts`：真实视区/树拾取、工作台连续操作和显示。
-- [布尔组壳对照实验](occt-boolean/README.md)在独立 Worker 上比较同前驱的末步耗时、制品摘要和有向边查找。
+- [布尔组壳与末步预览对照](occt-boolean/README.md)记录默认内核的有向边查找、原生布尔历史、取消及同前驱 Worker 预览的耗时与制品摘要。
 - `naming_growth_scenarios.cpp` 与 `TestGrowingTopologyPartFeaturesAndNamingThroughRouter`：持续新增拓扑、共享前驱、旧面引用和冷重建；真实 Router 默认 120 步，原生显式 130/200 步覆盖历史预算边界；原生默认小样本，性能运行显式用 `OCCCCAD_TEST_NAMING_STEPS=120`。`TestStoredGrowingTopologyNamingReplayThroughRouter` 可用 `OCCCCAD_TEST_NAMING_REPLAY_DOCUMENT` 指定早先构建留下的文档检验 BREP/Naming 原字节，未提供时跳过；此可清理文档不是普通增长检验的前提。计时与样本见[零件特征性能](../docs/validation/part-feature-performance.md)。
 
 Go match 使用正则；Web 单元选择使用路径片段，多个选择由路由负责，不能把正则当作 Web 路径片段。普通 `--level unit` 不启动集成或浏览器。需要实际交互时使用已安装浏览器和正常配置的 Control/API/Jobs，原始输出留在 build。

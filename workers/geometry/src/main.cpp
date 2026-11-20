@@ -671,7 +671,7 @@ public:
             output->mutable_second_witness()->set_z(result.second_witness.z);
             complete=complete && result.complete;
         }
-        response->set_complete(complete);response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "/solid-dmu-v2");
+        response->set_complete(complete);response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "+" OCCCCAD_OCCT_RECIPE_REVISION "/solid-dmu-v2");
         spdlog::info("interference request={} bodies={} pairs={} restored={} reused={} input_ms={} pairs_ms={} details={} complete={}",request->request_id(),request->geometry_size(),request->pairs_size(),restored,reused,std::chrono::duration<double,std::milli>(loaded_at-started).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-loaded_at).count(),request->details(),complete);
         return grpc::Status::OK;
     }
@@ -740,7 +740,7 @@ public:
                 target->set_distance_mm(gap.distance_mm);
             }
 
-            response->set_kernel_build(request->kind()=="CURVATURE"?"occt-" OCC_VERSION_COMPLETE "/curvature-v1":"occt-" OCC_VERSION_COMPLETE "/measurement-v2");return grpc::Status::OK;
+            response->set_kernel_build(request->kind()=="CURVATURE"?"occt-" OCC_VERSION_COMPLETE "+" OCCCCAD_OCCT_RECIPE_REVISION "/curvature-v1":"occt-" OCC_VERSION_COMPLETE "+" OCCCCAD_OCCT_RECIPE_REVISION "/measurement-v2");return grpc::Status::OK;
         }catch(const Standard_Failure&){return {grpc::StatusCode::INTERNAL,"measurement input unavailable"};}
         catch(const std::exception& e){return {grpc::StatusCode::INVALID_ARGUMENT,e.what()};}
     }
@@ -789,7 +789,7 @@ public:
             for(const auto& p:value.triangles){auto* v=body->add_triangles();v->set_x(p.x);v->set_y(p.y);v->set_z(p.z);}
             for(auto tag:value.regions)body->add_regions(tag);complete=complete&&value.complete;
         }
-        response->set_complete(complete);response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "/spatial-geometry-v1");return grpc::Status::OK;
+        response->set_complete(complete);response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "+" OCCCCAD_OCCT_RECIPE_REVISION "/spatial-geometry-v1");return grpc::Status::OK;
     }
 
     grpc::Status ResolveLoftCorrespondence(
@@ -2111,13 +2111,12 @@ public:
                     identity->set_profile_feature_id(spec.profile_feature_id);
                 }
                 const auto naming_started=std::chrono::steady_clock::now();
-                std::string topology_bytes;
                 auto encoded=naming_encoder_.encode(profile_evaluation.feature_results,request->topology_policy(),geometry_id,response->brep_artifact().sha256(),request->force_cold(),[&](){return cancellation->poll();},
                     request->has_continuation() ? &accepted_prefix : nullptr);
                 cached_history_blocks=std::move(encoded.blocks);
-                encoded.root.SerializeToString(&topology_bytes);
+                cached_naming = occccad::worker::naming_bytes(encoded.root);
                 stats->set_naming_blocks_computed(encoded.computed);stats->set_naming_blocks_reused(encoded.reused);
-                stats->set_naming_root_bytes(topology_bytes.size());
+                stats->set_naming_root_bytes(cached_naming.size());
                 for(const auto& block:cached_history_blocks) {
                     stats->set_naming_full_lineage_rows(stats->naming_full_lineage_rows()+block->reference.full_lineage_count());
                     stats->set_naming_literal_lineage_rows(stats->naming_literal_lineage_rows()+block->literals);
@@ -2125,17 +2124,16 @@ public:
                 }
                 const auto packing_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-naming_started).count();
                 stats->set_naming_artifact_ms(packing_ms);stats->set_naming_ms(stats->naming_ms()+packing_ms);
-                const auto topology_id = occccad::kernel::make_geometry_id(topology_bytes);
-                manifest->set_topology_manifest_digest(
-                    topology_id.rfind("sha256:", 0) == 0 ? topology_id.substr(7) : topology_id);
-                cached_naming.assign(topology_bytes.begin(),topology_bytes.end());
                 if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled before naming publication"};
                 if (external_outputs) {
                     const std::vector<uint8_t>& bytes=cached_naming;
                     publish(request->brep_output_key() + ".naming.pb", bytes,
                                    "application/vnd.occccad.topology-manifest.v3+protobuf",
                                    manifest->mutable_topology_manifest_artifact());
+                    manifest->set_topology_manifest_digest(manifest->topology_manifest_artifact().sha256());
                     publish_history(cached_history_blocks,manifest);
+                } else {
+                    manifest->set_topology_manifest_digest(occccad::kernel::make_geometry_id(cached_naming.data(), cached_naming.size()).substr(7));
                 }
             }
 
@@ -2200,7 +2198,7 @@ public:
                 graph.roots.push_back({"root", "brep", "", {}});
             }
             auto* output = response->mutable_graph();
-            output->set_kernel_version(OCC_VERSION_COMPLETE);
+            output->set_kernel_version(OCC_VERSION_COMPLETE "+" OCCCCAD_OCCT_RECIPE_REVISION);
             output->set_source_schema(graph.source_schema);
             auto warning = [&](const std::string& code, const std::string& message, const std::string& definition, uint64_t count = 1) {
                 auto* item = output->add_warnings();
@@ -2709,8 +2707,8 @@ private:
             spdlog::info("edge_profile geometry={} sampling_ms={} normal_evaluations={} segments={} limited={}",
                 geometry_id,m.timings.edge_profile_ms,m.timings.edge_normal_evaluations,m.edge_profile.size(),m.timings.edge_sampling_limits);
             spdlog::info("surface_normals geometry={} ms={} evaluations={} fallbacks={}",geometry_id,m.timings.normals_ms,m.timings.surface_normal_evaluations,m.timings.surface_normal_fallbacks);
-            spdlog::info("visual_snapshot geometry={} mesh_ms={} faces_ms={} edges_ms={} normals_ms={} encoding_ms={} vertices={} triangles={} edges={} edge_points={} glb_bytes={}",
-                geometry_id, m.timings.meshing_ms, m.timings.faces_ms, m.timings.edges_ms, m.timings.normals_ms,
+            spdlog::info("visual_snapshot geometry={} mesh_ms={} copy_index_ms={} seed_ms={} native_ms={} faces_ms={} edges_ms={} normals_ms={} encoding_ms={} vertices={} triangles={} edges={} edge_points={} glb_bytes={}",
+                geometry_id, m.timings.meshing_ms, m.timings.copy_ms, m.timings.seed_ms, m.timings.native_ms, m.timings.faces_ms, m.timings.edges_ms, m.timings.normals_ms,
                 std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count(),
                 m.vertices.size(),m.triangles.size(),m.edges.size(),edge_points,computed->glb->size());
             size_t edge_capacity = 0; for (const auto& edge : m.edges) edge_capacity += edge.points.capacity();
@@ -2870,7 +2868,7 @@ int main() {
             spdlog::critical("geometry worker failed to listen address={}", address);
             return EXIT_FAILURE;
         }
-        spdlog::info("geometry worker ready address={} occt_version={} log_file={}", address,
+        spdlog::info("geometry worker ready address={} occt_version={} recipe_revision=" OCCCCAD_OCCT_RECIPE_REVISION " log_file={}", address,
                      OCC_VERSION_COMPLETE, log_file.string());
         server->Wait();
         spdlog::info("geometry worker stopped address={}", address);

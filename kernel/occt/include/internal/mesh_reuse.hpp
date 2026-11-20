@@ -71,6 +71,17 @@ private:
     Frame pending_;
     std::string input_;
     std::vector<std::pair<int,int>> faces_,edges_;
+    // Reverse links only for identical native subshapes in this operation.
+    std::unordered_map<int, int> profile_input_faces_, profile_input_edges_;
+    static bool remap_profile(EdgeProfilePacket& packet, const std::unordered_map<int,int>& faces) {
+        for (auto& face : packet.faces) {
+            if (!face) continue;
+            const auto found = faces.find(face);
+            if (found == faces.end()) return false;
+            face = found->second;
+        }
+        return true;
+    }
     uint64_t clock_=0;
     double linear_=0,angular_=0;
     size_t budget_=128*1024*1024;
@@ -98,6 +109,8 @@ private:
         std::unordered_set<const Payload*> unique;
         std::unordered_set<const EdgeProfileValues*> profiles;
         size_t result=(faces_.capacity()+edges_.capacity())*sizeof(std::pair<int,int>);
+        for (const auto* links : {&profile_input_faces_, &profile_input_edges_})
+            result += links->bucket_count()*sizeof(void*) + links->size()*(sizeof(std::pair<int,int>)+2*sizeof(void*));
         const auto charge=[&](const Frame& frame){
             for(const auto& entry:frame.packets){
                 result+=sizeof(entry)+sizeof(Packet)+entry.second->edges.capacity()*sizeof(int)+3*sizeof(void*);
@@ -116,7 +129,10 @@ private:
     }
 public:
     using Correspondence=std::vector<std::pair<TopoDS_Shape,TopoDS_Shape>>;
-    void discard_pending(){pending_=Frame{};input_.clear();faces_.clear();edges_.clear();}
+    void discard_pending(){
+        pending_=Frame{};input_.clear();faces_.clear();edges_.clear();
+        profile_input_faces_.clear();profile_input_edges_.clear();
+    }
     class FailureGuard {
         MeshReuse& owner_;int depth_=std::uncaught_exceptions();
     public:
@@ -126,7 +142,7 @@ public:
     };
     FailureGuard on_failure(){return FailureGuard(*this);}
 
-    void clear(){frames_.clear();pending_=Frame{};input_.clear();faces_={};edges_={};}
+    void clear(){frames_.clear();discard_pending();}
     bool has(const std::string& geometry, double linear, double angular) const {
         return linear == linear_ && angular == angular_ && std::any_of(frames_.begin(), frames_.end(), [&](const auto& frame) {
             return frame.geometry == geometry && !frame.packets.empty();
@@ -141,6 +157,7 @@ public:
         TopExp::MapShapes(before,TopAbs_FACE,oldFaces);TopExp::MapShapes(after,TopAbs_FACE,newFaces);
         TopExp::MapShapes(before,TopAbs_EDGE,oldEdges);TopExp::MapShapes(after,TopAbs_EDGE,newEdges);
         input_=input;faces_.clear();edges_.clear();
+        profile_input_faces_.clear();profile_input_edges_.clear();
         std::unordered_map<int,int> edges;
         for(const auto& pair:pairs){
             if(pair.first.Location()!=pair.second.Location())continue;
@@ -159,21 +176,19 @@ public:
         // Mesh eligibility alone does not prove identical support derivatives
         // or edge tolerances. Reuse profiles only for the same native subshapes.
         std::unordered_map<int, int> face_ids;
-        for (const auto& face : faces_)
-            if (oldFaces(face.first).IsSame(newFaces(face.second)))
+        for (const auto& face : faces_) {
+            if (oldFaces(face.first).IsSame(newFaces(face.second))) {
                 face_ids.emplace(face);
-        for (const auto& edge : edges_) {
-            const auto* source = find_profile(input, edge.first);
-            if (!source || !oldEdges(edge.first).IsSame(newEdges(edge.second))) continue;
-            auto packet = *source;
-            bool complete = true;
-            for (auto& face : packet.faces) {
-                if (!face) continue;
-                const auto match = face_ids.find(face);
-                if (match == face_ids.end()) { complete = false; break; }
-                face = match->second;
+                profile_input_faces_.emplace(face.second, face.first);
             }
-            if (complete) next.profiles.packets.emplace(edge.second, std::move(packet));
+        }
+        for (const auto& edge : edges_) {
+            if (!oldEdges(edge.first).IsSame(newEdges(edge.second))) continue;
+            profile_input_edges_.emplace(edge.second, edge.first);
+            if (const auto* source = find_profile(input, edge.first)) {
+                auto packet = *source;
+                if (remap_profile(packet, face_ids)) next.profiles.packets.emplace(edge.second, std::move(packet));
+            }
         }
         pending_=std::move(next);if(bytes()>budget_)pending_=Frame{};
     }
@@ -227,9 +242,10 @@ public:
         accepted.new_bytes += bytes;
         accepted.packets.emplace(edge, std::move(packet));
     }
-    size_t seed(const std::string& geometry,const TopoDS_Shape& source,const BRepBuilderAPI_Copy& copy,
+    size_t seed(const std::string& geometry,const TopTools_IndexedMapOfShape& faces,
+                const TopTools_IndexedMapOfShape& edges,const BRepBuilderAPI_Copy& copy,
                 std::vector<Handle(Poly_Triangulation)>& seeded){
-        TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(source,TopAbs_FACE,faces);TopExp::MapShapes(source,TopAbs_EDGE,edges);
+        seeded.resize(faces.Extent()+1);
         BRep_Builder builder;size_t count=0;
         for(int id=1;id<=faces.Extent();++id){
             const auto original=TopoDS::Face(faces(id));const auto packet=find(geometry,id);if(!packet||packet->orientation!=original.Orientation())continue;
@@ -245,18 +261,24 @@ public:
                 if(!edge.forward.IsNull()&&!edge.reverse.IsNull())builder.UpdateEdge(target,edge.forward->Copy(),edge.reverse->Copy(),triangulation,location);
                 else builder.UpdateEdge(target,(!edge.forward.IsNull()?edge.forward:edge.reverse)->Copy(),triangulation,location);
             }
-            seeded.push_back(triangulation);++count;
+            seeded[id] = triangulation; ++count;
         }
         return count;
     }
     template<class CorrespondingShape>
-    size_t admit(const std::string& geometry,const TopoDS_Shape& source,const CorrespondingShape& corresponding,
-                 EdgeProfiles profiles = {}){
+    size_t admit(const std::string& geometry,const TopTools_IndexedMapOfShape& faces,
+                 const TopTools_IndexedMapOfShape& edges,const CorrespondingShape& corresponding,
+                 EdgeProfiles profiles = {}, const std::vector<Handle(Poly_Triangulation)>& retained = {}){
         Frame frame;frame.geometry=geometry;frame.profiles=std::move(profiles);
-        TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(source,TopAbs_FACE,faces);TopExp::MapShapes(source,TopAbs_EDGE,edges);
+        std::vector<std::pair<int, size_t>> edge_slots(edges.Extent()+1);
         for(int id=1;id<=faces.Extent();++id){
-            const auto original=TopoDS::Face(faces(id));const auto previous=find(geometry,id);
-            if(previous){frame.packets.emplace(id,previous);continue;}
+            const auto original=TopoDS::Face(faces(id));
+            if (!retained.empty() && !retained[id].IsNull()) {
+                if (auto previous = find(geometry, id)) {
+                    frame.packets.emplace(id, std::move(previous));
+                    continue;
+                }
+            }
             auto payload=std::make_shared<Payload>();auto packet=std::make_shared<Packet>();packet->payload=payload;packet->orientation=original.Orientation();
             const auto face=TopoDS::Face(corresponding(original));TopLoc_Location location;
             const auto triangulation=BRep_Tool::Triangulation(face,location);if(triangulation.IsNull())continue;
@@ -266,9 +288,13 @@ public:
                 const auto originalEdge=TopoDS::Edge(uses.Current());const int edgeId=edges.FindIndex(originalEdge);
                 const auto edge=TopoDS::Edge(corresponding(originalEdge).Oriented(originalEdge.Orientation()));
                 const auto polygon=BRep_Tool::PolygonOnTriangulation(edge,triangulation,location);if(polygon.IsNull())continue;
-                auto at=std::find(packet->edges.begin(),packet->edges.end(),edgeId);
-                if(at==packet->edges.end()){packet->edges.push_back(edgeId);payload->edges.push_back({});at=std::prev(packet->edges.end());}
-                auto& pair=payload->edges[std::distance(packet->edges.begin(),at)];auto& target=originalEdge.Orientation()==TopAbs_REVERSED?pair.reverse:pair.forward;
+                auto& slot = edge_slots[edgeId];
+                if (slot.first != id) {
+                    slot = {id, payload->edges.size()};
+                    packet->edges.push_back(edgeId);
+                    payload->edges.emplace_back();
+                }
+                auto& pair=payload->edges[slot.second];auto& target=originalEdge.Orientation()==TopAbs_REVERSED?pair.reverse:pair.forward;
                 target=polygon->Copy();payload->bytes+=polygon->NbNodes()*(sizeof(int)+sizeof(double));
             }
             frame.packets.emplace(id,std::move(packet));
@@ -282,15 +308,25 @@ public:
                 for(const auto edge:at->second->edges){const auto key=reverse.find(edge);if(key==reverse.end()){complete=false;break;}packet->edges.push_back(key->second);}
                 if(complete)input.packets.emplace(face.first,std::move(packet));
             }
-            if(!input.packets.empty()){
-                if(auto* previous=find_frame(input_)){for(auto& entry:input.packets)previous->packets.emplace(std::move(entry));}
+            for (const auto& entry : frame.profiles.packets) {
+                const auto original = profile_input_edges_.find(entry.first);
+                if (original == profile_input_edges_.end()) continue;
+                auto profile = entry.second;
+                if (remap_profile(profile, profile_input_faces_))
+                    input.profiles.packets.emplace(original->second, std::move(profile));
+            }
+            if(!input.packets.empty() || !input.profiles.packets.empty()){
+                if(auto* previous=find_frame(input_)){
+                    previous->packets.merge(input.packets);
+                    previous->profiles.packets.merge(input.profiles.packets);
+                }
                 else{input.used=++clock_;frames_.push_back(std::move(input));}
             }
         }
         const auto count = frame.packets.size();
         frame.used=++clock_;
         frames_.erase(std::remove_if(frames_.begin(),frames_.end(),[&](const auto& f){return f.geometry==geometry;}),frames_.end());
-        frames_.push_back(std::move(frame));pending_=Frame{};input_.clear();faces_.clear();edges_.clear();
+        frames_.push_back(std::move(frame));discard_pending();
         // LRU keeps the repeatedly used input and latest result; count shared
         // payloads once. This budget owns mesh data, never the original BREP graph.
         while(!frames_.empty()&&(frames_.size()>2||bytes()>budget_))frames_.erase(std::min_element(frames_.begin(),frames_.end(),[](const auto& a,const auto& b){return a.used<b.used;}));

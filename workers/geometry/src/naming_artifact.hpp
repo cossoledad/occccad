@@ -203,7 +203,7 @@ inline void pack_naming(size_t count, ReadFeature read, v1::PartTopologyManifest
         }
         auto [it, added] = evidence.emplace(packed.SerializeAsString(), evidence.size() + 1);
         if (added)
-            *out.add_evidence() = packed;
+            out.add_evidence()->Swap(&packed);
         return it->second;
     };
     const auto ev = [&](const auto& value) {

@@ -5348,7 +5348,6 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             feature.topology_history.input_geometry_id = input_id;
             feature.topology_history.result_geometry_id = result_id;
             feature.topology_history.policy_digest = topology_policy_digest();
-            const detail::SemanticRefIndex<NamedShape> originals(input_named,[](const auto& value)->const auto&{return value.ref;});
             const detail::SemanticRefIndex<NamedShape> unchanged(operation.unchanged,[](const auto& value)->const auto&{return value.ref;});
             const detail::SemanticRefIndex<TopologyLineage> generated_index(tool.generated,[](const auto& value)->const auto&{return value.result;});
             const detail::SemanticRefIndex<TopologyLineage> derived_index(operation.derived,[](const auto& value)->const auto&{return value.result;});
@@ -5384,7 +5383,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         kind = TopologyLineageKind::split;
                     } else {
                         output_ref = source;
-                        const auto* original = originals.first(source);
+                        const auto* original = input_index.first(source);
                         const auto& private_survivors=unchanged.all(source);
                         if (original &&
                             (original->shape.IsSame(group.shape) ||
@@ -5457,7 +5456,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     lineage_sources = section_sources;
                 }
                 feature.topology_history.lineage.push_back(
-                    {lineage_sources, output_ref, kind, evidence});
+                    {std::move(lineage_sources), output_ref, kind, feature.topology_history_complete ? SelectionEvidence{} : std::move(evidence)});
                 if (kind == TopologyLineageKind::split) {
                     auto ambiguity = std::find_if(feature.topology_history.ambiguous.begin(),
                                                   feature.topology_history.ambiguous.end(),
@@ -5475,46 +5474,50 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 }
             }
             std::vector<NamedShape> adjacency_shapes;
-            std::unordered_map<std::string, std::size_t> lineage_index;
-            std::unordered_map<std::string, std::size_t> lineage_counts;
-            for (std::size_t i=0;i<feature.topology_history.lineage.size();++i) {
-                const auto key=ref_key(feature.topology_history.lineage[i].result);
-                lineage_index.emplace(key,i);++lineage_counts[key];
-            }
+            std::vector<std::string> output_keys;
+            std::unordered_map<std::string, std::size_t> first_row;
+            output_keys.reserve(outputs.size());
             adjacency_shapes.reserve(outputs.size());
-            for (const auto& output : outputs)
+            first_row.reserve(outputs.size());
+            for (const auto& output : outputs) {
+                output_keys.push_back(ref_key(output.first.semantic_ref));
+                first_row.emplace(output_keys.back(), adjacency_shapes.size());
                 adjacency_shapes.push_back({output.first.semantic_ref, output.second});
+            }
+            const bool aligned = first_row.size() == outputs.size();
+            if (!aligned && feature.topology_history_complete)
+                throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_SEMANTIC_REF");
             const auto adjacency_started=std::chrono::steady_clock::now();
-            const auto adjacency = indexed_adjacency(adjacency_shapes);
+            auto adjacency = indexed_adjacency(adjacency_shapes);
             stats.adjacency_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-adjacency_started).count();
             for (std::size_t left = 0; left < outputs.size(); ++left) {
                 check_cancel();
-                for (const auto right : adjacency[left])
-                    outputs[left].first.evidence.adjacent.push_back(outputs[right].first.semantic_ref);
-                sort_refs(outputs[left].first.evidence.adjacent);
-                outputs[left].first.evidence.adjacent.erase(
-                    std::unique(outputs[left].first.evidence.adjacent.begin(),
-                                outputs[left].first.evidence.adjacent.end(), same_ref),
-                    outputs[left].first.evidence.adjacent.end());
-                const auto lineage=lineage_index.find(ref_key(outputs[left].first.semantic_ref));
-                if (lineage != lineage_index.end())
-                    feature.topology_history.lineage[lineage->second].evidence = outputs[left].first.evidence;
+                auto& neighbors = adjacency[left];
+                std::sort(neighbors.begin(), neighbors.end(), [&](auto a, auto b) { return output_keys[a] < output_keys[b]; });
+                auto& evidence = outputs[left].first.evidence;
+                evidence.adjacent.reserve(neighbors.size());
+                for (auto right : neighbors) {
+                    const auto& ref = outputs[right].first.semantic_ref;
+                    if (aligned || evidence.adjacent.empty() || !same_ref(evidence.adjacent.back(), ref))
+                        evidence.adjacent.push_back(ref);
+                }
+                if (aligned)
+                    feature.topology_history.lineage[left].evidence = std::move(evidence);
+                else
+                    feature.topology_history.lineage[first_row.at(output_keys[left])].evidence = evidence;
             }
-            std::vector<NamedShape> all_sources = input_named;
-            all_sources.insert(all_sources.end(), tool.named.begin(), tool.named.end());
-            std::unordered_set<std::string> live_refs,output_refs;
-            for (const auto& value:operation.named)live_refs.insert(ref_key(value.ref));
-            for (const auto& output:outputs)output_refs.insert(ref_key(output.first.semantic_ref));
-            for (const auto& source : all_sources) {
-                const bool alive = live_refs.count(ref_key(source.ref))!=0;
-                if (!alive) {
+            const auto record_deleted = [&](const auto& sources) {
+                for (const auto& source : sources) {
+                    if (images.first(source.ref)) continue;
                     auto evidence = named_evidence(source.shape,source.ref,persistent_topology_type(source.shape),facts);
                     feature.topology_history.deleted.push_back(
-                        {source.ref, "OCCT_IS_DELETED_OR_OUTSIDE_RESULT", evidence});
+                        {source.ref, "OCCT_IS_DELETED_OR_OUTSIDE_RESULT", std::move(evidence)});
                 }
-            }
+            };
+            record_deleted(input_named);
+            record_deleted(tool.named);
             for (const auto& tombstone : feature.topology_history.deleted) {
-                if (output_refs.count(ref_key(tombstone.source)))
+                if (first_row.count(ref_key(tombstone.source)))
                     throw std::runtime_error("TOPOLOGY_HISTORY_LIVE_TOMBSTONE_CONFLICT");
             }
             if (feature.topology_history_complete) {
@@ -5536,8 +5539,6 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                                << '/' << final_vertices.Extent();
                     throw std::runtime_error(diagnostic.str());
                 }
-                if (output_refs.size() != outputs.size())
-                    throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_SEMANTIC_REF");
                 // Each group was indexed by a unique final TShape; the complete count
                 // and one lineage per semantic output prove coverage without sorting
                 // two additional arrays of formatted locator and reference strings.
@@ -5545,16 +5546,16 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     if (output.first.local_id == 0U ||
                         output.first.topology_type == PersistentTopologyType::unspecified)
                         throw std::runtime_error("TOPOLOGY_HISTORY_INVALID_LOCAL_ID");
-                    if (lineage_counts.at(ref_key(output.first.semantic_ref)) != 1)
-                        throw std::runtime_error("TOPOLOGY_HISTORY_LINEAGE_OUTPUT_MISMATCH");
                 }
             }
             feature.topology_history.evidence_digest =
                 topology_history_digest(feature.topology_history);
-            live_named.clear();
+            std::vector<LineageOutputLocator> locators;
+            if (aligned) locators.reserve(outputs.size());
+            live_named = std::move(adjacency_shapes);
             for (auto& output : outputs) {
-                feature.semantic_outputs.push_back(std::move(output.first));
-                live_named.push_back({feature.semantic_outputs.back().semantic_ref, output.second});
+                if (aligned) locators.push_back({output.first.topology_type, output.first.local_id});
+                else feature.semantic_outputs.push_back(std::move(output.first));
             }
             if (cache_stages || required_pattern_bodies.count(spec.feature_id)) {
                 ToolBuild stage;
@@ -5562,19 +5563,27 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 stage.topology_history_complete=topology_history_complete;
                 pattern_bodies.emplace(spec.feature_id,freeze_tool(std::move(stage)));
             }
-            evaluation.feature_results.push_back(std::move(feature));
+            evaluation.feature_results.push_back(std::move(feature), aligned ? &locators : nullptr);
             // Borrow the new immutable tip rather than accumulating a map of
             // every historical face. All later private-copy descendants can
             // carry these facts through the same verified survivor contract.
             facts.named.clear();facts.faces.clear();
-            std::unordered_map<std::string,const SelectionEvidence*> tip_evidence;
-            evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->visit_outputs([&](auto,auto,const auto& ref,const auto& evidence){
-                tip_evidence.emplace(ref_key(ref),&evidence);
-            });
-            for(const auto& named:live_named) {
-                const auto found=tip_evidence.find(ref_key(named.ref));
-                if(found!=tip_evidence.end()) {
-                    facts.named.emplace(named.shape,ShapeFacts::NamedEvidence{found->first,found->second});
+            if (aligned) {
+                std::size_t index = 0;
+                evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->visit_outputs([&](auto, auto, const auto&, const auto& evidence) {
+                    facts.named.emplace(live_named[index].shape, ShapeFacts::NamedEvidence{std::move(output_keys[index]), &evidence});
+                    ++index;
+                });
+            } else {
+                std::unordered_map<std::string,const SelectionEvidence*> tip_evidence;
+                evaluation.feature_results.frozen(evaluation.feature_results.size()-1)->visit_outputs([&](auto,auto,const auto& ref,const auto& evidence){
+                    tip_evidence.emplace(ref_key(ref),&evidence);
+                });
+                for(const auto& named:live_named) {
+                    const auto found=tip_evidence.find(ref_key(named.ref));
+                    if(found!=tip_evidence.end()) {
+                        facts.named.emplace(named.shape,ShapeFacts::NamedEvidence{found->first,found->second});
+                    }
                 }
             }
             stats.naming_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-naming_started).count();
@@ -5855,7 +5864,7 @@ namespace {
 std::string mesh_seed_header(const GeometryId& geometry, double linear, double angular) {
     std::ostringstream header;
     header.imbue(std::locale::classic());
-    header << "OCCCCAD mesh seed 1 " << OCC_VERSION_COMPLETE << ' ' << geometry << ' '
+    header << "OCCCCAD mesh seed 1 " << OCC_VERSION_COMPLETE "+" OCCCCAD_OCCT_RECIPE_REVISION << ' ' << geometry << ' '
            << std::setprecision(std::numeric_limits<double>::max_digits10) << linear << ' ' << angular << '\n';
     return header.str();
 }
@@ -5922,7 +5931,7 @@ size_t OcctKernel::restoreMeshSeed(const GeometryId& id, double linear, double a
             }
         }
         impl_->mesh_reuse.policy(linear, angular);
-        return impl_->mesh_reuse.admit(id, source, [&](const TopoDS_Shape& shape) {
+        return impl_->mesh_reuse.admit(id, original[0], original[1], [&](const TopoDS_Shape& shape) {
             const auto type = shape.ShapeType() == TopAbs_FACE ? 0 : 1;
             return restored[type](original[type].FindIndex(shape));
         });
@@ -5955,8 +5964,13 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             const auto& source = impl_->find(geometry_id);
             BRepBuilderAPI_Copy copy(source, Standard_True, Standard_False);
             const auto shape = copy.Shape();
+            TopTools_IndexedMapOfShape face_map, edge_map, vertex_map;
+            TopExp::MapShapes(source, TopAbs_FACE, face_map);
+            TopExp::MapShapes(source, TopAbs_EDGE, edge_map);
+            const auto copy_done = std::chrono::steady_clock::now();
             std::vector<Handle(Poly_Triangulation)> seeded;
-            if(reuse && !preserveBoundary)attempted_reuse=impl_->mesh_reuse.seed(geometry_id,source,copy,seeded)>0;
+            if(reuse && !preserveBoundary)attempted_reuse=impl_->mesh_reuse.seed(geometry_id,face_map,edge_map,copy,seeded)>0;
+            const auto seed_done = std::chrono::steady_clock::now();
             IMeshTools_Parameters parameters;
             parameters.Deflection = linear_deflection;
             parameters.Angle = angular_deflection;
@@ -5977,10 +5991,9 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             std::vector<Vec3> surface_normals;
             result.timings.meshing_ms = elapsed(start);
             result.bbox = getBoundingBox(geometry_id);
-            TopTools_IndexedMapOfShape face_map, edge_map, vertex_map;
-            // IDs are taken from the exact source snapshot, never from copy traversal.
-            TopExp::MapShapes(source, TopAbs_FACE, face_map);
-            TopExp::MapShapes(source, TopAbs_EDGE, edge_map);
+            result.timings.copy_ms = std::chrono::duration<double,std::milli>(copy_done-start).count();
+            result.timings.seed_ms = std::chrono::duration<double,std::milli>(seed_done-copy_done).count();
+            result.timings.native_ms = result.timings.meshing_ms - result.timings.copy_ms - result.timings.seed_ms;
             TopExp::MapShapes(source, TopAbs_VERTEX, vertex_map);
             std::vector<std::vector<detail::VisualEdgeUse>> boundaries(edge_map.Extent());
             const auto extraction = std::chrono::steady_clock::now();
@@ -5991,6 +6004,10 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                 const auto triangulation = BRep_Tool::Triangulation(face, location);
                 if (triangulation.IsNull() || triangulation->NbTriangles() == 0)
                     throw std::runtime_error("VISUAL_MISSING_FACE:" + std::to_string(face_id));
+                if (!seeded.empty()) {
+                    if (seeded[face_id] == triangulation) ++result.timings.reused_faces;
+                    else seeded[face_id].Nullify();
+                }
                 const uint32_t base = static_cast<uint32_t>(result.vertices.size());
                 for (int n = 1; n <= triangulation->NbNodes(); ++n)
                     result.vertices.push_back(to_vec3(triangulation->Node(n).Transformed(location.Transformation())));
@@ -6096,15 +6113,11 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                     if(n.x*n.x+n.y*n.y+n.z*n.z>.5)result.normals[i]=n;}
             }else result.normals=std::move(surface_normals);
             result.timings.normals_ms += elapsed(normals);
-            for (int i=1;i<=face_map.Extent();i++) {
-                TopLoc_Location location;const auto t=BRep_Tool::Triangulation(TopoDS::Face(copy.ModifiedShape(face_map(i))),location);
-                if(std::find(seeded.begin(),seeded.end(),t)!=seeded.end())++result.timings.reused_faces;
-            }
             result.timings.computed_faces=face_map.Extent()-result.timings.reused_faces;
             const auto& admission=fresh_cancelled?fresh_cancelled:cancelled;
             if(admission&&admission())throw std::runtime_error("EVALUATION_CANCELLED");
             if (!preserveBoundary) {
-                impl_->mesh_reuse.admit(geometry_id, source, [&](const auto& original) { return copy.ModifiedShape(original); }, std::move(profiles));
+                impl_->mesh_reuse.admit(geometry_id, face_map, edge_map, [&](const auto& original) { return copy.ModifiedShape(original); }, std::move(profiles), seeded);
                 if (capture_mesh_seed && result.triangles.size() >= 50'000)
                     result.mesh_seed = capture_mesh_packet(geometry_id, linear_deflection, angular_deflection, source, copy);
             }

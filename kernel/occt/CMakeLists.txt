@@ -42,6 +42,9 @@ target_compile_features(
         cxx_std_17
 )
 
+get_filename_component(conan_generators "${CMAKE_TOOLCHAIN_FILE}" DIRECTORY)
+include("${conan_generators}/occccad-occt.cmake")
+target_compile_definitions(occccad_occt_kernel PUBLIC OCCCCAD_OCCT_RECIPE_REVISION="${OCCCCAD_OCCT_RECIPE_REVISION}")
 occccad_set_warnings(occccad_occt_kernel)
 
 if(OCCCCAD_BUILD_TESTS)

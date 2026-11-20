@@ -10,7 +10,7 @@
         "protobuf/5.27.0#99c5d5f87d1eea580a2234238020821b%1768401326.052",
         "openssl/3.6.5#3c1311f37543e7140f33fe5989f315c2%1790692982.113",
         "opengl/system#cfcf523b9d2bad75cbf377f56562634c%1762526044.744",
-        "opencascade/7.9.1#c5fddcb0f309bc0855a6394e0c7e377a%1782311255.939",
+        "opencascade/7.9.1@occccad/stable#f333bc9fec9ce7843fb407f00d0ece5c%1795186881.5061803",
         "libpng/1.6.58#19cb72905ae54f54948401f753faa2c1%1776606503.628",
         "gtest/1.18.0#e2507fc4efe2ec9e2db9e5c91eefab9f%1786446847.733",
         "grpc/1.71.0#fee18bdf773502d7abeaab0c4f931fd7%1761821350.597",
@@ -40,6 +40,8 @@
         "c-ares/1.34.8#074b97a9e38159813ed5e2dcfeb290ca%1784539118.141",
         "abseil/20250127.0#e0dcc4b8a367edb49b062cb07ed8e9e6%1773137903.431"
     ],
-    "python_requires": [],
+    "python_requires": [
+        "opencascade/7.9.1#c5fddcb0f309bc0855a6394e0c7e377a%1782311255.939"
+    ],
     "config_requires": []
 }

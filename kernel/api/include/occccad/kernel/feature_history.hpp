@@ -15,6 +15,12 @@ struct FeatureHistorySpan {
     std::size_t offset = 0, count = 0;
 };
 
+// For evaluators that emit exactly one output per final lineage row in row order.
+struct LineageOutputLocator {
+    PersistentTopologyType type;
+    std::uint64_t local_id;
+};
+
 class FrozenFeatureResult {
     FeatureResult header_;
     ImmutableSequence<TopologyLineage> lineage_;
@@ -128,7 +134,10 @@ public:
         iterator begin() const { return {owner_, 0}; }
         iterator end() const { return {owner_, owner_->output_count_}; }
     };
-    FrozenFeatureResult(FeatureResult value, const FrozenFeatureResult* previous) {
+    FrozenFeatureResult(FeatureResult value, const FrozenFeatureResult* previous,
+                        const std::vector<LineageOutputLocator>* aligned = nullptr) {
+        if (aligned && (!value.semantic_outputs.empty() || aligned->size() != value.topology_history.lineage.size()))
+            throw std::logic_error("FEATURE_LINEAGE_OUTPUT_COUNT");
         if (previous &&
             (previous->header_.body_id != value.body_id ||
              previous->header_.result_id != value.result_id ||
@@ -274,27 +283,36 @@ public:
         flush_shared();
         charged_bytes_ +=
             lineage_.incremental_storage_bytes(previous ? &previous->lineage_ : nullptr);
-        Index current;
-        current.reserve(lineage_.size());
-        for (std::size_t i = 0; i < lineage_.size(); ++i) {
-            const auto [it, added] = current.emplace(&lineage_[i].result, i);
-            if (!added)
-                it->second = std::numeric_limits<std::size_t>::max();
-        }
-        output_count_ = value.semantic_outputs.size();
-        for (auto& output : value.semantic_outputs) {
-            const auto found = current.find(&output.semantic_ref);
-            const bool indexed =
-                found != current.end() &&
-                found->second != std::numeric_limits<std::size_t>::max() &&
-                detail::EvidenceEqual{}(&output.evidence, &lineage_[found->second].evidence);
-            varint(output_bindings_, static_cast<unsigned>(output.topology_type));
-            varint(output_bindings_, output.local_id);
-            varint(output_bindings_, indexed ? found->second + 1 : 0);
-            if (!indexed) {
-                charged_bytes_ += ref_bytes(output.semantic_ref, charged_sources) +
-                                  evidence_bytes(output.evidence, charged_sources);
-                exceptional_outputs_.push_back(std::move(output));
+        if (aligned) {
+            output_count_ = aligned->size();
+            for (std::size_t i = 0; i < aligned->size(); ++i) {
+                varint(output_bindings_, static_cast<unsigned>((*aligned)[i].type));
+                varint(output_bindings_, (*aligned)[i].local_id);
+                varint(output_bindings_, i + 1);
+            }
+        } else {
+            Index current;
+            current.reserve(lineage_.size());
+            for (std::size_t i = 0; i < lineage_.size(); ++i) {
+                const auto [it, added] = current.emplace(&lineage_[i].result, i);
+                if (!added)
+                    it->second = std::numeric_limits<std::size_t>::max();
+            }
+            output_count_ = value.semantic_outputs.size();
+            for (auto& output : value.semantic_outputs) {
+                const auto found = current.find(&output.semantic_ref);
+                const bool indexed =
+                    found != current.end() &&
+                    found->second != std::numeric_limits<std::size_t>::max() &&
+                    detail::EvidenceEqual{}(&output.evidence, &lineage_[found->second].evidence);
+                varint(output_bindings_, static_cast<unsigned>(output.topology_type));
+                varint(output_bindings_, output.local_id);
+                varint(output_bindings_, indexed ? found->second + 1 : 0);
+                if (!indexed) {
+                    charged_bytes_ += ref_bytes(output.semantic_ref, charged_sources) +
+                                      evidence_bytes(output.evidence, charged_sources);
+                    exceptional_outputs_.push_back(std::move(output));
+                }
             }
         }
         std::vector<TopologyLineage>().swap(value.topology_history.lineage);
@@ -443,11 +461,11 @@ public:
     }
     FeatureResultSequence(FeatureResultSequence&&) = default;
     FeatureResultSequence& operator=(FeatureResultSequence&&) = default;
-    void push_back(FeatureResult value) {
+    void push_back(FeatureResult value, const std::vector<LineageOutputLocator>* aligned = nullptr) {
         if (!leases_)
             leases_ = std::make_shared<Leases>();
         values_.push_back(std::make_shared<const FrozenFeatureResult>(
-            std::move(value), empty() ? nullptr : values_.back().get()));
+            std::move(value), empty() ? nullptr : values_.back().get(), aligned));
         leases_->values.push_back({});
     }
     void reserve(std::size_t n) {

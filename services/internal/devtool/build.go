@@ -15,6 +15,12 @@ import (
 
 const dependenciesSchema = "occccad.dependencies.v1"
 
+var occtRecipeInputs = []string{
+	"build-support/conan/opencascade/conanfile.py",
+	"build-support/conan/opencascade/conandata.yml",
+	"build-support/conan/patches/opencascade/7.9.1/shell-face-edge-lookup.patch",
+}
+
 type depsReceipt struct {
 	Compiler, CompileEnvironment string
 	Schema                       string            `json:"schema"`
@@ -63,6 +69,9 @@ func (a *App) depIdentity(o Options) (string, error) {
 		return "", e
 	}
 	inputs := map[string]string{"compiler": strings.TrimSpace(version), "arch": strings.TrimSpace(arch), "compilerBinary": fileHash("/usr/bin/g++-15"), "host": fileHash(a.profile(o)), "build": fileHash(a.profile(Options{Profile: "release"})), "recipe": fileHash(filepath.Join(a.Root, "conanfile.py")), "lock": fileHash(filepath.Join(a.Root, "conan.lock"))}
+	for _, path := range occtRecipeInputs {
+		inputs[path] = fileHash(filepath.Join(a.Root, path))
+	}
 	for _, tool := range []string{"conan", "cmake", "ninja"} {
 		v, e := a.capture(a.Root, nil, tool, "--version")
 		if e != nil {
@@ -132,6 +141,30 @@ func (a *App) CPPDeps(o Options) error {
 	b := a.buildDir(o)
 	if e = os.MkdirAll(b, 0700); e != nil {
 		return e
+	}
+	lockPath := filepath.Join(a.Root, "conan.lock")
+	exportResult := filepath.Join(b, "occt-export.json")
+	if e = a.native(a.Root, o.Verbose, "conan", "export", filepath.Join(a.Root, "build-support/conan/opencascade"), "--lockfile", lockPath, "--format=json", "--out-file", exportResult); e != nil {
+		return e
+	}
+	var exported struct{ Reference string }
+	var locked struct{ Requires []string }
+	if e = loadJSON(exportResult, &exported); e != nil {
+		return e
+	}
+	if e = loadJSON(lockPath, &locked); e != nil {
+		return e
+	}
+	matched := false
+	for _, ref := range locked.Requires {
+		pinned, _, _ := strings.Cut(ref, "%")
+		if pinned == exported.Reference {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return fmt.Errorf("exported OCCT recipe %s differs from conan.lock", exported.Reference)
 	}
 	graph := filepath.Join(b, "conan-graph.json")
 	args := []string{"conan", "install", a.Root, "-of", b, "-pr:h", a.profile(o), "-pr:b", a.profile(Options{Profile: "release"}), "--lockfile", filepath.Join(a.Root, "conan.lock"), "--build=missing", "-c:h", "tools.build:jobs=" + strconv.Itoa(o.Jobs), "-c:b", "tools.build:jobs=" + strconv.Itoa(o.Jobs), "--format=json", "--out-file", graph}

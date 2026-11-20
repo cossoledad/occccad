@@ -21,6 +21,7 @@ setup 不安装系统包、不 sudo、不改全局 pip、不覆盖 `.env`。首�
 ## 依赖、配置与增量构建
 
 - setup / `cpp:deps`：显式同步依赖，可联网。Conan 使用 Release build context，host context 跟随 profile；安装由共享 Conan cache 锁保护。recipe、lock、profiles、编译器、工具及编译环境和生成输出共同构成准备身份，同时检查缓存 manifest 引用的文件是否仍存在。
+- 项目 OCCT 包继承锁定的 ConanCenter 7.9.1 配方，使用同一源归档。`cpp:deps` 先导出[项目配方](../../build-support/conan/opencascade/conanfile.py)，核对导出的 revision 和锁文件，再构建或复用该包。更新内核补丁时同步更新锁和 Part 求值版本，原生测试与 Worker 链接同一个包。
 - build：不升级依赖、不安装浏览器、不执行 `--fresh`。准备身份缺失/变化或缓存缺项给出 `cpp:deps`；准备完成后使用 CMake/Ninja 原生增量图。普通 CMake 自动 regeneration 由 Ninja 处理；Presets 改动触发一次普通 configure。真实编译器或编译环境变更需要显式 clean 该 profile 再 deps，避免继续使用旧编译器缓存；普通编译错误不需要 clean。
 - `CMakePresets.json` 拥有团队配置与 Conan toolchain 路径。产物隔离在 `build/cmake/linux-gcc15-x86_64/{release,debug,sanitize}`；sanitize 是独立 ASan/UBSan Debug 配置。编译数据库在各自目录，不生成全局可变链接或 User Presets。
 - `mise run cpp:build --target occccad_geometry_worker --profile debug --jobs 8` 使用真实 target。原生 `cmake --preset dev-release`、`cmake --build <目录> --target <target> --parallel 4` 仍可直接使用；与 mise 同时写同目录时也须遵守 `build/locks/cpp-<profile>.lock`。

@@ -63,6 +63,8 @@ Boolean 和剖分通过 OCCT progress 协作取消，算法内观察本地单调
 
 `PartRuntimeStats` 分开记录 base、exact、Naming、display、mesh、encoding、邻接、积分次数及证据复用；Naming 再区分内核与制品装配，另记真实取消查询、网格复用/计算面数和缓存记账耗时/编码次数；`volume_integrations` 统计统一积分入口的实际调用，普通 Feature 求值应为零。GetTopology 另报排队、精确加载与查询时间，客户端接入请求计时。mesh/encoding 属于 display，缓存记账也包含在 RPC 总时长内，不能重复相加。指定复杂导入件及生成 STEP 的测量与边界见[零件性能测量](../../validation/part-feature-performance.md)。
 
+默认 OCCT 包在组壳与面定向操作内，按有向面的实际查找深度为大边表建立临时索引。Part 求值键和检查点接纳条件包含该内核的 recipe revision。唯一输出与历史行按同一次生成的行序绑定，共用证据；有重复引用或独立输出的输入仍可表达各自证据。网格沿已证对应传递，边显示采样还要求原生边与支撑面相同，且边界、方向、UV 和参数一致。首次从新结果反向补齐前驱的采样后，同一前驱的下次编辑也可复用。GLB 直接遍历有序点和采样段生成字节。
+
 精确阶段再记录生成器准备、Body 运算、Boolean Build、材料变化、同域合并、有效性、BREP 快照和未变子形状对应。有效性包含 B‑Rep 分析器及实体材料检查，前者对超过 128 个待检面的检查集合使用 Geometry Worker 的四线程 OCCT 池。显示记录边界提取与轮廓时间，以及计算和复用的边数。明细与其所属阶段存在包含关系。
 
 ### 通用特征性能与增长边界

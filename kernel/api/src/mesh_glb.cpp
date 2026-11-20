@@ -61,7 +61,22 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
         throw std::invalid_argument("cannot encode an empty mesh as GLB");
     }
 
+    std::size_t edge_points = 0, edge_segments = 0;
+    for (const auto& edge : mesh.edges) {
+        if (!edge.local_id || edge.local_id > std::numeric_limits<uint32_t>::max())
+            throw std::invalid_argument("GLB edge locator");
+        if (edge.points.size() < 2) continue;
+        if (edge.points.size() > std::numeric_limits<uint32_t>::max() - edge_points)
+            throw std::length_error("GLB edge vertex limit");
+        edge_points += edge.points.size();
+        edge_segments += edge.points.size() - 1;
+    }
+    const auto binary_bytes = (mesh.triangles.empty() ? 0 : mesh.vertices.size()*24 + mesh.triangles.size()*16)
+        + edge_points*12 + edge_segments*12 + mesh.topology_vertices.size()*16 + mesh.edge_profile.size()*88;
+    if (binary_bytes > std::numeric_limits<uint32_t>::max() - 28ULL)
+        throw std::length_error("GLB exceeds its 32-bit container limit");
     std::vector<uint8_t> binary;
+    binary.reserve(binary_bytes);
     std::vector<std::string> views, accessors;
     auto accessor = [&](size_t offset, size_t count, const char* type, int component,
                         const std::string& bounds = "") {
@@ -73,10 +88,15 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
                             ",\"type\":\"" + type + "\"" + bounds + "}");
         return id;
     };
-    auto points = [&](const auto& vertices) {
+    auto points = [&](size_t count, const auto& visit) {
         size_t offset = binary.size();
-        std::array<double, 3> lo{vertices[0].x, vertices[0].y, vertices[0].z}, hi = lo;
-        for (const auto& v : vertices) {
+        std::array<double, 3> lo{}, hi{};
+        bool first = true;
+        visit([&](const Vec3& v) {
+            if (first) {
+                lo = hi = {v.x, v.y, v.z};
+                first = false;
+            }
             const double values[]{v.x, v.y, v.z};
             for (int i = 0; i < 3; ++i) {
                 if (!std::isfinite(values[i]) || !std::isfinite(static_cast<float>(values[i])))
@@ -85,12 +105,12 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
                 hi[i] = std::max(hi[i], values[i]);
                 append_float(binary, static_cast<float>(values[i]));
             }
-        }
+        });
         std::ostringstream bounds;
         bounds.precision(std::numeric_limits<double>::max_digits10);
         bounds << ",\"min\":[" << lo[0] << ',' << lo[1] << ',' << lo[2] << "],\"max\":[" << hi[0]
                << ',' << hi[1] << ',' << hi[2] << ']';
-        return accessor(offset, vertices.size(), "VEC3", 5126, bounds.str());
+        return accessor(offset, count, "VEC3", 5126, bounds.str());
     };
     std::ostringstream primitives;
     bool has_primitive = false;
@@ -98,7 +118,9 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
     if (!mesh.triangles.empty()) {
         if (mesh.vertices.empty())
             throw std::invalid_argument("GLB faces require positions");
-        const auto positions = points(mesh.vertices);
+        const auto positions = points(mesh.vertices.size(), [&](const auto& emit) {
+            for (const auto& v : mesh.vertices) emit(v);
+        });
         if (mesh.normals.size() != mesh.vertices.size())
             throw std::invalid_argument("GLB missing snapshot normals");
         const auto& normals = mesh.normals;
@@ -137,54 +159,47 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
         has_primitive = true;
     }
     // One indexed LINES primitive keeps JSON/accessor overhead independent of edge count.
-    std::vector<Vec3> edge_points;
-    std::vector<uint32_t> edge_indices, edge_ids;
-    for (const auto& edge : mesh.edges) {
-        if (edge.local_id == 0 || edge.local_id > std::numeric_limits<uint32_t>::max())
-            throw std::invalid_argument("GLB edge locator");
-        if (edge.points.size() < 2)
-            continue;
-        if (edge.points.size() > std::numeric_limits<uint32_t>::max() - edge_points.size())
-            throw std::length_error("GLB edge vertex limit");
-        const auto base = static_cast<uint32_t>(edge_points.size());
-        edge_points.insert(edge_points.end(), edge.points.begin(), edge.points.end());
-        for (size_t i = 1; i < edge.points.size(); ++i) {
-            edge_indices.push_back(base + i - 1);
-            edge_indices.push_back(base + i);
-            edge_ids.push_back(edge.local_id);
+    if (edge_points) {
+        const auto position = points(edge_points, [&](const auto& emit) {
+            for (const auto& edge : mesh.edges)
+                if (edge.points.size() >= 2)
+                    for (const auto& point : edge.points) emit(point);
+        });
+        offset = binary.size();
+        uint32_t base = 0;
+        for (const auto& edge : mesh.edges) {
+            if (edge.points.size() < 2) continue;
+            for (size_t i = 1; i < edge.points.size(); ++i) {
+                append_u32(binary, base + i - 1);
+                append_u32(binary, base + i);
+            }
+            base += static_cast<uint32_t>(edge.points.size());
         }
-    }
-    if (!edge_points.empty()) {
-        const auto position = points(edge_points);
+        const auto line_indices = accessor(offset, edge_segments * 2, "SCALAR", 5125);
         offset = binary.size();
-        for (auto index : edge_indices)
-            append_u32(binary, index);
-        const auto line_indices = accessor(offset, edge_indices.size(), "SCALAR", 5125);
-        offset = binary.size();
-        for (auto id : edge_ids)
-            append_u32(binary, id);
-        const auto ids = accessor(offset, edge_ids.size(), "SCALAR", 5125);
+        for (const auto& edge : mesh.edges)
+            for (size_t i = 1; i < edge.points.size(); ++i)
+                append_u32(binary, edge.local_id);
+        const auto ids = accessor(offset, edge_segments, "SCALAR", 5125);
         if (has_primitive)
             primitives << ',';
         primitives << "{\"attributes\":{\"POSITION\":" << position
                    << "},\"indices\":" << line_indices
                    << ",\"mode\":1,\"extensions\":{\"OCCCCAD_cad\":{\"kind\":\"EDGE\",\"localIds\":"
                    << ids << "}}}";
-    }
-    if (!edge_points.empty())
         has_primitive = true;
+    }
     if (!mesh.topology_vertices.empty()) {
-        std::vector<Vec3> vertices;
-        for (const auto& vertex : mesh.topology_vertices)
-            vertices.push_back(vertex.point);
-        const auto position = points(vertices);
+        const auto position = points(mesh.topology_vertices.size(), [&](const auto& emit) {
+            for (const auto& vertex : mesh.topology_vertices) emit(vertex.point);
+        });
         offset = binary.size();
         for (const auto& vertex : mesh.topology_vertices) {
             if (vertex.local_id == 0 || vertex.local_id > std::numeric_limits<uint32_t>::max())
                 throw std::invalid_argument("GLB vertex locator");
             append_u32(binary, vertex.local_id);
         }
-        const auto ids = accessor(offset, vertices.size(), "SCALAR", 5125);
+        const auto ids = accessor(offset, mesh.topology_vertices.size(), "SCALAR", 5125);
         if (has_primitive)
             primitives << ',';
         primitives
@@ -194,11 +209,18 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
     }
     std::string edge_profile;
     if(!mesh.edge_profile.empty()) {
-        std::vector<Vec3> positions, normal_a, normal_b;
-        for(const auto& segment:mesh.edge_profile)for(const auto* p:{&segment.first,&segment.second}) {
-            positions.push_back(p->point);normal_a.push_back(p->normal_a);normal_b.push_back(p->normal_b);
-        }
-        const auto position=points(positions), a=points(normal_a), b=points(normal_b);
+        const auto coordinates = [&](auto field) {
+            return points(mesh.edge_profile.size()*2, [&](const auto& emit) {
+                for (const auto& segment : mesh.edge_profile) {
+                    emit(segment.first.*field);
+                    emit(segment.second.*field);
+                }
+            });
+        };
+        using Endpoint = decltype(mesh.edge_profile.front().first);
+        const auto position = coordinates(&Endpoint::point);
+        const auto a = coordinates(&Endpoint::normal_a);
+        const auto b = coordinates(&Endpoint::normal_b);
         offset=binary.size();
         for(const auto& segment:mesh.edge_profile) {
             if(!segment.local_id||static_cast<uint32_t>(segment.kind)>6||segment.quality>3)

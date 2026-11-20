@@ -8,7 +8,7 @@ class OccccadDependencies(ConanFile):
     settings = "os", "arch", "compiler", "build_type"
 
     requires = (
-        "opencascade/7.9.1",
+        "opencascade/7.9.1@occccad/stable",
         "spdlog/1.15.3",
         "grpc/1.71.0",
         "openssl/3.6.5",
@@ -28,6 +28,9 @@ class OccccadDependencies(ConanFile):
         CMakeDeps(self).generate()
         toolchain = CMakeToolchain(self)
         toolchain.user_presets_path = False
+        revision = self.dependencies["opencascade"].ref.revision
+        (Path(self.generators_folder) / "occccad-occt.cmake").write_text(
+            f'set(OCCCCAD_OCCT_RECIPE_REVISION "{revision}")\n', encoding="utf-8")
         for package, executable, variable in (
             ("protobuf", "protoc", "OCCCCAD_PROTOC_EXECUTABLE"),
             ("grpc", "grpc_cpp_plugin", "OCCCCAD_GRPC_CPP_PLUGIN_EXECUTABLE"),

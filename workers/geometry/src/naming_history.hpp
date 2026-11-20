@@ -8,6 +8,16 @@
 
 namespace occccad::worker {
 
+inline std::vector<uint8_t> naming_bytes(const google::protobuf::MessageLite& message) {
+    const auto size = message.ByteSizeLong();
+    if (size > static_cast<size_t>(std::numeric_limits<int>::max()))
+        throw std::length_error("NAMING_ARTIFACT_TOO_LARGE");
+    std::vector<uint8_t> bytes(size);
+    if (size && message.SerializeWithCachedSizesToArray(bytes.data()) != bytes.data()+size)
+        throw std::runtime_error("NAMING_SERIALIZATION_FAILED");
+    return bytes;
+}
+
 enum class NamingProjection { full, literals, tip };
 class NamingRows {
     const kernel::FrozenFeatureResult* source_;
@@ -215,11 +225,10 @@ public:
                     row->set_count(span.count);
                 }
                 auto payload = std::make_shared<EncodedNamingBlock>();
-                const auto raw = block.SerializeAsString();
-                payload->bytes.assign(raw.begin(), raw.end());
-                const auto digest = kernel::make_geometry_id(raw);
+                payload->bytes = naming_bytes(block);
+                const auto digest = kernel::make_geometry_id(payload->bytes.data(), payload->bytes.size());
                 payload->reference.set_sha256(digest.substr(7));
-                payload->reference.set_size_bytes(raw.size());
+                payload->reference.set_size_bytes(payload->bytes.size());
                 payload->reference.set_feature_id(h.feature_id);
                 payload->reference.set_result_geometry_id(h.result_geometry_id);
                 payload->reference.set_full_lineage_count(source->lineage().size());
