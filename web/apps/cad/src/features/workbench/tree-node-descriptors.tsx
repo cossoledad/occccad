@@ -81,7 +81,7 @@ const geometryKinds=new Set('LINE CIRCLE ARC SPLINE POINT_ON_CURVE EXTRACT BOUND
 const geometryKind=(type:string)=>geometryKinds.has(type)?'geometry.'+type.toLowerCase().replaceAll('_','-'):undefined;
 const glyphs:Record<string,string>={GROUND:'ground',REVOLUTE:'joint-revolute',PRISMATIC:'joint-prismatic',CYLINDRICAL:'joint-cylindrical',PLANAR:'joint-planar',RIGID:'joint-rigid',SPHERICAL:'joint-spherical',ELLIPSE:'ellipse',ELLIPTICAL_ARC:'elliptical-arc',CONCENTRIC:'concentric',COLLINEAR:'parallel',MIDPOINT:'midpoint',POINT_ON_OBJECT:'point-on-object',MAJOR_RADIUS:'radius',MINOR_RADIUS:'radius',POINT:'point',SKETCH:'sketch',SOLID_PATTERN:'pattern',SKETCH_PATTERN:'pattern',COINCIDENT:'coincident',PARALLEL:'parallel',PERPENDICULAR:'perpendicular',TANGENT:'tangent',FIXED:'fixed',EQUAL:'equal',HORIZONTAL:'horizontal',VERTICAL:'vertical',ANGLE:'angle',RADIUS:'radius',DIAMETER:'diameter',DISTANCE:'distance',LENGTH:'length',SYMMETRY:'symmetry',IMPORT_BODY:'import',IMPORTED:'import'};
 
-export function treeNodeIcon(node:Pick<DocumentStructureNode,'kind'|'diagnostic'|'evaluationStatus'|'operation'|'entityType'|'suppressed'|'connectionStatus'|'currencyStatus'>,hint?:string,feature?:Pick<Feature,'geometry'>):ReactNode {
+export function treeNodeIcon(node:Pick<DocumentStructureNode,'kind'|'health'|'diagnostic'|'evaluationStatus'|'operation'|'entityType'|'suppressed'|'connectionStatus'|'currencyStatus'>,hint?:string,feature?:Pick<Feature,'geometry'>):ReactNode {
  const type=feature?.geometry?.kind??node.entityType??node.kind;
  const command=featureCommands[type]??geometryKind(type);
  const glyph=(command?commandIcons.get(command):undefined)??glyphs[type]??objectIcons[node.kind]??'reference';
@@ -90,7 +90,13 @@ export function treeNodeIcon(node:Pick<DocumentStructureNode,'kind'|'diagnostic'
  const name=node.kind==='SPATIAL_ANALYSIS'?(type==='SECTION'?'section':type==='STATIC_INTERFERENCE'?'interference':'measurement'):assembly?assemblyGlyph:['PAD','LINEAR_EXTRUDE'].includes(type)&&node.operation==='REMOVE'?'pocket':glyph;
  const typeIcon=<CadIcon name={name}/>;
  let label='',color='',badge:ReactNode;
- if(node.kind==='SPATIAL_ANALYSIS'||node.kind==='MEASUREMENT'){const status=node.currencyStatus??node.evaluationStatus;label=status==='CURRENT'?'已更新':status==='BROKEN'?'来源不可用':status==='UNKNOWN'?'状态暂不可用':status==='MISSING'?'尚无结果':'待更新';color=status==='CURRENT'?'var(--color-success)':status==='BROKEN'?'var(--color-danger)':'var(--color-warning)';badge=status==='CURRENT'?<CheckCircleOutlined/>:status==='BROKEN'?<CloseCircleOutlined/>:<SyncOutlined/>}
+ if(node.health && node.health.severity !== 'NORMAL'){
+  const error = node.health.severity === 'ERROR';
+  label = [error ? '错误' : '警告', node.health.message].filter(Boolean).join(' · ');
+  color = error ? 'var(--color-danger)' : 'var(--color-warning)';
+  badge = error ? <CloseCircleOutlined/> : <ExclamationCircleOutlined/>;
+ }
+ else if(node.kind==='SPATIAL_ANALYSIS'||node.kind==='MEASUREMENT'){const status=node.currencyStatus??node.evaluationStatus;label=status==='CURRENT'?'已更新':status==='BROKEN'?'来源不可用':status==='UNKNOWN'?'状态暂不可用':status==='MISSING'?'尚无结果':'待更新';color=status==='CURRENT'?'var(--color-success)':status==='BROKEN'?'var(--color-danger)':'var(--color-warning)';badge=status==='CURRENT'?<CheckCircleOutlined/>:status==='BROKEN'?<CloseCircleOutlined/>:<SyncOutlined/>}
  else if(node.suppressed){label='已抑制';color='var(--color-text-secondary)';badge=<PauseCircleOutlined/>}
  else if(node.evaluationStatus==='FAILED'||node.evaluationStatus==='BLOCKED'){label=node.evaluationStatus==='FAILED'?'计算失败':'上游失败';color='var(--color-danger)';badge=<ExclamationCircleOutlined/>}
  else if(assembly){const status=assemblyStatusFromDiagnostic(node.evaluationStatus??node.diagnostic),detail=ASSEMBLY_CONSTRAINT_STATUS[status];label=detail.label;color=detail.color;badge=status==='VERIFIED'?<CheckCircleOutlined/>:status==='BROKEN'?<CloseCircleOutlined/>:status==='IMPOSSIBLE'?<ExclamationCircleOutlined/>:<SyncOutlined/>}

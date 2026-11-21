@@ -6,6 +6,8 @@ type Warning struct {
 	Code         string `json:"code"`
 	Message      string `json:"message"`
 	DefinitionID string `json:"definitionId,omitempty"`
+	DocumentID   string `json:"documentId,omitempty"`
+	PartName     string `json:"partName,omitempty"`
 	Detail       string `json:"detail,omitempty"`
 	Count        uint64 `json:"count,omitempty"`
 }
@@ -66,7 +68,7 @@ func (r *Report) NotificationWarnings() []Warning {
 			continue
 		}
 		indices[key] = len(out)
-		warning.DefinitionID = ""
+		warning.DefinitionID, warning.DocumentID, warning.PartName, warning.Detail = "", "", "", ""
 		warning.Count = count
 		out = append(out, warning)
 	}

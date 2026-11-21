@@ -1,4 +1,4 @@
-export type ThumbnailImage = { blob: Blob; pending: boolean };
+export type ThumbnailImage = { blob: Blob; pending: boolean; failed?: boolean };
 type ThumbnailRequest = { source: string; signal: AbortSignal; resolve: (image: ThumbnailImage) => void; reject: (error: unknown) => void; cancel: () => void };
 
 /** Low-priority image work must leave connections available for navigation. */
@@ -31,7 +31,8 @@ export class ThumbnailRequests {
         .then(async response => {
           if (!response.ok) throw new Error(`Thumbnail HTTP ${response.status}`);
           const blob = await response.blob();
-          return { blob, pending: response.headers.get("X-OCCCCAD-Thumbnail-State") === "pending" };
+          const state = response.headers.get("X-OCCCCAD-Thumbnail-State");
+          return { blob, pending: state === "pending", failed: state === "failed" };
         })
         .then(request.resolve, request.reject)
         .finally(() => { this.active--; this.drain(); });

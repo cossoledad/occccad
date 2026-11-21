@@ -723,6 +723,7 @@ type ImportedOccurrenceName struct {
 }
 
 type ProductInstance struct {
+	Health *DocumentHealth `json:"health,omitempty"`
 	GraphicProperties
 	ImportedVisible      *bool                   `json:"importedVisible,omitempty"`
 	Color                string                  `json:"color,omitempty"`
@@ -978,21 +979,22 @@ func applyInstancePath(nodes []DocumentStructureNode, path *InstancePath) {
 }
 
 type DocumentSummary struct {
-	ID            string  `json:"id"`
-	Name          string  `json:"name"`
-	Description   string  `json:"description"`
-	Type          string  `json:"type"`
-	VersionID     string  `json:"versionId"`
-	CanUndo       bool    `json:"canUndo"`
-	CanRedo       bool    `json:"canRedo"`
-	CreatedAt     string  `json:"createdAt"`
-	LastUpdated   string  `json:"lastUpdated"`
-	DeletedAt     *string `json:"deletedAt,omitempty"`
-	FolderID      *string `json:"folderId,omitempty"`
-	LastOpenedAt  *string `json:"lastOpenedAt,omitempty"`
-	CopiedFromID  *string `json:"copiedFromDocumentId,omitempty"`
-	WorkspaceName string  `json:"workspaceName"`
-	Permission    string  `json:"permission"`
+	Health        *DocumentHealth `json:"health,omitempty"`
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description"`
+	Type          string          `json:"type"`
+	VersionID     string          `json:"versionId"`
+	CanUndo       bool            `json:"canUndo"`
+	CanRedo       bool            `json:"canRedo"`
+	CreatedAt     string          `json:"createdAt"`
+	LastUpdated   string          `json:"lastUpdated"`
+	DeletedAt     *string         `json:"deletedAt,omitempty"`
+	FolderID      *string         `json:"folderId,omitempty"`
+	LastOpenedAt  *string         `json:"lastOpenedAt,omitempty"`
+	CopiedFromID  *string         `json:"copiedFromDocumentId,omitempty"`
+	WorkspaceName string          `json:"workspaceName"`
+	Permission    string          `json:"permission"`
 }
 
 type DocumentListOptions struct {
@@ -1085,6 +1087,7 @@ type StructureSnapshotScope struct {
 }
 
 type DocumentStructureNode struct {
+	Health             *DocumentHealth         `json:"health,omitempty"`
 	RelationRole       string                  `json:"relationRole,omitempty"`
 	MechanismID        string                  `json:"mechanismId,omitempty"`
 	ParameterAlias     string                  `json:"parameterAlias,omitempty"`

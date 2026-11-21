@@ -249,23 +249,30 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 		return nil
 	}
 	if view.Document.Type == "PRODUCT" {
-		if len(view.ResolvedInstances) > maxInstances {
-			return nil, errSceneBudget
-		}
 		// Stable ordering makes coplanar tie handling independent of map/API order.
-		instances := append([]workspace.ResolvedInstance(nil), view.ResolvedInstances...)
+		instances := make([]workspace.ResolvedInstance, 0, min(maxInstances, len(view.ResolvedInstances)))
+		for _, inst := range view.ResolvedInstances {
+			if visibleInstance(view, inst) {
+				if len(instances) == maxInstances {
+					return nil, errSceneBudget
+				}
+				instances = append(instances, inst)
+			}
+		}
 		sort.SliceStable(instances, func(i, j int) bool { return instances[i].ID < instances[j].ID })
+		sketchPaths := map[string]bool{}
+		for _, scope := range view.ReferenceDisplayScopes {
+			if scope.SketchVisualization != nil {
+				sketchPaths[scope.InstancePath.Canonical] = true
+			}
+		}
 		for _, instance := range instances {
-			if a, ok := view.Artifacts[instance.GeometryKey]; ok && (instance.BodyID == "" || instance.BodyVisible) {
-				for _, scope := range view.ReferenceDisplayScopes {
-					if scope.InstancePath.Canonical == instance.OccurrencePath && scope.SketchVisualization != nil {
-						a = withoutSketches(a)
-						break
-					}
-				}
-				if err := appendArtifact(a, newPose(instance.Translation, instance.Rotation), instance.Appearance); err != nil {
-					return nil, err
-				}
+			a := view.Artifacts[instance.GeometryKey]
+			if sketchPaths[instance.OccurrencePath] {
+				a = withoutSketches(a)
+			}
+			if err := appendArtifact(a, newPose(instance.Translation, instance.Rotation), instance.Appearance); err != nil {
+				return nil, err
 			}
 		}
 		for _, scope := range view.ReferenceDisplayScopes {

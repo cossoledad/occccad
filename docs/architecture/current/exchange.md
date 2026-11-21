@@ -24,9 +24,13 @@ HTTP 完整保存输入 Artifact 后入队 EXCHANGE_IMPORT。`InspectExchange` �
 
 ## 完成报告和通知
 
-`payload.exchange` 记录 schemaVersion、源 SHA-256、FILE_SCHEMA、实际 OCCT 版本、Definition/空 Part 数、结构化 warnings 和 prepare/evaluate/createParts/assemble/total 的毫秒耗时。warning 有 code、message、definitionId、count 和原生 detail。成功状态、报告和 JOB Outbox 在同一事务提交；取消或丢失 lease owner 不能发布成功。
+`payload.exchange` 记录 schemaVersion、源 SHA-256、FILE_SCHEMA、实际 OCCT 版本、Definition/空 Part 数、结构化 warnings 和 prepare/evaluate/createParts/assemble/total 的毫秒耗时。零件警告带 code、message、definitionId、documentId、partName、count 和原生 detail。成功状态、报告、按文档索引的导入问题和 JOB Outbox 在同一事务提交；取消或丢失 lease owner 不能发布成功。
 
 实时 Job 携带文件名和按 code/message 归并的 warnings；详细 Definition 诊断保存在报告中。成功警告在通知中显示内容，消息中心从 GET /api/jobs 恢复，刷新或重连后仍可查看、下载或打开文档。Outbox 批次只为当前在线用户选择待发布 Job，离线用户的旧事件不会耗尽在线用户的批次配额；离线事件保留到重连。空 Part 与普通成功文档使用相同打开入口，不变成可重试失败。导出也可携带成功警告。
+
+文档库和结构树共享版本健康状态。READY 且没有问题时为 NORMAL，导入损失或等待求值为 WARNING，版本求值失败为 ERROR。Product 逐层汇总已接受子版本的最高严重程度，Instance 展示其引用版本的状态。恢复显示失败的零件后，包含同一源对象和定义的冻结导入特征的新版解除该警告，仍固定在旧版的实例保留警告。普通空白 Part 可以是 NORMAL。
+
+一次导入任务的执行额度是两次（含首次）。确定性输入错误直接结束，可重试的故障最多自动重试一次。用户手动重试追加一轮额度，保留已有尝试记录。
 
 ## 导出合同
 
@@ -60,6 +64,6 @@ Product 的独立结果通过 ReferenceDisplayScope.results 显示，保留 docu
 
 ## 单个零件的恢复与交付
 
-导入遇到缺面网格或离散器失败时，可在精确形体的独立副本上缩小线性和角度偏差，最多各减至初值的四分之一。接纳仍要求面覆盖和共享边界验证通过。消息中心保留跳过零件的名称和内核诊断。「重新处理此零件」从原任务的不可变输入定位定义，仅为目标零件准备和求值几何。成功时在原空 Part 上创建新 Revision，目标已被修改时返回冲突。已固定的装配实例可在结构树中采用新版。
+导入遇到缺面网格或离散器失败时，可在精确形体的独立副本上缩小线性和角度偏差，最多各减至初值的四分之一。接纳仍要求面覆盖和共享边界验证通过。消息中心按零件列名，详细内核诊断保存在完成报告中。恢复 API 从原任务的不可变输入定位定义，并通过创建命令及文档首版索引校验目标，仅为目标零件准备和求值几何。成功时在原空 Part 上创建新 Revision，目标已被修改时返回冲突。已固定的装配实例可在结构树中采用新版。
 
 导出报告逐项列出因空 Part 缺失的可见实例，附所属装配路径。勾选包含隐藏对象时也检查隐藏实例。仅含一个独立几何结果的定义使用明确的子形体承载结果与面外观。三份装配样件的导入、编辑、导出和 STEP 回读入口是 `services/cmd/occccad-jobs/assembly_step_integration_test.go`。

@@ -1,4 +1,4 @@
-import { CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, SwapOutlined, UndoOutlined } from "@ant-design/icons";
+import { ExclamationCircleOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, SwapOutlined, UndoOutlined } from "@ant-design/icons";
 import { Button, Card, Checkbox, Dropdown } from "antd";
 import { memo } from "react";
 import { DocumentThumbnail } from "../../components/document-thumbnail";
@@ -13,6 +13,7 @@ export const DocumentCard = memo(function DocumentCard({ document, selected, tra
   onAction: (action: string, document: DocumentSummary) => void;
 }) {
   const editable = document.permission === "OWNER" || document.permission === "EDITOR";
+  const health = document.health;
   const items = trash ? [{ key: "restore", icon: <UndoOutlined aria-hidden />, label: "恢复", disabled: !editable }] : [
     { key: "open", label: "打开" },
     ...(editable ? [{ key: "edit", icon: <EditOutlined aria-hidden />, label: "编辑" }, { key: "move", icon: <SwapOutlined aria-hidden />, label: "移动" }] : []),
@@ -29,6 +30,7 @@ export const DocumentCard = memo(function DocumentCard({ document, selected, tra
     cover={<button className="thumbnail-button" disabled={trash} aria-label={`打开 ${document.name}`} onClick={() => onOpen(document)}><DocumentThumbnail document={document} /></button>}>
     <Card.Meta title={<span className="document-title">{!trash && <Checkbox aria-label={`选择 ${document.name}`} checked={selected}
       disabled={!editable} onChange={() => onToggle(document)} />}<button className="document-name" disabled={trash} title={document.name} onClick={() => onOpen(document)}>{document.name}</button>{menu}</span>}
-      description={<>{document.description && <span className="document-description">{document.description}</span>}<small><span className={`document-kind ${document.type.toLowerCase()}`}>{document.type === "PART" ? "零件" : "装配"}</span><span>{relativeDate(document.lastUpdated)}</span></small></>} />
+      description={<>{document.description && <span className="document-description">{document.description}</span>}<small><span className={`document-kind ${document.type.toLowerCase()}`}>{document.type === "PART" ? "零件" : "装配"}</span>{health && health.severity !== "NORMAL" && <span className={health.severity === "ERROR" ? "document-error" : "document-warning"} title={health.message}>
+        {health.severity === "ERROR" ? <><CloseCircleOutlined/> 错误</> : <><ExclamationCircleOutlined/> 警告</>}</span>}<span>{relativeDate(document.lastUpdated)}</span></small></>} />
   </Card></Dropdown>;
 });

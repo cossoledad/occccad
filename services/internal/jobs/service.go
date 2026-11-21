@@ -61,11 +61,35 @@ func (service *Service) Enqueue(ctx context.Context, request EnqueueRequest) (Jo
 		return Job{}, err
 	}
 	return service.change(ctx, `INSERT INTO occccad.jobs(job_type,document_id,version_id,
- requested_by_user_id,input_object_id,payload,idempotency_key,user_visible)
- VALUES($1,NULLIF($2,'')::uuid,$3,$4,NULLIF($5,'')::uuid,$6,$7,$8)
+ requested_by_user_id,input_object_id,payload,idempotency_key,user_visible,max_attempts)
+ VALUES($1,NULLIF($2,'')::uuid,$3,$4,NULLIF($5,'')::uuid,$6,$7,$8,CASE WHEN $1='EXCHANGE_IMPORT' THEN 2 ELSE 3 END)
  ON CONFLICT(job_type,idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
  RETURNING `+jobColumns, "", "", "", request.Type, request.DocumentID, request.VersionID,
 		request.RequestedBy, request.InputObjectID, payload, request.IdempotencyKey, request.UserVisible)
+}
+
+// Reads of a visible pending thumbnail should not write another outbox event.
+// A later visit can resume an exhausted render after a transient failure.
+func (service *Service) EnsureThumbnail(ctx context.Context, request EnqueueRequest) (Job, error) {
+	var job Job
+	var retry bool
+	// A completed job can outlive its derived preview row.
+	err := service.database.QueryRow(ctx, `SELECT id::text,state,attempt_count,(attempt_count<20 AND ((state='FAILED' AND completed_at<now()-interval '10 minutes')
+ OR (state='SUCCEEDED' AND NOT EXISTS(SELECT 1 FROM occccad.document_previews p
+ WHERE p.document_id=jobs.document_id AND p.preview_identity=jobs.idempotency_key AND p.state='READY' AND p.object_id IS NOT NULL))))
+ FROM occccad.jobs WHERE job_type='THUMBNAIL_RENDER' AND idempotency_key=$1`, request.IdempotencyKey).Scan(&job.ID, &job.State, &job.AttemptCount, &retry)
+	if errors.Is(err, database.ErrNoRows) {
+		return service.Enqueue(ctx, request)
+	}
+	if err != nil || !retry {
+		return job, err
+	}
+	resumed, err := service.change(ctx, `UPDATE occccad.jobs SET state='QUEUED',available_at=now(),completed_at=NULL,error_code=NULL,error_message=NULL,
+ max_attempts=LEAST(20,attempt_count+3) WHERE id=$1 AND state=$2 AND attempt_count=$3 RETURNING `+jobColumns, "", "", "", job.ID, job.State, job.AttemptCount)
+	if errors.Is(err, database.ErrNoRows) {
+		return service.Get(ctx, job.ID)
+	}
+	return resumed, err
 }
 
 func (service *Service) Get(ctx context.Context, id string) (Job, error) {
@@ -114,11 +138,30 @@ func (service *Service) Claim(ctx context.Context, workerID string, lease time.D
 	}
 	defer tx.Rollback(ctx)
 	var id string
-	if err = tx.QueryRow(ctx, `SELECT id::text FROM occccad.jobs WHERE
+	var exhausted bool
+	if err = tx.QueryRow(ctx, `SELECT id::text,(job_type='EXCHANGE_IMPORT' AND attempt_count>=max_attempts) FROM occccad.jobs WHERE
  (state IN ('QUEUED','RETRY_WAIT') AND available_at<=now()) OR
  (state='RUNNING' AND lease_expires_at<now())
- ORDER BY priority DESC,created_at LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&id); err != nil {
+ ORDER BY priority DESC,created_at LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&id, &exhausted); err != nil {
 		return Job{}, err
+	}
+	if exhausted {
+		job, err := scan(tx.QueryRow(ctx, `UPDATE occccad.jobs SET state=CASE WHEN cancel_requested_at IS NULL THEN 'FAILED' ELSE 'CANCELED' END,
+   error_code='LEASE_EXPIRED',error_message='导入任务的执行租约已到期',completed_at=now(),lease_owner=NULL,lease_expires_at=NULL
+   WHERE id=$1 RETURNING `+jobColumns, id))
+		if err != nil {
+			return Job{}, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE occccad.job_attempts SET result=$3,completed_at=now(),error_code='LEASE_EXPIRED' WHERE job_id=$1 AND attempt=$2`, id, job.AttemptCount, job.State); err != nil {
+			return Job{}, err
+		}
+		if err = notify(ctx, tx, job); err != nil {
+			return Job{}, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return Job{}, err
+		}
+		return Job{}, database.ErrNoRows
 	}
 	job, err := scan(tx.QueryRow(ctx, `UPDATE occccad.jobs SET state='RUNNING',lease_owner=$1,lease_expires_at=now()+$2::interval,
  heartbeat_at=now(),started_at=COALESCE(started_at,now()),attempt_count=attempt_count+1
@@ -325,8 +368,8 @@ func (service *Service) AcknowledgeCanceled(ctx context.Context, jobID, workerID
 
 func (service *Service) Retry(ctx context.Context, jobID, userID string, isAdmin bool) (Job, error) {
 	job, err := service.change(ctx, `UPDATE occccad.jobs SET state='QUEUED',available_at=now(),completed_at=NULL,
- cancel_requested_at=NULL,error_code=NULL,error_message=NULL,max_attempts=GREATEST(max_attempts,attempt_count+3)
- WHERE id=$1 AND job_type<>'MOTION_STUDY' AND ($3 OR requested_by_user_id=$2) AND state IN ('FAILED','CANCELED') RETURNING `+jobColumns,
+ cancel_requested_at=NULL,error_code=NULL,error_message=NULL,max_attempts=CASE WHEN job_type='EXCHANGE_IMPORT' THEN LEAST(20,attempt_count+2) ELSE LEAST(20,GREATEST(max_attempts,attempt_count+3)) END
+ WHERE id=$1 AND job_type<>'MOTION_STUDY' AND attempt_count<20 AND ($3 OR requested_by_user_id=$2) AND state IN ('FAILED','CANCELED') RETURNING `+jobColumns,
 		"", "", "", jobID, userID, isAdmin)
 	if errors.Is(err, database.ErrNoRows) {
 		if _, getErr := service.Get(ctx, jobID); getErr != nil {
@@ -377,7 +420,7 @@ func populateCapabilities(result *Job) {
 	}
 	result.CanCancel = (result.State == "QUEUED" || result.State == "RETRY_WAIT" ||
 		(result.State == "RUNNING" && (result.Type != "EXCHANGE_IMPORT" || result.Progress < 70))) && result.CancelRequestedAt == nil
-	result.CanRetry = result.Type != "MOTION_STUDY" && (result.State == "FAILED" || result.State == "CANCELED")
+	result.CanRetry = result.AttemptCount < 20 && result.Type != "MOTION_STUDY" && (result.State == "FAILED" || result.State == "CANCELED")
 }
 
 // change commits the state, attempt and notification in one transaction on every
@@ -399,6 +442,26 @@ func (service *Service) change(ctx context.Context, query, attemptResult, code, 
 		if _, err = tx.Exec(ctx, `UPDATE occccad.job_attempts SET completed_at=now(),result=$3,error_code=NULLIF($4,''),error_message=NULLIF($5,'')
   WHERE job_id=$1 AND attempt=$2`, job.ID, job.AttemptCount, attemptResult, code, message); err != nil {
 			return Job{}, err
+		}
+	}
+	if job.Type == "EXCHANGE_IMPORT" && attemptResult == "SUCCEEDED" && job.DocumentID != nil {
+		var result struct {
+			Exchange *exchange.Report `json:"exchange"`
+		}
+		if err := json.Unmarshal(job.Payload, &result); err != nil {
+			return Job{}, err
+		}
+		if result.Exchange != nil {
+			for _, w := range result.Exchange.Warnings {
+				doc := w.DocumentID
+				if doc == "" {
+					doc = *job.DocumentID
+				}
+				if _, err := tx.Exec(ctx, `INSERT INTO occccad.import_document_issues(document_id,job_id,definition_id,code,message)
+                 VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, doc, job.ID, w.DefinitionID, w.Code, w.Message); err != nil {
+					return Job{}, err
+				}
+			}
 		}
 	}
 	if err = notify(ctx, tx, job); err != nil {

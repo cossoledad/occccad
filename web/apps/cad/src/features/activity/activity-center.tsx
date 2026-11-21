@@ -33,9 +33,6 @@ export function ActivityCenter() {
   const retry = useMutation({ mutationFn: api.retryJob, onSuccess: refresh,
     onError: (error) => feedback(error,"任务操作") });
 
-  const recover = useMutation({mutationFn: ({jobId, definitionId}: {jobId: string; definitionId: string}) =>
-    api.recoverImportPart(jobId, definitionId), onSuccess: refresh, onError: error => feedback(error, "恢复零件")});
-
   return <>
     <Badge count={activeCount} size="small" offset={[-2, 3]}>
       <Button ghost aria-label="打开消息中心" icon={<BellOutlined />} onClick={() => setOpen(true)} />
@@ -53,12 +50,9 @@ export function ActivityCenter() {
               <Typography.Text type="secondary" className="activity-time">{new Date(item.createdAt).toLocaleString()}</Typography.Text></div>
               <Tag color={item.warnings.length ? "warning" : status.color}>{item.warnings.length ? "已完成，有警告" : status.label}</Tag></div>
             <Typography.Paragraph type={item.status === "FAILED" ? "danger" : "secondary"}>{item.description}</Typography.Paragraph>
-            {item.warnings.map((warning) => <Typography.Paragraph key={warning} type="warning">{warning}</Typography.Paragraph>)}
-            {item.recoverableParts.map(part => <div key={part.definitionId}>
-              <Typography.Text>{part.detail}</Typography.Text>
-              <Button size="small" type="link" loading={recover.isPending && recover.variables.definitionId === part.definitionId && recover.variables.jobId === item.resourceId}
-                onClick={() => recover.mutate({jobId:item.resourceId, definitionId:part.definitionId})}>重新处理此零件</Button>
-            </div>)}
+            {item.generalWarnings.map((warning) => <Typography.Paragraph key={warning} type="warning">{warning}</Typography.Paragraph>)}
+            {item.warningParts.length > 0 && <ul aria-label="有警告的零件">{item.warningParts.map(part =>
+              <li key={part.id}>{part.name}</li>)}</ul>}
             {item.progress !== undefined && <Progress percent={item.progress} size="small"
               status={item.canceling ? "exception" : item.status === "RUNNING" ? "active" : "normal"} />}
             {item.actions.length > 0 && <Space wrap>

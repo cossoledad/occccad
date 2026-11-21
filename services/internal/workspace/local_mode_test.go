@@ -39,6 +39,9 @@ func TestLocalModeDocumentHistoryAndPermissions(t *testing.T) {
 	if e != nil || page.Total != 1 {
 		t.Fatalf("document listing: %+v %v", page, e)
 	}
+	if page.Documents[0].Health == nil || page.Documents[0].Health.Severity != HealthNormal {
+		t.Fatal("ordinary empty Part health", page.Documents[0].Health)
+	}
 	folders, e := s.ListFolders(ctx, "", actor, false)
 	if e != nil || len(folders) != 1 || folders[0].Permission != "OWNER" {
 		t.Fatalf("folder permissions: %+v %v", folders, e)
@@ -87,5 +90,47 @@ func TestLocalModeDocumentHistoryAndPermissions(t *testing.T) {
 	loaded, e := cold.GetDocument(ctx, part.Document.ID, actor)
 	if e != nil || loaded.Document.VersionID != redo.Document.VersionID || len(loaded.Part.Parameters) != 1 {
 		t.Fatalf("cold read: %v", e)
+	}
+}
+
+func TestFailedRevisionPropagatesErrorToRepeatedInstances(t *testing.T) {
+	ctx := t.Context()
+	db, err := database.Open(ctx, "sqlite:"+filepath.Join(t.TempDir(), "health.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := artifact.NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewWithArtifacts(db, nil, artifact.NewService(db, store))
+	actor := access.DefaultUserID
+	part, err := s.CreateDocument(ctx, CreateDocumentRequest{ActorID: actor, Type: "PART", Name: "Part"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instances := []ProductInstance{{ID: "part-a", Name: "A", ReferenceMode: "PINNED", ReferencedDocumentID: part.Document.ID, ReferencedVersionID: part.Document.VersionID}, {ID: "part-b", Name: "B", ReferenceMode: "PINNED", ReferencedDocumentID: part.Document.ID, ReferencedVersionID: part.Document.VersionID}}
+	product, err := s.CommitImportedProduct(ctx, actor, "", "fixture", "Assembly", instances)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE occccad.document_versions SET state='FAILED' WHERE id=$1`, part.Document.VersionID); err != nil {
+		t.Fatal(err)
+	}
+	product, err = s.GetDocument(ctx, product.Document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if product.Document.Health.Severity != HealthError || product.StructureTree.Health.Severity != HealthError {
+		t.Fatal(product.Document.Health)
+	}
+	for _, i := range product.Product.Instances {
+		if i.Health.Severity != HealthError {
+			t.Fatal(i.Health)
+		}
 	}
 }

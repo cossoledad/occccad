@@ -18,7 +18,7 @@ import (
 const (
 	Width           = 640
 	Height          = 400
-	RendererVersion = "png-v12-studio-normals"
+	RendererVersion = "png-v13-clustered-surfaces"
 	ContentType     = "image/png"
 	samples         = 2
 	// Bound scene preparation independently of pixel count and the job deadline.
@@ -34,29 +34,102 @@ func RenderWithTimeout(view workspace.DocumentView, timeout time.Duration) ([]by
 	return RenderContext(context.Background(), view, timeout)
 }
 
-// RenderContext is synchronous: cancellation never leaves a renderer goroutine
-// consuming CPU after a job lease has ended. Budget/deadline exhaustion uses a
-// cached placeholder; parent cancellation remains an error for the job runner.
-func RenderContext(parent context.Context, view workspace.DocumentView, timeout time.Duration) ([]byte, bool, error) {
+// RenderContext works with an already hydrated view.
+func RenderContext(ctx context.Context, view workspace.DocumentView, base time.Duration) ([]byte, bool, error) {
+	return RenderDisplay(ctx, view, base, nil)
+}
+
+// RenderDisplay selects detail from the visible, placed workload. The return
+// flag identifies a reduced rendering of the model. Errors remain job failures.
+func RenderDisplay(parent context.Context, view workspace.DocumentView, base time.Duration, hydrate func(context.Context, *workspace.Artifact) error) ([]byte, bool, error) {
 	if err := parent.Err(); err != nil {
 		return nil, false, err
 	}
-	if timeout <= 0 {
-		return Default(view), true, nil
+	load := estimateScene(view)
+	budget := load.budget(base)
+	overview := base <= 0 || load.triangles > maxTriangles || load.vertices > maxVertices || load.instances > maxInstances
+	if !overview {
+		loaded := make(map[string]workspace.Artifact, len(load.uses))
+		for key := range load.uses {
+			a, ok := view.Artifacts[key]
+			if !ok {
+				continue
+			}
+			if hydrate != nil {
+				if err := hydrate(parent, &a); err != nil {
+					return nil, false, err
+				}
+			}
+			loaded[key] = a
+		}
+		view.Artifacts = loaded
+		ctx, cancel := context.WithTimeout(parent, budget)
+		data, err := render(ctx, view)
+		cancel()
+		if parent.Err() != nil {
+			return nil, false, parent.Err()
+		}
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, errSceneBudget) {
+			return data, false, err
+		}
+		hydrate = nil
 	}
-	ctx, cancel := context.WithTimeout(parent, timeout)
+
+	// Retain a bounded mesh for each unique geometry. Give short interactive
+	// deadlines a separate bounded overview budget after the detailed pass.
+	ctx, cancel := context.WithTimeout(parent, max(5*time.Second, min(2*time.Minute, budget)))
 	defer cancel()
-	payload, err := render(ctx, view)
-	if parent.Err() != nil {
-		return nil, false, parent.Err()
+	if load.instances > maxInstances {
+		// Spread representative placements over the entire ordered occurrence list.
+		selected := make([]workspace.ResolvedInstance, 0, maxInstances)
+		index := 0
+		for _, inst := range view.ResolvedInstances {
+			if !visibleInstance(view, inst) {
+				continue
+			}
+			if index == len(selected)*(load.instances-1)/(maxInstances-1) {
+				selected = append(selected, inst)
+			}
+			index++
+		}
+		view.ResolvedInstances = selected
+		load = estimateScene(view)
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errSceneBudget) {
-		return Default(view), true, nil
+	reduced := make(map[string]workspace.Artifact, len(load.uses))
+	for key, n := range load.uses {
+		a, ok := view.Artifacts[key]
+		if !ok {
+			continue
+		}
+		if hydrate != nil {
+			if err := hydrate(ctx, &a); err != nil {
+				return nil, true, err
+			}
+		}
+		size := len(a.Mesh.Triangles)
+		denominator := load.triangles
+		if size == 0 {
+			size = max(1, len(a.Mesh.Vertices), len(a.Mesh.Edges), len(a.Mesh.TopologyVertices))
+			denominator = load.vertices
+		}
+		target := int(int64(overviewTriangles) * int64(size) / max(int64(1), denominator, int64(size)*int64(n)))
+		var err error
+		a.Mesh, err = compactMesh(ctx, a.Mesh, max(12, min(overviewTriangles, target)))
+		if err != nil {
+			return nil, true, err
+		}
+		reduced[key] = a
 	}
-	return payload, false, err
+	view.Artifacts = reduced
+	data, err := renderScenePNG(ctx, view, true)
+	return data, true, err
 }
 
 func render(ctx context.Context, view workspace.DocumentView) ([]byte, error) {
+	return renderScenePNG(ctx, view, false)
+}
+
+func renderScenePNG(ctx context.Context, view workspace.DocumentView, overview bool) ([]byte, error) {
 	scene, err := collectScene(ctx, view)
 	if err != nil {
 		return nil, err
@@ -65,6 +138,7 @@ func render(ctx context.Context, view workspace.DocumentView) ([]byte, error) {
 		return Default(view), nil
 	}
 	raster := newRaster(scene)
+	raster.overview = overview
 	if err := raster.draw(ctx, scene); err != nil {
 		return nil, err
 	}

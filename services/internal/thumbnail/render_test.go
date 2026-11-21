@@ -213,7 +213,7 @@ func TestInvalidGeometryAndCancellation(t *testing.T) {
 	decode(t, result)
 	for _, duration := range []time.Duration{0, time.Nanosecond} {
 		result, fallback, err := RenderWithTimeout(view, duration)
-		if err != nil || !fallback {
+		if err != nil || !fallback || bytes.Equal(result, Default(view)) {
 			t.Fatalf("deadline: fallback=%v err=%v", fallback, err)
 		}
 		decode(t, result)
@@ -280,5 +280,29 @@ func BenchmarkThumbnailRing(b *testing.B) {
 		if _, err := Render(view); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestPlacedMeshBudgetRendersActualGeometryOncePerDefinition(t *testing.T) {
+	v := partView(ringMesh(96))
+	a := v.Artifacts["fixture"]
+	a.TriangleCount = 600_000
+	v.Artifacts["fixture"] = a
+	v.Document.Type = "PRODUCT"
+	v.Part = nil
+	v.ResolvedInstances = []workspace.ResolvedInstance{{ID: "a", GeometryKey: "fixture"}, {ID: "b", GeometryKey: "fixture", Translation: vec{100, 0, 0}}, {ID: "hidden", BodyID: "x", GeometryKey: "fixture", Translation: vec{0, 10000, 0}}}
+	calls := 0
+	load := func(context.Context, *workspace.Artifact) error { calls++; return nil }
+	png, overview, err := RenderDisplay(t.Context(), v, time.Second, load)
+	if err != nil || !overview || calls != 1 || bytes.Equal(png, Default(v)) {
+		t.Fatalf("overview=%t loads=%d err=%v", overview, calls, err)
+	}
+	if estimateScene(v).budget(time.Second) != 5*time.Second {
+		t.Fatal("expected placed visible work to scale deadline")
+	}
+	v.ResolvedInstances = v.ResolvedInstances[:2]
+	again, _, err := RenderDisplay(t.Context(), v, time.Second, load)
+	if err != nil || !bytes.Equal(png, again) {
+		t.Fatal("hidden placement changed overview", err)
 	}
 }

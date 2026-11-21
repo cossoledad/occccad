@@ -1217,7 +1217,7 @@ export const mockApi: CadApi = {
     setBodyArtifact(view,boxArtifact(id("mock-exchange"), [48, 32, 26]));
     summaries.unshift(document); views.set(documentID, view); histories.set(documentID, []);
     const job: Job = { id: id("mock-job"), type: "EXCHANGE_IMPORT", state: "SUCCEEDED", documentId: documentID,
-      progress: 100, payload: { fileName: file.name, format: "STEP" }, attemptCount: 1, maxAttempts: 3,
+      progress: 100, payload: { fileName: file.name, format: "STEP" }, attemptCount: 1, maxAttempts: 2,
       createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };
     jobs.set(job.id, job); return pause(job);
   },

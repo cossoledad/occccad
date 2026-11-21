@@ -159,3 +159,57 @@ func TestLocalModeLeaseReclaimAndCancellation(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestImportAttemptsBoundFailureAndExpiredLease(t *testing.T) {
+	ctx := t.Context()
+	db, err := database.Open(ctx, "sqlite:"+filepath.Join(t.TempDir(), "import.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	s := New(db)
+	actor := "00000000-0000-7000-8000-000000000001"
+	job, err := s.Enqueue(ctx, EnqueueRequest{Type: "EXCHANGE_IMPORT", RequestedBy: actor, IdempotencyKey: "import", Payload: map[string]any{}})
+	if err != nil || job.MaxAttempts != 2 {
+		t.Fatalf("import budget %+v %v", job, err)
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		j, err := s.Claim(ctx, "worker", time.Minute)
+		if err != nil || j.AttemptCount != attempt {
+			t.Fatal(j, err)
+		}
+		if err = s.Fail(ctx, j, "worker", "UNAVAILABLE", "storage offline"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.Exec(ctx, `UPDATE occccad.jobs SET available_at=now() WHERE id=$1`, job.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	failed, err := s.Get(ctx, job.ID)
+	if err != nil || failed.State != "FAILED" {
+		t.Fatal(failed, err)
+	}
+	job, err = s.Retry(ctx, job.ID, actor, false)
+	if err != nil || job.MaxAttempts != 4 {
+		t.Fatal(job, err)
+	}
+	for attempt := 3; attempt <= 4; attempt++ {
+		j, err := s.Claim(ctx, "worker", time.Minute)
+		if err != nil || j.AttemptCount != attempt {
+			t.Fatal(j, err)
+		}
+		if _, err = db.Exec(ctx, `UPDATE occccad.jobs SET lease_expires_at=$2 WHERE id=$1`, job.ID, time.Now().Add(-time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = s.Claim(ctx, "worker", time.Minute); !errors.Is(err, database.ErrNoRows) {
+		t.Fatal("unexpected extra attempt", err)
+	}
+	failed, err = s.Get(ctx, job.ID)
+	if err != nil || failed.State != "FAILED" || failed.AttemptCount != 4 {
+		t.Fatal(failed, err)
+	}
+}

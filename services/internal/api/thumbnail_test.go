@@ -75,6 +75,32 @@ func TestMissingThumbnailRepairsWithoutOpeningDocument(t *testing.T) {
 			if err = db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.jobs WHERE document_id=$1 AND job_type='THUMBNAIL_RENDER'`, view.Document.ID).Scan(&count); err != nil || count != 1 {
 				t.Fatalf("non-idempotent repair: %d %v", count, err)
 			}
+			var events int
+			if err = db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.outbox_events e JOIN occccad.jobs j ON e.aggregate_id=j.id::text WHERE e.aggregate_type='JOB' AND j.document_id=$1`, view.Document.ID).Scan(&events); err != nil || events != 1 {
+				t.Fatalf("poll emitted extra events %d %v", events, err)
+			}
+			if _, err = db.Exec(t.Context(), `UPDATE occccad.jobs SET state='FAILED',attempt_count=3,completed_at=now() WHERE document_id=$1`, view.Document.ID); err != nil {
+				t.Fatal(err)
+			}
+			if w := get(); w.Header().Get("X-OCCCCAD-Thumbnail-State") != "failed" {
+				t.Fatal(w.Header())
+			}
+			if _, err = db.Exec(t.Context(), `UPDATE occccad.jobs SET completed_at=now()-interval '11 minutes' WHERE document_id=$1`, view.Document.ID); err != nil {
+				t.Fatal(err)
+			}
+			if w := get(); w.Header().Get("X-OCCCCAD-Thumbnail-State") != "pending" {
+				t.Fatal(w.Header())
+			}
+			if _, err = db.Exec(t.Context(), `UPDATE occccad.jobs SET state='SUCCEEDED',completed_at=now() WHERE document_id=$1`, view.Document.ID); err != nil {
+				t.Fatal(err)
+			}
+			if w := get(); w.Header().Get("X-OCCCCAD-Thumbnail-State") != "pending" {
+				t.Fatal(w.Header())
+			}
+			var state string
+			if err = db.QueryRow(t.Context(), `SELECT state FROM occccad.jobs WHERE document_id=$1`, view.Document.ID).Scan(&state); err != nil || state != "QUEUED" {
+				t.Fatalf("missing derived image left with completed job: %s %v", state, err)
+			}
 			if err = server.enqueueDocumentPreviews(t.Context(), view, access.DefaultUserID); err != nil {
 				t.Fatal("mutation scheduling", err)
 			}

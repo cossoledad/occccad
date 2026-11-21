@@ -218,6 +218,11 @@ func (server *Server) cancelJob(writer http.ResponseWriter, request *http.Reques
 	writeJSON(writer, http.StatusOK, updated)
 }
 
+const importCreationRevision = `SELECT v.document_id::text,v.id::text
+ FROM occccad.commands c JOIN occccad.document_versions v
+ ON v.document_id=c.document_id AND v.sequence=1 AND v.created_by_command_id=c.id
+ WHERE c.request_id=$1 AND c.command_type='CREATE_DOCUMENT' AND c.status='SUCCEEDED'`
+
 // Recovery resolves the target from the original import transaction. A source
 // definition label only has meaning inside that job's immutable input.
 func (server *Server) recoverImportedPart(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +256,7 @@ func (server *Server) recoverImportedPart(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var documentID, versionID string
-	err := server.database.QueryRow(r.Context(), `SELECT v.document_id::text,v.id::text FROM occccad.commands c JOIN occccad.document_versions v ON v.created_by_command_id=c.id WHERE c.request_id=$1 AND c.command_type='CREATE_DOCUMENT' AND c.status='SUCCEEDED'`, original.RequestID+"/definition/"+input.DefinitionID+"/document").Scan(&documentID, &versionID)
+	err := server.database.QueryRow(r.Context(), importCreationRevision, original.RequestID+"/definition/"+input.DefinitionID+"/document").Scan(&documentID, &versionID)
 	if err != nil {
 		writeWorkspaceResult(w, workspace.DocumentView{}, err)
 		return
@@ -352,7 +357,7 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 	err := server.database.QueryRow(request.Context(), `SELECT p.object_id::text
 		FROM occccad.document_previews p
 		JOIN occccad.documents d ON d.id=p.document_id AND d.head_version_id=p.version_id
-		WHERE p.document_id=$1 AND p.state='READY' AND p.renderer_version=$2
+		WHERE p.document_id=$1 AND p.state='READY' AND p.object_id IS NOT NULL AND p.renderer_version=$2
 		ORDER BY p.updated_at DESC LIMIT 1`, request.PathValue("documentID"), thumbnail.RendererVersion).Scan(&objectID)
 	if err != nil {
 		if !errors.Is(err, database.ErrNoRows) {
@@ -384,21 +389,31 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 
 // Reading a missing derived preview repairs only the artifact queue, never the document Revision.
 func (server *Server) writePendingThumbnail(writer http.ResponseWriter, request *http.Request, documentType, versionID string) {
-	state := "default"
-	if err := server.enqueuePreview(request.Context(), request.PathValue("documentID"), versionID, principal(request).ID); err != nil {
+	documentID := request.PathValue("documentID")
+	job, err := server.ensurePreview(request.Context(), documentID, versionID, principal(request).ID)
+	state := "pending"
+	if err != nil {
 		slog.ErrorContext(request.Context(), "schedule missing document preview", "error", err)
+		writeError(writer, http.StatusServiceUnavailable, "thumbnail scheduling unavailable")
+		return
+	}
+	if job.State == "FAILED" || job.State == "CANCELED" {
+		state = "failed"
 	} else {
-		state = "pending"
-		writer.Header().Set("Retry-After", "1")
+		writer.Header().Set("Retry-After", "2")
 	}
 	writeThumbnail(writer, thumbnail.DefaultForType(documentType), state)
 }
+
 func (server *Server) enqueuePreview(ctx context.Context, documentID, versionID, actorID string) error {
+	_, err := server.ensurePreview(ctx, documentID, versionID, actorID)
+	return err
+}
+func (server *Server) ensurePreview(ctx context.Context, documentID, versionID, actorID string) (jobs.Job, error) {
 	digest := sha256.Sum256([]byte(documentID + ":" + versionID + ":" + thumbnail.RendererVersion))
 	identity := hex.EncodeToString(digest[:])
-	_, err := server.jobs.Enqueue(ctx, jobs.EnqueueRequest{Type: "THUMBNAIL_RENDER", DocumentID: documentID, VersionID: &versionID, RequestedBy: actorID, IdempotencyKey: identity,
+	return server.jobs.EnsureThumbnail(ctx, jobs.EnqueueRequest{Type: "THUMBNAIL_RENDER", DocumentID: documentID, VersionID: &versionID, RequestedBy: actorID, IdempotencyKey: identity,
 		Payload: map[string]any{"previewIdentity": identity, "rendererVersion": thumbnail.RendererVersion}})
-	return err
 }
 
 func writeThumbnail(writer http.ResponseWriter, payload []byte, state string) {

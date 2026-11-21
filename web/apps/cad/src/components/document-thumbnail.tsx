@@ -1,3 +1,4 @@
+import { FileImageOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useRef, useState } from "react";
 import { isMockMode, previewURL } from "../api/client";
@@ -19,7 +20,7 @@ function ThumbnailImageView({ document, source }: { document: DocumentSummary; s
     staleTime: 0, gcTime: 120_000, retry: 1,
     refetchInterval: query => {
       const image = query.state.data;
-      return image?.pending && image.attempts <= 12 ? Math.min(5000, 750 * 2 ** Math.min(image.attempts, 3)) : false;
+      return image?.pending ? Math.min(30_000, 750 * 2 ** Math.min(image.attempts, 6)) : false;
     },
   });
   const [image, setImage] = useState<{ blob: Blob; url: string }>();
@@ -30,6 +31,7 @@ function ThumbnailImageView({ document, source }: { document: DocumentSummary; s
     setImage({ blob, url });
     return () => URL.revokeObjectURL(url);
   }, [blob]);
+  if (resource.data?.failed) return <span className="thumbnail-failed" role="img" aria-label="缩略图生成失败" title="缩略图生成失败"><FileImageOutlined/> 缩略图生成失败</span>;
   return image
     ? <img decoding="async" src={image.url} alt={`${document.name} 缩略图`} onError={() => setImage(undefined)} />
     : <span className="empty-scene-preview" aria-label="空场景" />;
@@ -43,7 +45,7 @@ export const DocumentThumbnail = memo(function DocumentThumbnail({ document }: {
   useEffect(() => {
     if (isMockMode || !source || !host.current) return;
     const observer = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting)) { observer.disconnect(); setVisible(true); }
+      setVisible(entries.some(entry => entry.isIntersecting));
     }, { rootMargin: "160px" });
     observer.observe(host.current);
     return () => observer.disconnect();

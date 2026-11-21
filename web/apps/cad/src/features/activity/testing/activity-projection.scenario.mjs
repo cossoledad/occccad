@@ -59,5 +59,13 @@ assert.deepEqual(activity.exchangeCompletionWarnings({ ...warningJob, state: "RU
 assert.deepEqual(activity.exchangeCompletionWarnings({ ...warningJob, state: "FAILED" }), []);
 assert.deepEqual(activity.exchangeCompletionWarnings({ ...warningJob, payload: { exchange: { warnings: [null, {}, { message: 7 }] } } }), []);
 
+const mixed = activity.projectJobActivity({...warningJob, payload:{exchange:{warnings:[
+  {code:"G",message:"文件图层已跳过"},
+  {code:"EXCHANGE_COMPONENT_DISPLAY_UNSUPPORTED",definitionId:"a",message:"部分内容已跳过",detail:"Fan Guide 107H: VISUAL_MESH_FAILED:status=4"},
+  {code:"X",documentId:"b",partName:"Rotor",message:"分面外观缺失"},
+  {code:"Y",documentId:"b",partName:"Rotor",message:"部分内容已跳过"},
+]}}});
+assert.deepEqual(mixed.warningParts, [{id:"a",name:"Fan Guide 107H"},{id:"b",name:"Rotor"}]);
+assert.deepEqual(mixed.generalWarnings, ["文件图层已跳过"]);
 console.log("Activity center model tests passed.");
 } finally {await server.close();}

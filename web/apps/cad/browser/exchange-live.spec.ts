@@ -28,14 +28,17 @@ test('exchange: unsupported-only file creates an empty Part and persistent compl
  await page.getByRole('button',{name:'导入',exact:true}).click();const d=page.getByRole('dialog',{name:'导入文档',exact:true});
  await expect(d.locator('input[type=file]')).toBeEnabled();await d.locator('input[type=file]').setInputFiles({name,mimeType:'model/step',buffer:Buffer.from(metadata)});
  await d.getByRole('button',{name:/导\s*入/}).click();await expect(d).toHaveCount(0);
- const toast=page.locator('.ant-notification-notice').filter({hasText:'文档导入完成，有警告'}).filter({hasText:warnings}).filter({hasText:name});await expect(toast).toBeVisible({timeout:60_000});
+ const toast=page.locator('.ant-notification-notice').filter({hasText:'导入完成，有警告'}).filter({hasText:warnings}).filter({hasText:name});await expect(toast).toBeVisible({timeout:60_000});
  const job=await page.evaluate(async name=>{const{restApi:api}=await import('/src/api.ts');return(await api.listJobs()).find(j=>j.type==='EXCHANGE_IMPORT'&&j.payload.fileName===name)},name);
  expect(job?.state).toBe('SUCCEEDED');expect(job?.documentId).toBeTruthy();
  await toast.getByRole('button',{name:'打开文档',exact:true}).click();await expect(page.locator('canvas').first()).toBeVisible();
- const view=await(await page.request.get(`/api/documents/${job!.documentId}`)).json();expect(view.document.type).toBe('PART');expect(view.part.features).toHaveLength(0);
- await page.reload();await page.getByRole('button',{name:'打开消息中心'}).click();const item=page.locator('.activity-item').filter({hasText:name});await expect(item).toContainText(warnings);await expect(item).toContainText('已完成，有警告');await expect(item.getByRole('button',{name:/打开文档/})).toBeVisible();
+ const view=await(await page.request.get(`/api/documents/${job!.documentId}`)).json();expect(view.document.type).toBe('PART');expect(view.part.features).toHaveLength(0);expect(view.document.health.severity).toBe('WARNING');await expect(page.locator('.tree-status-badge[title*=警告]').first()).toBeVisible();
+ await page.reload();await page.getByRole('button',{name:'打开消息中心'}).click();const item=page.locator('.activity-item').filter({hasText:name});await expect(item.getByRole('list',{name:'有警告的零件'})).toContainText(view.document.name);await expect(item).not.toContainText('重新处理此零件');await expect(item).toContainText('已完成，有警告');await expect(item.getByRole('button',{name:/打开文档/})).toBeVisible();
  await page.screenshot({path:info.outputPath('empty-import-persistent-warning.png')});
- await page.request.delete(`/api/documents/${job!.documentId}`);
+ await page.goto('/');await page.getByRole('textbox',{name:'搜索文档'}).fill(view.document.name);
+ const card=page.locator('.document-card').filter({hasText:view.document.name});
+ await expect(card.getByText('警告',{exact:true})).toBeVisible();
+ await page.evaluate(async id=>{const {restApi}=await import('/src/api.ts');await restApi.deleteDocument(id)},job!.documentId!);
 });
 
 test('exchange: export dialog selects hidden objects and STEP schema through real Jobs',async({page},info)=>{
@@ -102,4 +105,17 @@ test('adopting a pinned revision advances just the selected shared occurrence',a
  expect(view.product.instances.map((i:any)=>[i.referenceMode,i.versionId])).toEqual([['PINNED',seed.head],['PINNED',seed.old]]);
  await page.request.delete('/api/documents/'+seed.owner);
  await page.request.delete('/api/documents/'+seed.source);
+});
+
+test('exchange: the file list scrolls while import controls stay visible',async({page})=>{
+ await login(page);
+ await page.getByRole('button',{name:'导入',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'导入文档'}), list=dialog.locator('.ant-upload-list');
+ await expect(dialog.locator('input[type=file]')).toBeEnabled();
+ await dialog.locator('input[type=file]').setInputFiles(Array.from({length:30},(_,i)=>({name:`part-${i}.step`,mimeType:'model/step',buffer:Buffer.from(metadata)})));
+ await expect(list.locator('.ant-upload-list-item')).toHaveCount(30);
+ expect(await list.evaluate(el=>el.scrollHeight>el.clientHeight && getComputedStyle(el).overflowY==='auto')).toBeTruthy();
+ await list.evaluate(el=>el.scrollTop=el.scrollHeight);
+ await expect(list.getByText('part-29.step',{exact:true})).toBeInViewport();
+ await expect(dialog.getByRole('button',{name:/导\s*入/})).toBeInViewport();
 });

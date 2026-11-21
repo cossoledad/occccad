@@ -174,7 +174,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 			return err
 		}
 		report.EmptyParts = 1
-		report.Warnings = append(report.Warnings, exchange.Warning{Code: "EXCHANGE_EMPTY_PART", Message: exchange.WarningMessage("EXCHANGE_EMPTY_PART", ""), Count: 1})
+		report.Warnings = append(report.Warnings, exchange.Warning{Code: "EXCHANGE_EMPTY_PART", Message: exchange.WarningMessage("EXCHANGE_EMPTY_PART", ""), Count: 1, DocumentID: view.Document.ID, PartName: view.Document.Name})
 		report.TimingsMS["total"] = float64(time.Since(started).Microseconds()) / 1000
 		return h.queue.SucceedImport(ctx, job.ID, h.workerID, view.Document.ID, report)
 	}
@@ -303,13 +303,14 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	slog.Info("exchange Part creation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	report.TimingsMS["createParts"] = float64(time.Since(phaseStarted).Microseconds()) / 1000
 	phaseStarted = time.Now()
-	if recovery != nil {
-		report.TimingsMS["total"] = float64(time.Since(started).Microseconds()) / 1000
-		return h.queue.SucceedImport(ctx, job.ID, h.workerID, *job.DocumentID, report)
-	}
 	documents := map[string]workspace.DocumentView{}
 	for i, def := range components {
 		documents[def.Id] = parts[i]
+	}
+	if recovery != nil {
+		bindWarningDocuments(report, documents)
+		report.TimingsMS["total"] = float64(time.Since(started).Microseconds()) / 1000
+		return h.queue.SucceedImport(ctx, job.ID, h.workerID, *job.DocumentID, report)
 	}
 	if err := h.queue.UpdateProgressDetail(ctx, job.ID, h.workerID, 95, &jobs.ProgressDetail{Phase: "ASSEMBLING", Completed: count, Total: count}); err != nil {
 		return err
@@ -325,5 +326,18 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	slog.Info("exchange assembly completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	report.TimingsMS["assemble"] = float64(time.Since(phaseStarted).Microseconds()) / 1000
 	report.TimingsMS["total"] = float64(time.Since(started).Microseconds()) / 1000
+	bindWarningDocuments(report, documents)
 	return h.queue.SucceedImport(ctx, job.ID, h.workerID, root.Document.ID, report)
+}
+
+func bindWarningDocuments(report *exchange.Report, documents map[string]workspace.DocumentView) {
+	for i := range report.Warnings {
+		w := &report.Warnings[i]
+		if view, ok := documents[w.DefinitionID]; ok {
+			w.DocumentID = view.Document.ID
+			if view.Document.Type == "PART" {
+				w.PartName = view.Document.Name
+			}
+		}
+	}
 }

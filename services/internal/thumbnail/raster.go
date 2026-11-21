@@ -11,6 +11,7 @@ import (
 
 type screenPoint struct{ x, y, z float64 }
 type raster struct {
+	overview          bool
 	pixels            *image.RGBA
 	depth             []float64
 	transparentColor  [3][]float64
@@ -157,6 +158,9 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 	// shine through another instance or a nearer part of the same concave body.
 	for _, instance := range s.meshes {
 		m := instance.mesh.mesh
+		if r.overview && len(m.Triangles) > 0 && instance.domain != "WIRE_SET" {
+			continue
+		}
 		edgeColor, edgeWidth, edgeOpacity := thumbnailEdgeStyle(instance.appearance)
 		if instance.domain == "WIRE_SET" {
 			edgeColor = color.RGBA{169, 155, 255, 255}

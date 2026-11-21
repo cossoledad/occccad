@@ -232,6 +232,17 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 	if err := rows.Err(); err != nil {
 		return DocumentPage{}, err
 	}
+	versions := make([]string, len(result))
+	for i := range result {
+		versions[i] = result[i].VersionID
+	}
+	health, err := service.revisionHealth(ctx, versions)
+	if err != nil {
+		return DocumentPage{}, err
+	}
+	for i := range result {
+		result[i].Health = health[result[i].VersionID]
+	}
 	if !options.OmitHistory {
 		if err := service.populateHistoryCapabilities(ctx, result, options.ActorID); err != nil {
 			return DocumentPage{}, err
@@ -1137,7 +1148,15 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 	if err != nil {
 		return DocumentView{}, err
 	}
-	return adapter.Project(ctx, service, summary, modelJSON)
+	view, err := adapter.Project(ctx, service, summary, modelJSON)
+	if err != nil {
+		return view, err
+	}
+	health, err := service.revisionHealth(ctx, []string{summary.VersionID})
+	if err == nil {
+		applyDocumentHealth(&view, health)
+	}
+	return view, err
 }
 
 // MarkDocumentOpened belongs to the explicit navigation lifecycle. Resource

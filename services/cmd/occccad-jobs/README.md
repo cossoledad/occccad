@@ -8,7 +8,7 @@ occccad-jobs 是当前数据库持久任务的消费者进程，适合脱离 HTT
 |---|---|---|
 | `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 一次解析 XDE Definition/Occurrence graph；唯一 Part 的实体、开放及混合几何并行求值/命名，按依赖创建共享、嵌套 Product |
 | `EXCHANGE_EXPORT` | Part 或 Product 当前 Head 的 B-Rep 引用 | 生成 STEP/BREP，并把结果对象 ID 写回任务 |
-| `THUMBNAIL_RENDER` | 文档与版本 | 使用 `png-v10-engineering-curves` 生成 `640×400` 正交等轴测 PNG 并更新 `document_previews` |
+| `THUMBNAIL_RENDER` | 文档与版本 | 生成 `640×400` 正交等轴测 PNG 并更新 `document_previews` |
 | `MOTION_STUDY` | 不可变 MOTION_SNAPSHOT 制品 | SolveAssembly/AnalyzeInterference 经 Router 执行，保存 MOTION_RUN；不修改 Product Head |
 
 Worker 不提供网络 API，不接受用户认证请求，也不是通用分布式工作流引擎。
@@ -38,10 +38,7 @@ flowchart LR
 - 领取语义是至少一次，任务处理器必须依赖幂等键和条件写入，不能假设“恰好一次”；
 - 最终成功、最终失败或取消与 `JOB` Outbox 在同一数据库事务中写入；API 通过 `job.state.changed.v1` 通知任务发起用户，重试等待状态不制造失败通知；
 - 轮询为空时等待 1 秒。
-- 缩略图生成默认有 `5s` deadline，可通过 `OCCCCAD_THUMBNAIL_RENDER_TIMEOUT` 调整；超时或场景预算耗尽会持久化固定尺寸默认 PNG。API 在预览尚未生成或制品不可用时也返回默认 PNG；父 Job 取消直接结束渲染，不遗留后台渲染 goroutine。
-- `png-v4` 与视口共用 `(1,-1,1)` / Z-up 的正交 ISO 约定，按实际投影几何统一 Fit，应用 occurrence 完整 quaternion/translation。
-- CPU 扫描线光栅化使用逐像素深度、面内平滑法线、固定中性材质和 2× 超采样；优先绘制 B-Rep 边并做深度测试，缺少边时提取轮廓/折线。实体缩略图不绘制草图编辑覆盖层；无实体时保留 Visualization 曲线/点/面。
-- 不依赖浏览器、GPU 或新外部服务。每次渲染预算为 100 万展开三角形、300 万顶点/曲线点、1 万 occurrence；同场景相同 GeometryKey 复用法线准备结果。该边界只影响预览，不删除/简化权威模型。
+- 缩略图使用 640×400 CPU 正交光栅化，保留可见实例的放置和外观。`OCCCCAD_THUMBNAIL_RENDER_TIMEOUT` 设置基础时间。较大的场景按几何规模增加预算，超限转为简化网格概览，失败进入任务重试。具体参数见[缩略图的颜色与计算](../../../docs/architecture/current/visual-studio.md#缩略图的颜色与计算)。
 - RendererVersion 是缓存身份的一部分；不修改文档 Revision。旧版本渲染任务会被跳过；当前数据库由统一 baseline 迁移建立。
 - 就绪图像通过 `ETag` 和 `private, no-cache` 复用响应字节，每次重验证仍校验权限与当前 Head，包含 FOLLOW_HEAD 引用变化。
 - 渲染器、数值/遮挡测试与基准位于 `internal/thumbnail`；设置 `OCCCCAD_THUMBNAIL_GALLERY=<repo>/build/agent-check/thumbnail-gallery` 后运行 `go test ./internal/thumbnail -run TestThumbnailGallery` 可导出视觉样例。

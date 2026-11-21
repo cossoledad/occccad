@@ -309,42 +309,45 @@ func (s *Service) namingReference(ctx context.Context, key string) (*string, *st
 	return &id, &digest, geometryID, brepDigest, nil
 }
 
-// HydrateDisplay is explicitly consumer-local (thumbnail/preview), never called
-// by GetDocument. All solid display geometry is decoded from the same GLB.
+// HydrateArtifact decodes the immutable display representation for a local consumer.
+func (s *Service) HydrateArtifact(ctx context.Context, a *Artifact) error {
+	data, err := s.readRepresentation(ctx, a.GeometryKey, "VISUAL")
+	if err != nil {
+		return err
+	}
+	mesh, metadata, err := visual.Decode(data)
+	if err != nil {
+		return err
+	}
+	if err := mesh.Association.Validate(a.GeometryID, a.Representations["NAMING"].Digest); err != nil {
+		return err
+	}
+	a.Mesh = mesh
+	if len(metadata) > 0 {
+		if err = json.Unmarshal(metadata, &a.Visualization); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// HydrateDisplay is explicitly consumer-local, never called by GetDocument.
 func (s *Service) HydrateDisplay(ctx context.Context, view *DocumentView) error {
-	hydrate := func(a *Artifact) error {
-		data, err := s.readRepresentation(ctx, a.GeometryKey, "VISUAL")
-		if err != nil {
-			return err
-		}
-		mesh, metadata, err := visual.Decode(data)
-		if err != nil {
-			return err
-		}
-		if err := mesh.Association.Validate(a.GeometryID, a.Representations["NAMING"].Digest); err != nil {
-			return err
-		}
-		a.Mesh = mesh
-		if len(metadata) > 0 {
-			if err = json.Unmarshal(metadata, &a.Visualization); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if view.Artifact != nil {
-		copy := *view.Artifact
-		view.Artifact = &copy
-		if err := hydrate(view.Artifact); err != nil {
-			return err
-		}
-	}
 	hydrated := make(map[string]Artifact, len(view.Artifacts))
 	for key, a := range view.Artifacts {
-		if err := hydrate(&a); err != nil {
+		if err := s.HydrateArtifact(ctx, &a); err != nil {
 			return err
 		}
 		hydrated[key] = a
+	}
+	if view.Artifact != nil {
+		primary := *view.Artifact
+		if a, ok := hydrated[primary.GeometryKey]; ok {
+			primary.Mesh, primary.Visualization = a.Mesh, a.Visualization
+		} else if err := s.HydrateArtifact(ctx, &primary); err != nil {
+			return err
+		}
+		view.Artifact = &primary
 	}
 	view.Artifacts = hydrated
 	return nil

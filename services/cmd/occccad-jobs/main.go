@@ -276,17 +276,12 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if preview.RendererVersion != thumbnail.RendererVersion {
 			return h.queue.Succeed(ctx, job.ID, h.workerID, "")
 		}
-		if err := h.workspace.HydrateDisplay(ctx, &current); err != nil {
-			return err
-		}
-		payload, usedDefault, err := thumbnail.RenderContext(ctx, current, h.thumbnailRenderTimeout)
+		started := time.Now()
+		payload, overview, err := thumbnail.RenderDisplay(ctx, current, h.thumbnailRenderTimeout, h.workspace.HydrateArtifact)
 		if err != nil {
 			return err
 		}
-		if usedDefault {
-			slog.Warn("thumbnail render exceeded time or scene budget; storing default", "job_id", job.ID,
-				"document_id", *job.DocumentID, "timeout", h.thumbnailRenderTimeout)
-		}
+		slog.Info("thumbnail rendered", "job_id", job.ID, "document_id", *job.DocumentID, "overview", overview, "elapsed_ms", time.Since(started).Milliseconds())
 		object, err := h.artifacts.Put(ctx, artifact.KindThumbnail, thumbnail.ContentType, bytes.NewReader(payload))
 		if err != nil {
 			return err

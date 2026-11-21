@@ -56,6 +56,9 @@ func TestAssemblySTEPDocumentImport(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				if v.Document.Health == nil || v.StructureTree.Health == nil || *v.Document.Health != *v.StructureTree.Health {
+					t.Fatalf("missing document/tree health on %s", v.Document.Name)
+				}
 				byName[v.Document.Name] = v
 				if v.Product != nil {
 					instances += len(v.Product.Instances)
@@ -64,6 +67,9 @@ func TestAssemblySTEPDocumentImport(t *testing.T) {
 							t.Fatal("unversioned occurrence")
 						}
 						visit(inst.ReferencedDocumentID)
+						if inst.Health == nil {
+							t.Fatalf("missing occurrence health %s", inst.Name)
+						}
 					}
 					return
 				}
@@ -75,7 +81,7 @@ func TestAssemblySTEPDocumentImport(t *testing.T) {
 					empty++
 					found := false
 					for _, w := range report.Warnings {
-						if w.DefinitionID != "" && strings.HasPrefix(w.Detail, v.Document.Name+": ") {
+						if w.DefinitionID != "" && w.DocumentID == v.Document.ID && w.PartName == v.Document.Name && v.Document.Health.Severity == "WARNING" {
 							found = true
 						}
 					}
@@ -107,6 +113,9 @@ func TestAssemblySTEPDocumentImport(t *testing.T) {
 
 			}
 			visit(*job.DocumentID)
+			if empty > 0 && byName[tc.name].Document.Health.Severity != "WARNING" {
+				t.Fatal("missing assembly health")
+			}
 			t.Logf("definitions=%d instances=%d parts=%d empty=%d warnings=%+v", len(seen), instances, parts, empty, report.Warnings)
 			if len(seen) != tc.definitions || report.Definitions != tc.definitions || instances != tc.instances || empty != report.EmptyParts || empty > tc.maxEmpty {
 				t.Fatal("source structure or report mismatch")
@@ -115,7 +124,7 @@ func TestAssemblySTEPDocumentImport(t *testing.T) {
 			if tc.name == "Bench Vise" {
 				verifyImportedIndicatorFillet(t, f, byName["INDICATOR"])
 				label := byName["WARNING LABEL - ANSI"]
-				verifyImportedBoundaryRepair(t, f, recoverImportedFixture(t, f, *job.InputObjectID, label))
+				verifyImportedBoundaryRepair(t, f, recoverImportedFixture(t, f, job.ID, *job.InputObjectID, label))
 				changed := verifyImportedFaceEdit(t, f, label, 1, "MOVE_PLANAR_FACE", .02, "ADD")
 				adoptImportedReference(t, f, byName["MAIN ASSEMBLY"], changed)
 				editedLabel = changed
@@ -295,7 +304,7 @@ func adoptImportedReference(t *testing.T, f exchangeFixture, owner, updated work
 
 // Replay the same per-definition job that a historical partial import enqueues.
 // The copy has independent identity, as did the original empty placeholder.
-func recoverImportedFixture(t *testing.T, f exchangeFixture, sourceID string, original workspace.DocumentView) workspace.DocumentView {
+func recoverImportedFixture(t *testing.T, f exchangeFixture, originalJobID, sourceID string, original workspace.DocumentView) workspace.DocumentView {
 	t.Helper()
 	empty, err := f.h.workspace.CommitImportedEmptyPart(t.Context(), f.actor, f.folder, uuid.NewString(), original.Document.Name, "Bench Vise.step")
 	if err != nil {
@@ -304,6 +313,14 @@ func recoverImportedFixture(t *testing.T, f exchangeFixture, sourceID string, or
 	id := uuid.NewString()
 	var sourceDefinition string
 	if err = f.h.database.QueryRow(t.Context(), `SELECT definition->'source'->>'definitionId' FROM occccad.import_definitions WHERE id=$1`, original.Part.Features[0].ImportDefinitionID).Scan(&sourceDefinition); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.h.database.Exec(t.Context(), `INSERT INTO occccad.import_document_issues(document_id,job_id,definition_id,code,message)
+ VALUES($1,$2,$3,'EXCHANGE_COMPONENT_DISPLAY_UNSUPPORTED','fixture mesh failure')`, empty.Document.ID, originalJobID, sourceDefinition); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := f.h.workspace.CommitImportedProduct(t.Context(), f.actor, f.folder, uuid.NewString(), "Recovery assembly", []workspace.ProductInstance{{ID: uuid.NewString(), Name: "Part.1", ReferencedDocumentID: empty.Document.ID, ReferencedVersionID: empty.Document.VersionID, ReferenceMode: "PINNED"}})
+	if err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(map[string]string{"fileName": "Bench Vise.step", "format": "STEP", "requestId": id, "recoveryDefinition": sourceDefinition})
@@ -322,6 +339,13 @@ func recoverImportedFixture(t *testing.T, f exchangeFixture, sourceID string, or
 	restored, err := f.h.workspace.GetDocument(t.Context(), empty.Document.ID)
 	if err != nil || len(restored.Part.Features) != 1 || restored.Part.Features[0].ImportDefinitionID == "" || restored.Part.Features[0].GeometryKey != original.Part.Features[0].GeometryKey || restored.Document.VersionID == empty.Document.VersionID {
 		t.Fatal("in-place recovery failed", err)
+	}
+	if restored.Document.Health == nil || restored.Document.Health.Severity != workspace.HealthNormal {
+		t.Fatalf("restored Part health %+v", restored.Document.Health)
+	}
+	pinned, err = f.h.workspace.GetDocument(t.Context(), pinned.Document.ID)
+	if err != nil || pinned.Document.Health.Severity != workspace.HealthWarning || pinned.Product.Instances[0].Health.Severity != workspace.HealthWarning {
+		t.Fatal("pinned occurrence lost its import warning", err)
 	}
 	return restored
 }

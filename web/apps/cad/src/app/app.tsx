@@ -62,6 +62,10 @@ function ApplicationShell() {
       if(next!==previous)client.setQueryData(queryKeys.jobs,next);
       if(!previous?.some(item=>item.id===job.id)||['SUCCEEDED','FAILED','CANCELED'].includes(job.state))refreshJobs();
       if(job.type==='EXCHANGE_IMPORT'&&['SUCCEEDED','FAILED','CANCELED'].includes(job.state))void client.invalidateQueries({queryKey:['documents']});
+      // Import diagnostics become visible when the completion transaction commits, even if an open Part still points at its original revision.
+      if(job.type==='EXCHANGE_IMPORT' && job.state==='SUCCEEDED' && job.warnings?.length){
+        void client.invalidateQueries({queryKey:['document'],refetchType:'active'});
+      }
       exchangeNotices.receive(job);
     });
     const reconcile=client.getQueryCache().subscribe(event=>{

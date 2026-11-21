@@ -283,7 +283,10 @@ export type HistoryEntry = {
   versionName?: string;
 };
 
+export type DocumentHealth = { severity: "NORMAL" | "WARNING" | "ERROR"; message?: string };
+
 export type ProductInstance = {
+  health?: DocumentHealth;
   id: string;
   name: string;
   documentId: string;
@@ -330,6 +333,7 @@ export type InstancePath = {
 };
 
 export type DocumentSummary = {
+  health?: DocumentHealth;
   id: string;
   name: string;
   description: string;
@@ -420,6 +424,7 @@ export type OccurrenceRef = { rootDocumentId: string; instancePath: InstancePath
 export type SnapshotScope = { revisionId: string; contextVariantKey?: string; geometryKey?: string };
 
 export type DocumentStructureNode = {
+  health?: DocumentHealth;
   parameterAlias?: string;
  inputRole?:string;inputOrder?:number;inputEntityId?:string;
  patternId?:string;patternMemberSlot?:number;

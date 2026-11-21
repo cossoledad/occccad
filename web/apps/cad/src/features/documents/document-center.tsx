@@ -338,7 +338,7 @@ export function DocumentCenter() {
         <Form.Item name="folderID" label="目标文件夹"><FolderPicker disabled={runOperation.isPending}/></Form.Item>
       </Form>
     </Modal>
-    <Modal className="exchange-dialog" title="导入文档" open={importOpen} okText="导入" confirmLoading={importDocument.isPending}
+    <Modal className="exchange-dialog import-dialog" title="导入文档" open={importOpen} okText="导入" confirmLoading={importDocument.isPending}
       cancelButtonProps={{disabled:importDocument.isPending}} closable={!importDocument.isPending} okButtonProps={{ disabled: importFiles.length === 0 }} onOk={() => importDocument.mutate()}
       onCancel={() => { if (!importDocument.isPending) { setImportOpen(false); setImportFiles([]); } }} destroyOnHidden>
       {importDocument.isPending&&<Typography.Paragraph>已提交 {importProgress}/{importFiles.length}</Typography.Paragraph>}
