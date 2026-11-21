@@ -1,12 +1,27 @@
+import type {Vec3} from "../../types";
 import {dependencyBlock,type DependencyBlock} from "./dependency-block";
 /** Explicit local validation, separate from untrusted service exceptions. */
 export class CommandInputError extends Error {readonly name="CommandInputError";}
 export type OperationFailure={message:string;details:string;code:string;requestId?:string;diagnosticId?:string;phase?:string;retryable:boolean;severity:"error"|"warning";dependency?:DependencyBlock};
+export function fillDeviation(error: unknown) {
+  const value = error as {message?: unknown; diagnostic?: unknown} | undefined;
+  const raw = typeof value?.message === "string" ? value.message : value?.diagnostic ?? error;
+  if (typeof raw !== "string") return;
+  const match = /SURFACE_FILL_G0_TOLERANCE_EXCEEDED limit_mm=([\d.e+-]+) best_mm=([\d.e+-]+)(?: point_mm=([\d.e+,-]+))?/.exec(raw);
+  if (!match) return;
+  const limit = Number(match[1]), best = Number(match[2]);
+  if (!Number.isFinite(limit) || !Number.isFinite(best) || limit <= 0 || best <= limit) return;
+  const xyz = match[3]?.split(",").map(s => s.length ? Number(s) : NaN);
+  const point = xyz?.length === 3 && xyz.every(Number.isFinite) ? xyz as Vec3 : undefined;
+  return {limit, best, point};
+}
 export function normalizeOperationFailure(error:unknown):OperationFailure {
   const value=error as {message?:unknown;dependency?:unknown;diagnostic?:unknown;diagnosticCode?:string;code?:string;requestId?:string;correlationId?:string;diagnosticId?:string;phase?:string;retryable?:boolean;terminationStage?:string;terminationReason?:string};
   const raw=typeof value?.message==="string"?value.message:typeof value?.diagnostic==="string"?value.diagnostic:String(error),code=value?.code??value?.diagnosticCode??raw.match(/\[([A-Z_]+)\]/)?.[1]??"OPERATION_FAILED";
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
+  const fill = fillDeviation(raw);
+  const fillMessage = fill && `边界已闭合。最佳候选面的误差为 ${Number(fill.best.toPrecision(4))} mm，要求为 ${Number(fill.limit.toPrecision(4))} mm。${fill.point ? "请检查叹号处的边界。" : "请检查边界形状。"}`;
   const reasons:Record<string,string>={
     SOLVE_MANIFEST_REQUEST_ID_CONFLICT:"预览输入已变化，请重新预览后确认。",
     ASSEMBLY_ANGLE_OUT_OF_RANGE:"角度应在 0° 到 360° 之间。",
@@ -162,7 +177,7 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
     SURFACE_FILL_BOUNDARY_BRANCH:"边界存在分叉或重复边，请检查交汇端点。",
     SURFACE_FILL_CLOSED_BOUNDARY_REQUIRED:"请选择一条闭合边界。",
     SURFACE_FILL_FAILED:"填充曲面失败，请检查边界。",
-    SURFACE_FILL_G0_TOLERANCE_EXCEEDED:"填充边界误差超过容差，请调整边界或容差。",
+    SURFACE_FILL_G0_TOLERANCE_EXCEEDED:fillMessage??"边界已闭合，填充面未达到设定的贴合精度。",
     SURFACE_FILL_BOUNDARY_BUDGET:"边界段数过多，请简化边界。",
     SURFACE_TRIM_KEEP_POINT_REQUIRED:"请选择需要保留区域内的点。",
     SURFACE_TRIM_FAILED:"裁剪曲面失败，请检查切割对象。",

@@ -167,6 +167,38 @@ TEST(SurfaceFeature, G0FillConnectsUnorderedAndReversedEdgesWithHistory) {
     s.inputs.push_back(source_input(k, k.evaluateGeometryFeature(rectangle("second", 20))));
     EXPECT_THROW(k.evaluateGeometryFeature(s), std::invalid_argument);
 }
+TEST(SurfaceFeature, FillsNonplanarSegmentedStripWithinRequestedDeviation) {
+    OcctKernel k;
+    const auto line = [&](const char* id, Vec3 a, Vec3 b) {
+        return source_input(k, k.evaluateGeometryFeature(source_line(id, a, b)));
+    };
+    GeometryFeatureSpec bend;
+    bend.operation = "SPLINE";
+    bend.feature_id = "bend";
+    bend.curve.degree = 2;
+    bend.curve.knots = {0, 1};
+    bend.curve.multiplicities = {3, 3};
+    bend.curve.points = {
+        {"a", {0, 0, 0}, {}}, {"b", {-.1, 0, .03}, {}}, {"c", {-.2, -.03, .04}, {}}};
+    auto s = surface_spec(
+        "fill", "SURFACE_FILL",
+        {line("rail", {0, 0, 0}, {8, 0, 0}), line("other", {0, .6, 0}, {8, .6, 0}),
+         line("end", {0, .6, 0}, {-.2, -.03, .04}),
+         source_input(k, k.evaluateGeometryFeature(bend)), line("start", {8, 0, 0}, {8, .6, 0})});
+    s.surface.tolerance = 1e-5;
+    const auto result = k.evaluateGeometryFeature(s);
+    const auto summary = k.getTopologySummary(result.geometry_id);
+    EXPECT_EQ(summary.face_count, 1U);
+    EXPECT_EQ(summary.edge_count, 5U);
+    EXPECT_EQ(summary.vertex_count, 5U);
+    const auto topology = names(result);
+    std::reverse(s.inputs.begin(), s.inputs.end());
+    for (auto& input : s.inputs)
+        input.reversed = true;
+    OcctKernel cold;
+    EXPECT_EQ(names(cold.evaluateGeometryFeature(s)), topology);
+}
+
 TEST(SurfaceFeature, TrimUsesRetainedDesignPointAndRejectsBoundaryAmbiguity) {
     OcctKernel k;
     const auto source = sheet(k);

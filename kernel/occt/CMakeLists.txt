@@ -15,6 +15,7 @@ add_library(occccad_occt_kernel STATIC
     src/sketch_curve.cpp
     src/geometry_feature.cpp
     src/surface_feature.cpp
+    src/fill_boundary_face.cpp
     src/surface_shape_control.cpp
     src/dmu.cpp
     src/measurement.cpp

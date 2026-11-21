@@ -59,7 +59,7 @@ export type CurveInputMember = {
 };
 export type CurveInputSession = {
     kind: CurveInputKind; documentId: string; versionId: string; members: (CurveInputMember|null)[];
-    tolerance?: number; report: (pause: boolean) => void;
+    tolerance?: number; deviationPoint?: Vec3; report: (pause: boolean) => void;
 };
 export type CurveMarkerKind = 'endpoint' | 'closed' | 'warning';
 type CurveFeedback = { kind: CurveMarkerKind; markers: Vec3[]; pause: boolean };

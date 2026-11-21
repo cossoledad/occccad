@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import type {Artifact,DocumentView,Feature,GeometricInput,SelectionItem} from '../../types';
 import {CommandDialog} from '../../cad/overlay/floating-panel';
 import {CommandField,CommandGroup,CommandStatus,useCommandForm} from '../../cad/overlay/command-form';
-import {CommandInputError} from '../../cad/command/operation-failure';
+import {CommandInputError,fillDeviation} from '../../cad/command/operation-failure';
 import {selectionKey} from '../../cad/interaction/selection-identity';
 import {hasCurveInputFeedback,type CurveInputSession,type CurveInputMember} from '../../cad/interaction/curve-input-feedback';
 import {FeaturePickScope,type FeatureSelectionSession} from '../../cad/interaction/feature-selection';
@@ -134,12 +134,6 @@ export function GeometricFeatureEditor({onCurveInputs,view,feature,digest,unit,o
  }
  const boundaryToken=JSON.stringify([curveKind,curveMembers,checkTolerance]);
  const [pausedBoundary,setPausedBoundary]=useState<string>();
- useEffect(()=>{
-  if(!curveKind||!validRevision)return;
-  onCurveInputs({kind:curveKind,members:curveMembers,tolerance:checkTolerance,documentId:view.document.id,versionId:base,
-   report:pause=>setPausedBoundary(pause?boundaryToken:undefined)});
-  return ()=>onCurveInputs();
- },[curveKind,boundaryToken,onCurveInputs,base,validRevision]);
  const selectionToken=JSON.stringify(selections);
  useEffect(()=>{
   if(!picking){callbacks.current.onSelectionSession();return}
@@ -162,6 +156,13 @@ export function GeometricFeatureEditor({onCurveInputs,view,feature,digest,unit,o
   }
  }catch(error){problem=error}
  const preview=useFeaturePreview(view.document.id,base,input,draft.operation,onPreview,pausedBoundary!==boundaryToken && !(curveKind && pending>0));
+ const deviationPoint=kind==='SURFACE_FILL' && !pending ? fillDeviation(failure??preview.failure)?.point : undefined;
+ useEffect(()=>{
+  if(!curveKind||!validRevision)return;
+  onCurveInputs({kind:curveKind,members:curveMembers,deviationPoint,tolerance:checkTolerance,documentId:view.document.id,versionId:base,
+   report:pause=>setPausedBoundary(pause?boundaryToken:undefined)});
+  return ()=>onCurveInputs();
+ },[curveKind,boundaryToken,onCurveInputs,base,validRevision,deviationPoint?.join(",")]);
  const feedback=useFeatureDialogFeedback(failure??preview.failure??(!validRevision&&!saving?new CommandInputError('模型已改变，请重新打开命令'):undefined),geometryNames[kind],problem,preview.repairRequired,preview.retry);
  const fields=geometryFields(draft.geometry!),mainFields=fields.filter(f=>!f.slot.startsWith("geometry:tension:"));
  const fieldInput=(field:typeof fields[number])=><CommandField key={field.slot} label={field.label+(field.unit?`（${field.unit==='mm'?unit:field.unit}）`:'')} width="expression"><ParameterReferenceInput value={values[field.slot]??String(field.unit==='mm'?millimetersToDisplayLength(field.value,unit):field.value)} parameters={view.part?.parameters??[]} unit={field.unit==='mm'?unit:undefined} onChange={v=>setValues(old=>({...old,[field.slot]:v}))} onBlur={()=>{setCommitted({...values});setFailure(undefined);feedback.reportValidation()}}/></CommandField>;

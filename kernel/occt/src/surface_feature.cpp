@@ -41,6 +41,9 @@
 #include <gp_Lin.hxx>
 
 #include <internal/geometry_feature_support.hpp>
+#include <internal/fill_boundary_face.hpp>
+#include <sstream>
+#include <iomanip>
 
 #include <cmath>
 #include <limits>
@@ -719,34 +722,83 @@ GeometryFeatureBuild fill(const GeometryFeatureSpec& s,
     if (edges.size() > 256)
         throw std::invalid_argument("SURFACE_FILL_BOUNDARY_BUDGET");
     const auto boundary = fill_loop(edges);
-    // A loose fitting target can produce an invalid face on short boundaries.
-    // Retry once at higher precision; both candidates have the same acceptance
-    // criteria and use the original edges and their actual construction history.
-    const double refined = std::max(Precision::Confusion(), s.surface.tolerance * 0.01);
+    const auto finish = [&](const TopoDS_Shape& face, auto& history) {
+        GeometryFeatureBuild out;
+        out.shape = face;
+        add(out, derived(s.feature_id, "fill/surface", sources), face, sources);
+        joint_history(out, inputs, history, s.feature_id, "fill");
+        return out;
+    };
+    FillBoundaryFace direct;
+    if (build_fill_boundary_face(boundary, s.surface.tolerance, FillSupport::plane, check, direct))
+        return finish(direct.face, direct.history);
+
+    const double limit = s.surface.tolerance;
+    const double refined = std::max(Precision::Confusion(), limit * 0.01);
     const char* failure = "SURFACE_FILL_FAILED";
-    for (const double target : {s.surface.tolerance, refined}) {
-        BRepOffsetAPI_MakeFilling op(3, 15, 3, Standard_False, 1e-8, target, 1e-3, 1e-3, 8, 16);
-        for (const auto& edge : boundary) {
-            check();
-            op.Add(edge, GeomAbs_C0, Standard_True);
-        }
-        op.Build();
+    double best = std::numeric_limits<double>::infinity();
+    std::optional<gp_Pnt> worst_point;
+    for (const double target : {limit, refined}) {
         check();
-        if (!op.IsDone() || op.Shape().IsNull())
-            failure = "SURFACE_FILL_FAILED";
-        else if (!std::isfinite(op.G0Error()) || op.G0Error() > s.surface.tolerance)
-            failure = "SURFACE_FILL_G0_TOLERANCE_EXCEEDED";
-        else if (!BRepAlgoAPI_Check(op.Shape(), Standard_False, Standard_True).IsValid())
-            failure = "SURFACE_SELF_INTERSECTION_OR_INVALID_RESULT:SURFACE_FILL";
-        else {
-            GeometryFeatureBuild out;
-            out.shape = op.Shape();
-            add(out, derived(s.feature_id, "fill/surface", sources), out.shape, sources);
-            joint_history(out, inputs, op, s.feature_id, "fill");
-            return out;
+        try {
+            BRepOffsetAPI_MakeFilling op(3, 15, 3, Standard_False, 1e-8, target, 1e-3, 1e-3, 8, 16);
+            for (const auto& edge : boundary) {
+                check();
+                op.Add(edge, GeomAbs_C0, Standard_True);
+            }
+            op.Build();
+            check();
+            if (op.IsDone() && !op.Shape().IsNull()) {
+                const auto face = TopoDS::Face(op.Shape());
+                double error = op.G0Error(), boundary_error = 0;
+                std::optional<gp_Pnt> point;
+                bool verified = std::isfinite(error);
+                for (const auto& edge : boundary) {
+                    check();
+                    const auto& generated = op.Generated(edge);
+                    if (generated.Extent() != 1 || generated.First().ShapeType() != TopAbs_EDGE) {
+                        verified = false;
+                        break;
+                    }
+                    const auto result = TopoDS::Edge(generated.First());
+                    auto deviation = measure_fill_edge(edge, result, face);
+                    if (!deviation) {
+                        verified = false;
+                        break;
+                    }
+                    if (deviation->distance > boundary_error) {
+                        boundary_error = deviation->distance;
+                        point = deviation->point;
+                    }
+                }
+                error = std::max(error, boundary_error);
+                if (verified && error <= limit && BRepAlgoAPI_Check(face, false, true).IsValid())
+                    return finish(face, op);
+                if (verified && error > limit && error < best) {
+                    best = error;
+                    worst_point = boundary_error > limit ? point : std::nullopt;
+                }
+                failure = verified && error <= limit
+                              ? "SURFACE_SELF_INTERSECTION_OR_INVALID_RESULT:SURFACE_FILL"
+                              : "SURFACE_FILL_FAILED";
+            }
+        } catch (const Standard_Failure&) {
+            // A failed OCCT approximation can still have a verified direct construction.
         }
+        if (target == limit &&
+            build_fill_boundary_face(boundary, limit, FillSupport::ruled, check, direct))
+            return finish(direct.face, direct.history);
         if (target == refined)
             break;
+    }
+    if (std::isfinite(best)) {
+        std::ostringstream message;
+        message << std::setprecision(12) << "SURFACE_FILL_G0_TOLERANCE_EXCEEDED limit_mm=" << limit
+                << " best_mm=" << best;
+        if (worst_point)
+            message << " point_mm=" << worst_point->X() << "," << worst_point->Y() << ","
+                    << worst_point->Z();
+        throw std::invalid_argument(message.str());
     }
     throw std::invalid_argument(failure);
 }

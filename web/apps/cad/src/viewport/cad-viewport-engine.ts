@@ -3688,20 +3688,22 @@ export class CadViewportEngine {
     }
     const check=displayCurveInputs(this.view,session);
     session.report(check.pause);
-    if(!check.markers.length)return;
+    if(!check.markers.length && !session.deviationPoint)return;
     const group = new THREE.Group();
-    let material;
-    if (check.kind === "endpoint") {
-      material = this.materials.topologyPoint(colorNumber(palette.surface), 12, false);
-      material.uniforms.uCenterColor.value.set(palette.primary);
-      material.uniforms.uCenterRadius.value = 1.75 / material.userData.cssPointSize;
-    } else {
-      material = curveStatusIcon(check.kind);
-    }
-    const markers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(check.markers.map(p => new THREE.Vector3(...p))), material);
-    markers.name = `curve-${check.kind}`;
-    markers.renderOrder = 110;
-    group.add(markers);
+    const addMarkers = (kind: typeof check.kind, points: Vec3[], order: number) => {
+      if(!points.length)return;
+      const material = kind === "endpoint" ? this.materials.topologyPoint(colorNumber(palette.surface), 12, false) : curveStatusIcon(kind);
+      if (kind === "endpoint" && material instanceof THREE.ShaderMaterial) {
+        material.uniforms.uCenterColor.value.set(palette.primary);
+        material.uniforms.uCenterRadius.value = 1.75 / material.userData.cssPointSize;
+      }
+      const markers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(points.map(p => new THREE.Vector3(...p))), material);
+      markers.name = `curve-${kind}`;
+      markers.renderOrder = order;
+      group.add(markers);
+    };
+    addMarkers(check.kind, check.markers, 110);
+    if(session.deviationPoint)addMarkers("warning", [session.deviationPoint], 111);
     this.helpers.add(group);this.curveMarkers=group;
   }
 

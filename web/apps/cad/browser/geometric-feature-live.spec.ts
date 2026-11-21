@@ -456,3 +456,49 @@ test('Boundary and composite show selection diagnostics and retain the selected 
   expect(v.part.parameters.filter((p:{ownerFeatureId:string;propertySlot:string})=>p.ownerFeatureId===f.id&&p.propertySlot==='geometry:tolerance')).toHaveLength(mode==='自动'?0:1);
  }
 });
+
+test('Fill locates a measured deviation and accepts a corrected five-edge loop at automatic tolerance',async({page},info)=>{
+ await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');
+  const {document:{id}}=await api.createDocument('PART','Nonplanar fill');
+  const edges=[];
+  for(const [name,positions] of [
+   ['Lower rail',[[0,0,0],[8,0,0]]],['Upper rail',[[0,.6,0],[8,.6,0]]],
+   ['End',[[0,.6,0],[-.2,-.03,.04]]],['Bend',[[0,0,0],[-.1,0,.03],[-.2,-.03,.04]]],
+   ['Bowed end',[[8,0,0],[8,.3,.08],[8,.6,0]]],['Straight end',[[8,0,0],[8,.6,0]]],
+  ] as const){
+   const spline=positions.length===3;
+   const curve={points:positions.map((position,i)=>({id:`p${i}`,position})),
+    ...(spline?{degree:2,knots:[0,1],multiplicities:[3,3],weights:[1,1,1]}:{})};
+   const v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{
+    id:'',name,type:'GEOMETRY',geometry:{kind:spline?'SPLINE':'LINE',curve},
+   }});
+   edges.push({id:v.part!.features.at(-1)!.id,name});
+  }
+  return {id,edges};
+ });
+ await page.goto(`/documents/${seed.id}`);await observeViewport(page);await geometryTab(page);
+ await command(page,'填充');
+ const dialog=page.getByRole('dialog',{name:'填充',exact:true});
+ for(const edge of seed.edges.slice(0,5)) await selectTree(page,edge.id,edge.name);
+ const markers=()=>page.evaluate(()=>(window as any).__cameraEngine.curveMarkers?.children.map((p:any)=>p.name)??[]);
+ await expect.poll(markers).toEqual(['curve-closed','curve-warning']);
+ await expect(page.getByText(/最佳候选面的误差为/).first()).toBeVisible();
+ await expect(dialog.getByRole('button',{name:confirmCommandName})).toBeDisabled();
+ await page.screenshot({path:info.outputPath('fill-deviation.png')});
+ const expand=dialog.getByRole('button',{name:'展开边界',exact:true});
+ if(await expand.isVisible()) await expand.click();
+ await dialog.getByRole('button',{name:'移除边界 5',exact:true}).click();
+ await expect.poll(markers).toEqual(['curve-endpoint']);
+ const pick=dialog.getByRole('button',{name:'选择边界',exact:true});
+ if(await pick.getAttribute('aria-pressed')!=='true')await pick.click();
+ await selectTree(page,seed.edges[5].id,seed.edges[5].name);
+ await ready(page,dialog);await expect.poll(markers).toEqual(['curve-closed']);
+ await page.screenshot({path:info.outputPath('fill-corrected.png')});
+ await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
+ const v=await document(page,seed.id),f=v.part.features.at(-1);
+ expect(f.geometry.toleranceMode).toBe('AUTO');expect(f.geometry.surface.tolerance).toBe(1e-5);
+ expect(v.artifacts[f.result.geometryKey].topology).toMatchObject({faces:1,edges:5,vertices:5});
+ await expect.poll(markers).toEqual([]);
+});

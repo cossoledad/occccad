@@ -19,6 +19,11 @@ try{
  assert.equal(topologyGeometryLabel('FACE','NEW_UNKNOWN_FAMILY'),'曲面类型未识别');assert.equal(topologyGeometryLabel('EDGE','NEW_UNKNOWN_FAMILY'),'曲线类型未识别');
  const reference=describeAssemblyReference({instanceId:'missing',kind:'FACE',geometryId:'secret-geometry-id',persistentSelection:{anchor:{featureId:'feature-uuid',outputSlot:'secret-semantic'}}},view);
  assert.match(reference.primary,/丢失/);assert.doesNotMatch(reference.secondary,/secret|uuid/);
+ const {fillDeviation}=await server.ssrLoadModule('/src/cad/command/operation-failure.ts');
+ const fill={message:'rpc: SURFACE_FILL_G0_TOLERANCE_EXCEEDED limit_mm=1e-05 best_mm=0.00094 point_mm=1,-2,3'};
+ assert.deepEqual(fillDeviation(fill)?.point,[1,-2,3]);
+ assert.match(normalizeOperationFailure(fill).message,/边界已闭合.*0.00094 mm.*0.00001 mm.*叹号/);
+ assert.equal(fillDeviation({message:fill.message.replace('1,-2,3','NaN,0,0')})?.point,undefined);
  const error={code:'VALIDATION_FAILED',message:'PROFILE_REGION_MISSING / uuid / rpc snapshot'};const display=normalizeOperationFailure(error);assert.match(display.message,/原轮廓区域.*重新选择/);assert.equal(display.details,error.message);
  assert.match(normalizeOperationFailure({message:'TypeError: unexplained internal-uuid'}).message,/原因尚无法确定/);
  assert.match(normalizeOperationFailure({diagnostic:'PROFILE_REGION_MISSING / exact reference'}).message,/重新选择区域/);
