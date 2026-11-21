@@ -164,11 +164,11 @@ test('Associative curve tools preserve input roles and display point results',as
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await geometryTab(page);
  const pickTree=async(id:string,name:string)=>{await treeNavigator(page)(name,`/feature:${id}`);await page.locator(`[role=treeitem][data-tree-key$="/feature:${id}"]`).getByText(name,{exact:true}).click()};
- await command(page,'曲线上点');let dialog=page.getByRole('dialog',{name:'曲线上点',exact:true});await clickWorld(page,[12,0,0]);await ready(page,dialog);await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
+ await command(page,'曲线上点');let dialog=page.getByRole('dialog',{name:'曲线上点',exact:true});await expect(dialog).toBeVisible();await observeViewport(page);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.featureSelection?.role)).toBe('edge');await clickWorld(page,[12,0,0]);await ready(page,dialog);await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  expect((await document(page,seed.id)).part.features.at(-1).result.domain).toBe('POINT_SET');await observeViewport(page);await expect.poll(()=>page.evaluate(()=>[...(window as any).__cameraEngine.solidBindings.values()].filter((b:any)=>b.artifact.geometryDomain==='POINT_SET').length)).toBe(1);
  await pickTree(seed.curve,'Base rail');await command(page,'分割');dialog=page.getByRole('dialog',{name:'分割',exact:true});await pickTree(seed.curve,'Base rail');await ready(page,dialog);await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);const split=(await document(page,seed.id)).part.features.at(-1);
  await pickTree(split.id,split.name);await command(page,'复合');dialog=page.getByRole('dialog',{name:'复合',exact:true});await pickTree(split.id,split.name);await ready(page,dialog);await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);expect((await document(page,seed.id)).part.features.at(-1).geometry.kind).toBe('COMPOSITE');
- await pickTree(seed.curve,'Base rail');await command(page,'偏移','geometry.offset');dialog=page.getByRole('dialog',{name:'偏移',exact:true});await pickTree(seed.curve,'Base rail');await page.getByRole('treeitem',{name:'XY Plane',exact:true}).click();await ready(page,dialog);
+ await pickTree(seed.curve,'Base rail');await command(page,'偏移','geometry.offset');dialog=page.getByRole('dialog',{name:'偏移',exact:true});await pickTree(seed.curve,'Base rail');await selectTree(page,'datum-xy','XY Plane','plane');await ready(page,dialog);
  await dialog.getByRole('button',{name:'移除曲线',exact:true}).click();await expect(dialog).toContainText('XY Plane');await expect(dialog.getByRole('button',{name:confirmCommandName})).toBeDisabled();await dialog.getByRole('button',{name:'选择曲线',exact:true}).click();await pickTree(seed.curve,'Base rail');await ready(page,dialog);await page.screenshot({path:info.outputPath('curve-input-roles.png')});await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
  const offset=(await document(page,seed.id)).part.features.at(-1);expect(offset.geometry.inputs[0].kind).toBe('RESULT');expect(offset.geometry.inputs[1].kind).toBe('PLANE');expect(offset.result.domain).toBe('WIRE_SET');
 });
@@ -287,7 +287,7 @@ test('Shape control D: empty Blend, supported G2, exact curvature and disposable
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await geometryTab(page);await selectTree(page,seed.a.id,seed.a.name!);await command(page,'桥接');let d=page.getByRole('dialog',{name:'桥接',exact:true});
  await expect(d.getByRole('button',{name:confirmCommandName})).toBeDisabled();await expect(d.getByText('未选择',{exact:true})).toHaveCount(1);await expect(d).toContainText(seed.a.name!);await selectTree(page,seed.b.id,seed.b.name!);await ready(page,d);
- const boundaryList=d.getByRole('listbox',{name:'边界设置',exact:true});await boundaryList.getByRole('option').first().click();const boundary=boundaryList.locator('..').locator('.command-item-detail');await boundary.getByText('G2',{exact:true}).click();await expect(d.getByRole('button',{name:confirmCommandName})).toBeDisabled();await boundary.getByRole('button',{name:'选择支撑',exact:true}).click();await page.getByRole('treeitem',{name:'XY Plane',exact:true}).click();await ready(page,d);await expect(d).not.toContainText('更多');await page.screenshot({path:info.outputPath('shape-control-blend.png')});
+ const boundaryList=d.getByRole('listbox',{name:'边界设置',exact:true});await boundaryList.getByRole('option').first().click();const boundary=boundaryList.locator('..').locator('.command-item-detail');await boundary.getByText('G2',{exact:true}).click();await expect(d.getByRole('button',{name:confirmCommandName})).toBeDisabled();await boundary.getByRole('button',{name:'选择支撑',exact:true}).click();await selectTree(page,'datum-xy','XY Plane','plane');await ready(page,d);await expect(d).not.toContainText('更多');await page.screenshot({path:info.outputPath('shape-control-blend.png')});
  await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);const v=await document(page,seed.id),blend=v.part.features.at(-1);expect(blend.geometry.kind).toBe('SURFACE_BLEND');expect(blend.geometry.surface.boundaries[0].support.kind).toBe('PLANE');const revision=v.document.versionId;
  await command(page,'曲率分析');d=page.getByRole('dialog',{name:'曲率分析',exact:true});await selectTree(page,blend.id,blend.name);await expect(d.getByRole('region',{name:'曲率分析结果'})).toBeVisible();await expect(d).toContainText('256 个有效采样');await observeViewport(page);
  await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.curvatureOverlay.root.children.length)).toBe(1);await d.getByText('密',{exact:true}).click();await expect(d).toContainText('1024 个有效采样');await page.screenshot({path:info.outputPath('surface-curvature-samples.png')});await d.getByText('高斯',{exact:true}).click();await expect(d).toContainText('1/mm²');await d.getByRole('button',{name:/完\s*成/}).click();
@@ -354,7 +354,7 @@ test('Fill reports free ends in the viewport and feature quantity previews wait 
  });
  await page.goto(`/documents/${seed.id}`);await observeViewport(page);await geometryTab(page);
  await command(page,'填充');const fill=page.getByRole('dialog',{name:'填充',exact:true});
- const notice=page.locator('.cad-fill-boundary-notice');
+ const notice=page.locator('.cad-curve-feedback');
  await expect(notice).toContainText('请选择填充边界');
  // Hold the first persistent bind to distinguish immediate display diagnostics
  // from a Worker response. Only the bound reference may enter a preview.
@@ -370,7 +370,7 @@ test('Fill reports free ends in the viewport and feature quantity previews wait 
   }
   await page.mouse.click(hit.x,hit.y);
   await expect(notice).toContainText(free?`${free} 个自由端点`:'已闭合');
-  const markers=await page.evaluate(()=>(window as any).__cameraEngine.fillMarkers?.children[0].geometry.getAttribute('position').count??0);
+  const markers=await page.evaluate(()=>(window as any).__cameraEngine.curveMarkers?.children[0].geometry.getAttribute('position').count??0);
   expect(markers).toBe(free);release();
  }
  await ready(page,fill);await fill.getByRole('button',{name:/取\s*消/}).click();await expect(notice).toHaveCount(0);
@@ -391,4 +391,54 @@ test('Fill reports free ends in the viewport and feature quantity previews wait 
  await edit.getByRole('button',{name:/取\s*消/}).click();
  await page.waitForTimeout(400);expect(await lengths()).toEqual([0.01]);
  expect((await document(page,seed.id)).part.features.at(-1).length).toBe(8);
+});
+
+test('Boundary and composite show selection diagnostics and retain the selected tolerance mode',async({page},info)=>{
+ await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');
+  let v=await api.createDocument('PART','Four boundary curves and tolerance');
+  const corners=[[0,0,0],[12,0,0],[12,8,0],[0,8,0]] as const,lines=[];
+  for(let i=0;i<corners.length;i++){
+   v=await api.command(v.document.id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name:'Side '+(i+1),geometry:{kind:'LINE',curve:{points:[{id:'start',position:corners[i]},{id:'end',position:corners[(i+1)%4]}]}}}});
+   const f=v.part!.features.at(-1)!;lines.push({id:f.id,name:f.name!});
+  }
+  return {id:v.document.id,lines};
+ });
+ await page.goto(`/documents/${seed.id}`);await observeViewport(page);await geometryTab(page);
+ const pick=async(i:number)=>selectTree(page,seed.lines[i].id,seed.lines[i].name);
+ const notice=page.locator('.cad-curve-feedback');
+ await command(page,'复合','geometry.composite');
+ await pick(0);await expect(notice).toContainText('开放线链');await pick(2);await expect(notice).toContainText('曲线分离');
+ await page.getByRole('dialog').getByRole('button',{name:/取\s*消/}).click();
+ await expect(notice).toHaveCount(0);
+ await command(page,'边界','geometry.surface-boundary');
+ const d=page.getByRole('dialog');
+ await expect(d).toContainText('0.00001 mm');
+ await pick(0);await pick(2);
+ await expect(notice).toContainText('端点距离约 8 mm');
+ await expect(notice).toHaveAttribute('data-tone','warning');
+ await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.curveMarkers?.children.length)).toBe(2);
+ const feedbackBox=(await notice.boundingBox())!,controls=(await page.locator('.workbench-view-controls').boundingBox())!;
+ expect(feedbackBox.y+feedbackBox.height).toBeLessThan(controls.y);
+ await page.screenshot({path:info.outputPath('boundary-gap.png')});
+ await d.getByRole('button',{name:/取\s*消/}).click();await expect(notice).toHaveCount(0);
+ await command(page,'边界','geometry.surface-boundary');
+ for(let i=0;i<4;i++){await pick(i);await expect(notice).toContainText(i===3?'四边已围合':`已选 ${i+1}/4`)}
+ await ready(page,d);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
+ let v=await document(page,seed.id);
+ const boundary=v.part.features.at(-1);expect(boundary.geometry.toleranceMode).toBe('AUTO');expect(boundary.geometry.surface.tolerance).toBe(1e-5);
+ const reopen=async()=>{
+  await treeNavigator(page)(boundary.name,`/feature:${boundary.id}`);
+  await page.locator(`[role=treeitem][data-tree-key$="/feature:${boundary.id}"]`).getByText(boundary.name,{exact:true}).dblclick();
+  await expect(notice).toContainText('四边已围合');
+ };
+ for(const mode of ['手动','自动']){
+  await reopen();await d.getByText(mode,{exact:true}).click();
+  if(mode==='手动'){const field=d.getByRole('combobox',{name:/^容差/});await field.fill('0.002');await field.blur()}
+  await ready(page,d);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
+  v=await document(page,seed.id);const f=v.part.features.find((f:{id:string})=>f.id===boundary.id);
+  expect(f.geometry.toleranceMode).toBe(mode==='自动'?'AUTO':'MANUAL');expect(f.geometry.surface.tolerance).toBe(mode==='自动'?1e-5:.002);
+  expect(v.part.parameters.filter((p:{ownerFeatureId:string;propertySlot:string})=>p.ownerFeatureId===f.id&&p.propertySlot==='geometry:tolerance')).toHaveLength(mode==='自动'?0:1);
+ }
 });

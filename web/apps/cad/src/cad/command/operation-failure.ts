@@ -68,6 +68,7 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
     PART_OBJECT_BASE_REVISION_CHANGED:"模型已更新，请重新打开对象操作。",
     DELETE_PLAN_STALE:"模型或删除选项已改变，请重新分析删除范围。",
     INPUT_REFERENCE_MISSING:"上游输入已删除，请编辑特征并重新选择输入。",
+    GEOMETRY_TOLERANCE_MODE_INVALID:"请为支持工程容差的特征选择自动或手动模式。",
     GEOMETRY_TOLERANCE_OUT_OF_RANGE:"工程容差须在 0.0000001 至 0.01 mm 之间。",
     SURFACE_REVOLVE_REQUIRES_CURVES:"请选择用于旋转的曲线或线框。",
     SURFACE_REVOLVE_ANGLE_INVALID:"旋转角度不能为 0°，绝对值不超过 360°。",

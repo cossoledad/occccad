@@ -5,7 +5,7 @@ import {CommandDialog} from '../../cad/overlay/floating-panel';
 import {CommandField,CommandGroup,CommandStatus,useCommandForm} from '../../cad/overlay/command-form';
 import {CommandInputError} from '../../cad/command/operation-failure';
 import {selectionKey} from '../../cad/interaction/selection-identity';
-import type {FillBoundaryCheck} from '../../cad/interaction/fill-boundary';
+import {hasCurveInputFeedback,type CurveInputSession,type CurveInputMember} from '../../cad/interaction/curve-input-feedback';
 import {FeaturePickScope,type FeatureSelectionSession} from '../../cad/interaction/feature-selection';
 import {randomUUID} from '../../utils/random-uuid';
 import {displayLengthToMillimeters,millimetersToDisplayLength,type DisplayLengthUnit} from '../../state/ui-preferences';
@@ -15,9 +15,9 @@ import {parseParameterSource,parameterSourceText} from './parameter-editor';
 import {useFeaturePreview} from './use-feature-preview';
 import {useFeatureDialogFeedback} from './use-feature-dialog-feedback';
 import {acceptsGeometryReference,bindGeometryReference,bindGeometricInput,wholeSurfaceResultSelection} from './geometric-input-selection';
-import {editGeometryPoint,geometryFields,geometryInputIdentity,geometryInputAvailable,geometryInputName,geometryInputSelections,geometryInputRoles,geometryNames,geometryReady,geometryBodyKind,geometryMultipleKind,pointInput,sketchGeometryInput,splineControlMode,syncSurfaceControls,type GeometryReferenceRole,type PointEdit} from './geometric-feature-model';
+import {hasGeometryTolerance,automaticGeometryToleranceMM,editGeometryPoint,geometryFields,geometryInputIdentity,geometryInputAvailable,geometryInputName,geometryInputSelections,geometryInputRoles,geometryNames,geometryReady,geometryBodyKind,geometryMultipleKind,pointInput,sketchGeometryInput,splineControlMode,syncSurfaceControls,type GeometryReferenceRole,type PointEdit} from './geometric-feature-model';
 
-type Props={view:DocumentView;feature:Feature;digest?:string;unit:DisplayLengthUnit;onClose:()=>void;onApply:(input:Record<string,unknown>)=>Promise<unknown>;onPreview:(artifact?:Artifact,operation?:Feature['operation'])=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void};
+type Props={onCurveInputs:(session?:CurveInputSession)=>void;view:DocumentView;feature:Feature;digest?:string;unit:DisplayLengthUnit;onClose:()=>void;onApply:(input:Record<string,unknown>)=>Promise<unknown>;onPreview:(artifact?:Artifact,operation?:Feature['operation'])=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void};
 import {SurfaceControlFields,surfaceReferenceFields,setGeometryReference,type GeometryReferenceField as ReferenceField} from './surface-control-fields';
 function referenceFields(feature:Feature):ReferenceField[]{
  const d=feature.geometry!;
@@ -37,7 +37,7 @@ function firstMissing(feature:Feature,view:DocumentView):string|undefined{
  const ref=[...referenceFields(feature).map(f=>({...f,required:true})),...surfaceReferenceFields(feature)].find(f=>f.required&&!geometryInputAvailable(view,f.input));return ref?.key;
 }
 
-export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply,onPreview,onSelectionSession}:Props){
+export function GeometricFeatureEditor({onCurveInputs,view,feature,digest,unit,onClose,onApply,onPreview,onSelectionSession}:Props){
  const form=useCommandForm();
  const [draft,setDraft]=useState(()=>{const f=structuredClone(feature);syncSurfaceControls(f.geometry!);return f});
  const draftRef=useRef(draft);draftRef.current=draft;
@@ -51,7 +51,7 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
  const [splineMode,setSplineMode]=useState<'FIT'|'CONTROL'>(()=>feature.geometry?.curve?.knots?.length?'CONTROL':'FIT');
  const [failure,setFailure]=useState<unknown>(),[pending,setPending]=useState(0),[saving,setSaving]=useState(false);
  const base=useRef(view.document.versionId).current,intent=useRef(randomUUID()).current,alive=useRef(true),scope=useRef(new FeaturePickScope()),queue=useRef(Promise.resolve());
- const [bindingEdges,setBindingEdges]=useState<{ticket:number;selection:SelectionItem}[]>([]);
+ const [bindingEdges,setBindingEdges]=useState<{ticket:number;index:number;selection:SelectionItem}[]>([]);
  const visuals=useRef(new Map<string,SelectionItem>());
  const callbacks=useRef({onPreview,onSelectionSession});callbacks.current={onPreview,onSelectionSession};
  const fieldToken=JSON.stringify([picking,pointEdit]);scope.current.activate(fieldToken,`${view.document.id}/${base}`);
@@ -81,7 +81,7 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
   if(!field||!accept(s,field)||saving||!validRevision)return;
   // Continuous point picks bind in click order, including asynchronous topology
   // requests. A field/session change invalidates the queued work as a whole.
-  const bindingEdge=kind==='SURFACE_FILL'&&field.startsWith('input:')&&s.kind==='edge'?{ticket,selection:s}:undefined;
+  const bindingEdge=hasCurveInputFeedback(kind)&&field.startsWith('input:')&&s.kind==='edge'?{ticket,index:Number(field.slice(6)),selection:s}:undefined;
   if(bindingEdge)setBindingEdges(edges=>[...edges,bindingEdge]);
   setPending(n=>n+1);setFailure(undefined);
   queue.current=queue.current.then(async()=>{
@@ -111,28 +111,44 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
  const selectionInputs=[...inputs.filter(Boolean),...refs.flatMap(r=>r.input?[r.input]:[]),...(draft.geometry!.curve?.points.flatMap(p=>pointInput(p)?[pointInput(p)!]:[])??[])];
  const inputVisuals=(i:GeometricInput)=>{const s=visuals.current.get(geometryInputIdentity(i));return s?[s]:geometryInputSelections(view,i)};
  const selections=selectionInputs.flatMap(inputVisuals);
- const boundaryMembers=kind==='SURFACE_FILL'?inputs.map(i=>i.kind==='SKETCH'?geometryInputSelections(view,i):inputVisuals(i)):undefined;
- if(boundaryMembers && bindingEdges.length){
-  const seen=new Set(boundaryMembers.flat().map(selectionKey));
-  for(const {ticket,selection} of bindingEdges){
-   const key=selectionKey(selection);
-   if(scope.current.current(ticket)&&!seen.has(key)){boundaryMembers.push([selection]);seen.add(key)}
+ const supportedFill=kind==='SURFACE_FILL' && draft.geometry!.surface?.boundaries?.some(b=>b.continuity!=='G0');
+ const curveKind=supportedFill?'SUPPORTED_FILL':hasCurveInputFeedback(kind)?kind:undefined;
+ const curveMembers:(CurveInputMember|null)[] = Array.from(curveKind?inputs:[],i=>i?{
+  selections:i.kind==='SKETCH'?geometryInputSelections(view,i):inputVisuals(i),reversed:!!i.reversed
+ }:null);
+ if(bindingEdges.length){
+  const seen=new Set(curveMembers.flatMap(m=>m?.selections.map(selectionKey)??[]));
+  for(const {ticket,index,selection} of bindingEdges){
+   if(!scope.current.current(ticket))continue;
+   const key=selectionKey(selection),member={selections:[selection],reversed:false};
+   if(multiple){if(!seen.has(key)){curveMembers.push(member);seen.add(key)}}
+   else curveMembers[index]=member;
   }
  }
- const boundaryToken=JSON.stringify(boundaryMembers);
- const [boundaryCheck,setBoundaryCheck]=useState<{token:string;kind:FillBoundaryCheck["kind"]}>();
+ let checkTolerance=draft.geometry!.surface?.tolerance;
+ if((kind==='SURFACE_BOUNDARY'||supportedFill) && draft.geometry!.toleranceMode!=='AUTO' && committed['geometry:tolerance']){
+  try{
+   const source=parseParameterSource(committed['geometry:tolerance'],unit);
+   checkTolerance=source.kind==='LITERAL'&&['mm','cm','m','in'].includes(source.unit)?displayLengthToMillimeters(source.value,source.unit as DisplayLengthUnit):undefined;
+  }catch{checkTolerance=undefined}
+ }
+ const boundaryToken=JSON.stringify([curveKind,curveMembers,checkTolerance]);
+ const [pausedBoundary,setPausedBoundary]=useState<string>();
+ useEffect(()=>{
+  if(!curveKind||!validRevision)return;
+  onCurveInputs({kind:curveKind,members:curveMembers,tolerance:checkTolerance,documentId:view.document.id,versionId:base,
+   report:pause=>setPausedBoundary(pause?boundaryToken:undefined)});
+  return ()=>onCurveInputs();
+ },[curveKind,boundaryToken,onCurveInputs,base,validRevision]);
  const selectionToken=JSON.stringify(selections);
  useEffect(()=>{
   if(!picking){callbacks.current.onSelectionSession();return}
   const role=roleFor(picking),shapeRole=refs.find(r=>r.key===picking)?.role??roles[Number(picking.split(':')[1])]?.role;
   const wholeResult=picking.startsWith('input:')&&roles[Number(picking.split(':')[1])]?.selection==='RESULT';
   const resultOrder=wholeResult?new Map(upstream.map((f,i)=>[f.id,i+1])):undefined;
-  const fillBoundary=boundaryMembers && picking.startsWith('input:') ? {
-   members:boundaryMembers, report:(kind:FillBoundaryCheck["kind"])=>setBoundaryCheck(old=>old?.token===boundaryToken&&old.kind===kind?old:{token:boundaryToken,kind})
-  }:undefined;
-  callbacks.current.onSelectionSession({fillBoundary,seedEnabled:!feature.id,seedSlot:picking,seedMultiple:picking==='points'||multiple&&picking.startsWith('input:'),documentId:view.document.id,versionId:base,role:picking==='body'?'body':role==='point'?'point':role==='plane'?'plane':role==='axis'?'axis':role==='direction'?'direction':shapeRole==='curve'?'edge':'face',topologyPick:role==='point'?'VERTEX':role==='axis'||role==='direction'||shapeRole==='curve'?'EDGE':undefined,selections,project:wholeResult?s=>wholeSurfaceResultSelection(view,s,upstream):undefined,coincidentPreference:resultOrder?s=>resultOrder.get(s.result?.featureId??s.entityId??s.id)??0:undefined,accept:s=>accept(s,picking),onPick:s=>pickRef.current(s)});
+  callbacks.current.onSelectionSession({seedEnabled:!feature.id,seedSlot:picking,seedMultiple:picking==='points'||multiple&&picking.startsWith('input:'),documentId:view.document.id,versionId:base,role:picking==='body'?'body':role==='point'?'point':role==='plane'?'plane':role==='axis'?'axis':role==='direction'?'direction':shapeRole==='curve'?'edge':'face',topologyPick:role==='point'?'VERTEX':role==='axis'||role==='direction'||shapeRole==='curve'?'EDGE':undefined,selections,project:wholeResult?s=>wholeSurfaceResultSelection(view,s,upstream):undefined,coincidentPreference:resultOrder?s=>resultOrder.get(s.result?.featureId??s.entityId??s.id)??0:undefined,accept:s=>accept(s,picking),onPick:s=>pickRef.current(s)});
   return()=>callbacks.current.onSelectionSession();
- },[fieldToken,selectionToken,boundaryToken,base]);
+ },[fieldToken,selectionToken,base]);
  let input:Record<string,unknown>|undefined,problem:unknown;
  const missing=selectionInputs.some(i=>!geometryInputAvailable(view,i))||!geometryReady(draft.geometry!)||geometryBodyKind(kind)&&draft.operation!=='NEW_BODY'&&!draft.bodyId;
  try{
@@ -145,9 +161,7 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
    input={type:feature.id?'EDIT_FEATURE':geometryBodyKind(kind)?'CREATE_SOLID_FEATURE':'CREATE_GEOMETRY_FEATURE',requestId:intent,targetId:feature.id||undefined,expectedFeatureDigest:digest,feature:next,parameterExpressions:expressions};
   }
  }catch(error){problem=error}
- const pausedForBoundary=!!boundaryMembers && picking?.startsWith('input:') && boundaryCheck?.token===boundaryToken &&
-  ['open','branch','multiple'].includes(boundaryCheck.kind);
- const preview=useFeaturePreview(view.document.id,base,input,draft.operation,onPreview,!pausedForBoundary && !(boundaryMembers && pending>0));
+ const preview=useFeaturePreview(view.document.id,base,input,draft.operation,onPreview,pausedBoundary!==boundaryToken && !(curveKind && pending>0));
  const feedback=useFeatureDialogFeedback(failure??preview.failure??(!validRevision&&!saving?new CommandInputError('模型已改变，请重新打开命令'):undefined),geometryNames[kind],problem,preview.repairRequired,preview.retry);
  const fields=geometryFields(draft.geometry!),mainFields=fields.filter(f=>!f.slot.startsWith("geometry:tension:"));
  const fieldInput=(field:typeof fields[number])=><CommandField key={field.slot} label={field.label+(field.unit?`（${field.unit==='mm'?unit:field.unit}）`:'')} width="expression"><ParameterReferenceInput value={values[field.slot]??String(field.unit==='mm'?millimetersToDisplayLength(field.value,unit):field.value)} parameters={view.part?.parameters??[]} unit={field.unit==='mm'?unit:undefined} onChange={v=>setValues(old=>({...old,[field.slot]:v}))} onBlur={()=>{setCommitted({...values});setFailure(undefined);feedback.reportValidation()}}/></CommandField>;
@@ -166,6 +180,10 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
    <SurfaceControlFields onSelectInput={input=>form.select?.(inputVisuals(input))} activeField={picking} view={view} feature={draft} change={change} renderPick={referenceField} renderTension={id=>{const field=fields.find(f=>f.slot===`geometry:tension:${id}`);return field?fieldInput(field):null}}/>
    {kind==='SURFACE_SWEEP'&&!draft.geometry!.surface?.guide&&<CommandField label="截面姿态"><Segmented<'CORRECTED_FRENET'|'FRENET'> value={draft.geometry!.surface!.frameMode==='FRENET'?'FRENET':'CORRECTED_FRENET'} options={[{label:'修正标架',value:'CORRECTED_FRENET'},{label:'曲率标架',value:'FRENET'}]} onChange={frameMode=>change(f=>{f.geometry!.surface!.frameMode=frameMode})}/></CommandField>}
    {kind==='SURFACE_LOFT'&&<CommandField label="直纹"><Switch aria-label="直纹曲面" disabled={!!(draft.geometry!.surface!.spine||draft.geometry!.surface!.guide)} checked={draft.geometry!.surface!.ruled} onChange={ruled=>change(f=>{f.geometry!.surface!.ruled=ruled})}/></CommandField>}
+   {hasGeometryTolerance(draft.geometry!)&&<CommandField label="容差模式" width="content"><Segmented aria-label="容差模式" value={draft.geometry!.toleranceMode??'MANUAL'} options={[{label:'自动',value:'AUTO'},{label:'手动',value:'MANUAL'}]} onChange={mode=>change(f=>{
+    const d=f.geometry!;d.toleranceMode=mode as 'AUTO'|'MANUAL';
+    if(mode==='AUTO'){if(d.surface)d.surface.tolerance=automaticGeometryToleranceMM;else d.constructionTolerance=automaticGeometryToleranceMM}
+   })}/>{draft.geometry!.toleranceMode==='AUTO'&&<small className="geometry-auto-tolerance">{Number(millimetersToDisplayLength(automaticGeometryToleranceMM,unit).toPrecision(5))} {unit}</small>}</CommandField>}
    {mainFields.length===1?fieldInput(mainFields[0]):mainFields.length>1&&<CommandGroup label="参数">{mainFields.map(fieldInput)}</CommandGroup>}
    {kind==='EXTEND'&&<CommandField label="延伸端"><Segmented<'START'|'END'|'BOTH'> value={draft.geometry!.parameters.side} options={[{label:'起点',value:'START'},{label:'终点',value:'END'},{label:'两端',value:'BOTH'}]} onChange={side=>change(f=>{f.geometry!.parameters.side=side})}/></CommandField>}
    {geometryBodyKind(kind)&&<><CommandField label="实体操作"><Segmented value={draft.operation} options={[...(!feature.id?[{label:'新实体',value:'NEW_BODY'}]:[]),{label:'添加',value:'ADD'},{label:'切除',value:'REMOVE'},{label:'交集',value:'INTERSECT'}]} onChange={operation=>{change(f=>{f.operation=operation as Feature['operation']});if(operation!=='NEW_BODY'&&!draft.bodyId)setPicking('body')}}/></CommandField>{draft.operation!=='NEW_BODY'&&<FeaturePickField compact label="目标实体" value={view.part?.bodies.find(b=>b.id===draft.bodyId)?.name??'未选择'} active={picking==='body'} disabled={!!feature.id} selected={!!draft.bodyId} onActivate={()=>setPicking('body')} onClear={!feature.id&&draft.bodyId?()=>change(f=>{delete f.bodyId}):undefined}/>}</>}

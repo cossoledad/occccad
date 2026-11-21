@@ -192,6 +192,9 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 	if current == nil || (!isBodyFeature(current.Type) && current.Type != "SKETCH_PATTERN" && current.Type != "GEOMETRY") || current.Type == "IMPORT_BODY" || current.Geometry != nil && current.Geometry.Kind == "IMPORTED" || replacement.Type != current.Type {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: unsupported Feature definition edit", ErrValidation)
 	}
+	if err := setGeometryTolerancePolicy(replacement.Geometry); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	replacement.ID = current.ID
 	if err := resolveAutomaticPatternSource(model, &replacement); err != nil {
 		return nil, modelcore.ChangeSet{}, err

@@ -93,6 +93,7 @@ type GeometryBoundaryControl struct {
 	Tension    float64         `json:"tension"`
 }
 type GeometricFeatureDefinition struct {
+	ToleranceMode         string                      `json:"toleranceMode,omitempty"`
 	ConstructionTolerance float64                     `json:"constructionTolerance,omitempty"`
 	SecondKeepPoint       *GeometricInput             `json:"secondKeepPoint,omitempty"`
 	Surface               *GeometrySurfaceDefinition  `json:"surface,omitempty"`
@@ -122,6 +123,51 @@ var geometryKinds = map[string]int{
 func isEngineeringSurface(kind string) bool {
 	return strings.HasPrefix(kind, "SURFACE_") && kind != "SURFACE_EXTRUDE" || kind == "CLOSE_SURFACE"
 }
+
+// CATIA Fill's automatic deviation is 100 modelling resolutions. The
+// wireframe/surface evaluator works in mm (geometry_feature_support.hpp).
+const geometricResolutionMM = 1e-7
+const automaticGeometryToleranceMM = 100 * geometricResolutionMM
+
+func setGeometryTolerancePolicy(d *GeometricFeatureDefinition) error {
+	if d == nil {
+		return nil
+	}
+	var value *float64
+	if isEngineeringSurface(d.Kind) {
+		if d.Surface == nil {
+			d.Surface = &GeometrySurfaceDefinition{}
+		}
+		value = &d.Surface.Tolerance
+	} else if d.Kind == "SPLINE" || d.Kind == "SURFACE_EXTRUDE" {
+		value = &d.ConstructionTolerance
+	}
+	if value == nil {
+		if d.ToleranceMode != "" {
+			return fmt.Errorf("%w: GEOMETRY_TOLERANCE_MODE_INVALID", ErrValidation)
+		}
+		return nil
+	}
+	switch d.ToleranceMode {
+	case "":
+		// Preserve an explicit tolerance supplied by numeric-only callers.
+		if *value != 0 {
+			return nil
+		}
+		d.ToleranceMode = "AUTO"
+	case "AUTO":
+	case "MANUAL":
+		if !finite(*value) || *value < geometricResolutionMM || *value > .01 {
+			return fmt.Errorf("%w: GEOMETRY_TOLERANCE_OUT_OF_RANGE", ErrValidation)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%w: GEOMETRY_TOLERANCE_MODE_INVALID", ErrValidation)
+	}
+	*value = automaticGeometryToleranceMM
+	return nil
+}
+
 func isGeometryBodyFeature(kind string) bool { return kind == "THICKEN" || kind == "CLOSE_SURFACE" }
 
 func geometryResultReference(f Feature) *modelcore.GeometryResultReference {
@@ -326,7 +372,9 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 		}
 	}
 	if d.Surface != nil {
-		add("tolerance", "Tolerance", "mm", &d.Surface.Tolerance)
+		if d.ToleranceMode != "AUTO" {
+			add("tolerance", "Tolerance", "mm", &d.Surface.Tolerance)
+		}
 		for i := range d.Surface.Boundaries {
 			c := &d.Surface.Boundaries[i]
 			if c.Continuity != "G0" {
@@ -334,7 +382,7 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 			}
 		}
 	}
-	if d.Surface == nil && d.ConstructionTolerance > 0 {
+	if d.ToleranceMode != "AUTO" && d.Surface == nil && d.ConstructionTolerance > 0 {
 		add("tolerance", "Tolerance", "mm", &d.ConstructionTolerance)
 	}
 	if c := d.Curve; c != nil {

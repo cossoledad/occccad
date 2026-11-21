@@ -7,10 +7,17 @@ export const geometryNames=geometryFeatureNames;
 export const geometryCommands=(Object.keys(geometryNames) as GeometryKind[]).filter(kind=>kind!=="IMPORTED").map(kind=>({kind,id:`geometry.${kind.toLowerCase().replaceAll('_','-')}`}));
 export const geometryBodyKind=(kind:GeometryKind)=>kind==='THICKEN'||kind==='CLOSE_SURFACE';
 export const geometryMultipleKind=(kind:GeometryKind)=>['COMPOSITE','SURFACE_LOFT','SURFACE_FILL','SURFACE_JOIN','SURFACE_SEW'].includes(kind);
+// Display the mm value resolved by the service (100 modelling resolutions).
+export const automaticGeometryToleranceMM=1e-5;
+export function hasGeometryTolerance(d:GeometricFeatureDefinition){return !!d.surface||d.kind==="SPLINE"||d.kind==="SURFACE_EXTRUDE"}
 export function defaultGeometricFeature(kind:GeometryKind):Feature{
- const geometry:GeometricFeatureDefinition={kind,constructionTolerance:0.01,inputs:[],parameters:{direction:[0,0,0],origin:[0,0,0],distance:['THICKEN','SURFACE_OFFSET'].includes(kind)?2:20,angle:kind==='SURFACE_REVOLVE'?360:45,start:kind==='TRIM'?.2:.5,end:.8,side:'END',tension:1}};
+ const geometry:GeometricFeatureDefinition={kind,inputs:[],parameters:{direction:[0,0,0],origin:[0,0,0],distance:['THICKEN','SURFACE_OFFSET'].includes(kind)?2:20,angle:kind==='SURFACE_REVOLVE'?360:45,start:kind==='TRIM'?.2:.5,end:.8,side:'END',tension:1}};
  if(['LINE','CIRCLE','ARC','SPLINE'].includes(kind))geometry.curve={points:Array.from({length:kind==='LINE'?2:kind==='SPLINE'?0:1},()=>({id:randomUUID(),position:[0,0,0]})),normal:[0,0,0],xDirection:[0,0,0],radius:10,startAngle:0,endAngle:90};
- if(kind.startsWith('SURFACE_')&&kind!=='SURFACE_EXTRUDE'||kind==='CLOSE_SURFACE')geometry.surface={ruled:false,frameMode:kind==='SURFACE_SWEEP'?'CORRECTED_FRENET':undefined,tolerance:0.01};
+ if(kind.startsWith('SURFACE_')&&kind!=='SURFACE_EXTRUDE'||kind==='CLOSE_SURFACE')geometry.surface={ruled:false,frameMode:kind==='SURFACE_SWEEP'?'CORRECTED_FRENET':undefined,tolerance:automaticGeometryToleranceMM};
+ if(hasGeometryTolerance(geometry)){
+  geometry.toleranceMode='AUTO';
+  if(!geometry.surface)geometry.constructionTolerance=automaticGeometryToleranceMM;
+ }
  return {id:'',type:geometryBodyKind(kind)?kind as 'THICKEN'|'CLOSE_SURFACE':'GEOMETRY',...(geometryBodyKind(kind)?{operation:'NEW_BODY' as const}:{}),geometry};
 }
 export function geometryInputRoles(kind:GeometryKind):Array<{label:string;role:'curve'|'surface'|'geometry'|'plane';selection?:'RESULT'}>{
@@ -105,8 +112,8 @@ export function geometryFields(d:GeometricFeatureDefinition):GeometryField[]{
  if(['ROTATE','SURFACE_REVOLVE'].includes(d.kind))add('angle','角度','deg',d.parameters.angle,n=>d.parameters.angle=n);
  if(['POINT_ON_CURVE','SPLIT','TRIM'].includes(d.kind))add('start',d.kind==='TRIM'?'起始比例':'弧长比例','',d.parameters.start,n=>d.parameters.start=n);
  if(d.kind==='TRIM')add('end','终止比例','',d.parameters.end,n=>d.parameters.end=n);
- if(!d.surface&&d.constructionTolerance&&['SPLINE','SURFACE_EXTRUDE'].includes(d.kind))add('tolerance','容差','mm',d.constructionTolerance,n=>d.constructionTolerance=n);
- if(d.surface){add('tolerance','容差','mm',d.surface.tolerance,n=>d.surface!.tolerance=n);d.surface.boundaries?.forEach(c=>{if(c.continuity!=='G0')add(`tension:${c.id}`,'张力','',c.tension,n=>c.tension=n)})}
+ if(d.toleranceMode!=="AUTO"&&!d.surface&&['SPLINE','SURFACE_EXTRUDE'].includes(d.kind))add('tolerance','容差','mm',d.constructionTolerance??automaticGeometryToleranceMM,n=>d.constructionTolerance=n);
+ if(d.surface){if(d.toleranceMode!=='AUTO')add('tolerance','容差','mm',d.surface.tolerance,n=>d.surface!.tolerance=n);d.surface.boundaries?.forEach(c=>{if(c.continuity!=='G0')add(`tension:${c.id}`,'张力','',c.tension,n=>c.tension=n)})}
  if(d.kind==='G1_CONNECT')add('tension','切线系数','',d.parameters.tension,n=>d.parameters.tension=n);
  return fields;
 }

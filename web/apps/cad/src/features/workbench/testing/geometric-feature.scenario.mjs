@@ -8,7 +8,7 @@ try{
  const {CommandSelectionSeed}=await server.ssrLoadModule('/src/cad/interaction/command-selection-seed.ts');
  const {sameDisplayContext}=await server.ssrLoadModule('/src/cad/interaction/feature-association.ts');
  const {contextTabs,builtinCatalog}=await server.ssrLoadModule('/src/cad/command/workbench-catalog.ts');
- const {inspectFillEndpoints}=await server.ssrLoadModule('/src/cad/interaction/fill-boundary.ts');
+ const {inspectFillEndpoints,inspectCurveInputs,displayCurveInputs}=await server.ssrLoadModule('/src/cad/interaction/curve-input-feedback.ts');
  {
   const a=[0,0,0],b=[1,0,0],c=[1,1,0],q=[0,1,0];
   const loop=[[a,b],[q,c],[a,q],[b,c]];
@@ -17,6 +17,36 @@ try{
   assert.equal(inspectFillEndpoints([...loop,[a,[-1,0,0]]]).kind,'branch');
   assert.equal(inspectFillEndpoints([[a,a],[b,b]]).kind,'multiple');
   assert.equal(inspectFillEndpoints([[a,a]]).kind,'closed');
+  const member=(...edges)=>({edges,oriented:true});
+  const sides=[[a,b],[b,c],[c,q],[q,a]].map(e=>member(e));
+  const check=(kind,slots,tolerance=1e-5)=>inspectCurveInputs(kind,slots,tolerance);
+  assert.equal(check('SURFACE_BOUNDARY',sides).tone,'success');
+  assert.match(check('SURFACE_BOUNDARY',[null,sides[1]]).text,/请选择第 1 边/);
+  assert.deepEqual(check('SURFACE_BOUNDARY',[sides[0],member([c,b])]).gap,[b,c]);
+  assert.equal(check('SURFACE_BOUNDARY',[member([a,b]),member([[1.0005,0,0],c])],.001).tone,'info');
+  assert.match(inspectCurveInputs('SURFACE_BOUNDARY',sides).text,/精确预览/);
+  assert.equal(check('SUPPORTED_FILL',[...sides,sides[0]]).tone,'warning');
+  assert.equal(check('COMPOSITE',sides.slice(0,2)).tone,'success');
+  assert.match(check('COMPOSITE',[sides[0],sides[2],sides[1]]).text,/调整顺序/);
+  assert.equal(check('SURFACE_FILL',[sides[0],sides[2]]).pause,true);
+  assert.equal(check('SURFACE_FILL',[undefined]).pause,false);
+  assert.match(check('SURFACE_LOFT',[sides[0],member([c,q],[q,a])]).text,/边数需一致/);
+  assert.equal(check('SURFACE_BLEND',[member([a,a]),sides[0]]).tone,'warning');
+  assert.deepEqual(check('G1_CONNECT',[sides[0],sides[2]]).gap,[b,c]);
+  assert.match(check('SURFACE_SWEEP',[null,sides[0]]).text,/请选择轮廓/);
+  for(const k of ['SURFACE_EXTRUDE','SURFACE_REVOLVE'])assert.match(check(k,[member(...loop)]).text,/闭合轮廓/);
+  const picked=id=>({kind:'visual',documentId:'part',versionId:'v',featureId:'sketch',entityId:id});
+  const view={document:{id:'part',versionId:'v'},sketchVisualization:{primitives:[{featureId:'sketch',id:'ab',semantic:'SKETCH_CURVE',positions:[a,b]},{featureId:'sketch',id:'cb',semantic:'SKETCH_CURVE',positions:[c,b]}]}};
+  const session={kind:'SURFACE_BOUNDARY',members:[{selections:[picked('ab')]},{selections:[picked('cb')],reversed:true}],tolerance:.00001};
+  assert.equal(displayCurveInputs(view,session).tone,'info');
+  session.members[1].selections[0].versionId='older';
+  assert.match(displayCurveInputs(view,session).text,/显示数据不足/);
+  for(const k of ['SPLINE','SURFACE_EXTRUDE','SURFACE_FILL','SURFACE_BOUNDARY','SURFACE_SEW']){
+   const d=defaultGeometricFeature(k).geometry;
+   assert.equal(d.toleranceMode,'AUTO');assert.equal(d.surface?.tolerance??d.constructionTolerance,1e-5);
+   assert(!geometryFields(d).some(f=>f.slot==='geometry:tolerance'));
+   d.toleranceMode='MANUAL';assert(geometryFields(d).some(f=>f.slot==='geometry:tolerance'));
+  }
  }
  const facts={isMock:false,hostType:'PART',targetType:'PART',sketchActive:false,canEdit:true,rootCanEdit:true,busy:false,selectionKind:'',selectionCount:0,hasWorkingBody:false,moveReceiptPending:false};
  const tabs=contextTabs(builtinCatalog,facts);

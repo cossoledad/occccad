@@ -78,3 +78,46 @@ func TestSurfaceKeepPointDependencyAndToleranceParameter(t *testing.T) {
 		t.Fatal("trim accepted implicit retained region")
 	}
 }
+
+func TestAutomaticGeometryTolerancePolicy(t *testing.T) {
+	for _, kind := range []string{"SPLINE", "SURFACE_EXTRUDE", "SURFACE_FILL", "SURFACE_BOUNDARY", "SURFACE_SEW"} {
+		d := &GeometricFeatureDefinition{Kind: kind}
+		if err := setGeometryTolerancePolicy(d); err != nil {
+			t.Fatal(err)
+		}
+		value := &d.ConstructionTolerance
+		if d.Surface != nil {
+			value = &d.Surface.Tolerance
+		}
+		if d.ToleranceMode != "AUTO" || *value != 1e-5 {
+			t.Fatalf("%s: default mode=%s mm=%g", kind, d.ToleranceMode, *value)
+		}
+		for _, p := range geometryParameters(d) {
+			if p.slot == "geometry:tolerance" {
+				t.Fatalf("%s: automatic result has editable parameter", kind)
+			}
+		}
+		for _, mode := range []string{"", "MANUAL"} {
+			d.ToleranceMode, *value = mode, .002
+			if err := setGeometryTolerancePolicy(d); err != nil || *value != .002 {
+				t.Fatalf("%s: lost explicit tolerance: %v", kind, err)
+			}
+		}
+		d.ToleranceMode = "AUTO"
+		if err := setGeometryTolerancePolicy(d); err != nil || *value != 1e-5 {
+			t.Fatalf("%s: previous manual value affected auto: %v", kind, err)
+		}
+		d.ToleranceMode = "MANUAL"
+		for _, invalid := range []float64{0, 0.1, 1e-9} {
+			*value = invalid
+			if err := setGeometryTolerancePolicy(d); err == nil {
+				t.Fatalf("manual tolerance accepted: %g", invalid)
+			}
+		}
+	}
+	for _, d := range []GeometricFeatureDefinition{{Kind: "SURFACE_FILL", ToleranceMode: "INVALID"}, {Kind: "LINE", ToleranceMode: "AUTO"}} {
+		if err := setGeometryTolerancePolicy(&d); err == nil {
+			t.Fatalf("accepted invalid mode: %+v", d)
+		}
+	}
+}

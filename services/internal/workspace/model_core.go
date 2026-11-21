@@ -1257,6 +1257,9 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	if err := setGeometryTolerancePolicy(payload.Feature.Geometry); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	if d := payload.Feature.Geometry; d != nil && d.Kind != "IMPORTED" && d.Surface == nil && d.ConstructionTolerance == 0 {
 		d.ConstructionTolerance = 0.01
 	}

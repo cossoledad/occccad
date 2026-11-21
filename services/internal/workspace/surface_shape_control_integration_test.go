@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/occccad/occccad/internal/modelcore"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -207,5 +208,29 @@ func TestSurfaceShapeControlBorderGuideAssociation(t *testing.T) {
 	cold := clonePartModel(*v.Part)
 	if err = f.service.evaluatePartBodies(WithColdEvaluation(f.ctx), uuid.NewString(), &cold); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBoundaryAutomaticAndManualDeviation(t *testing.T) {
+	f := newSketchWorkflowFixture(t)
+	_, bottom := controlLine(t, f, [3]float64{}, [3]float64{10, 0, 0})
+	_, right := controlLine(t, f, [3]float64{10, 0.0005, 0}, [3]float64{10, 8, 0})
+	_, top := controlLine(t, f, [3]float64{10, 8, 0}, [3]float64{0, 8, 0})
+	before, left := controlLine(t, f, [3]float64{0, 8, 0}, [3]float64{})
+	d := surfaceDefinition("SURFACE_BOUNDARY", resultInput(bottom), resultInput(right), resultInput(top), resultInput(left))
+	d.ToleranceMode = "AUTO"
+	d.Surface.Tolerance = .002 // Stale client value must not override the mode.
+	req := CommandRequest{Type: "CREATE_GEOMETRY_FEATURE", ActorID: f.actor, RequestID: uuid.NewString(), Feature: &Feature{Type: "GEOMETRY", Geometry: d}}
+	if _, err := f.service.PreviewCommand(f.ctx, f.documentID, req); err == nil || !strings.Contains(err.Error(), "SURFACE_BOUNDARY_ORDERED_LOOP_REQUIRED") {
+		t.Fatalf("expected closed boundary diagnostic for 0.0005 mm gap: %v", err)
+	}
+	v, err := f.service.GetDocument(f.ctx, f.documentID)
+	if err != nil || v.Document.VersionID != before.Document.VersionID {
+		t.Fatal("failed preview advanced the document", err)
+	}
+	d.ToleranceMode = "MANUAL"
+	_, feature := surfaceCreate(t, f, d)
+	if feature.Geometry.Surface.Tolerance != .002 || feature.Geometry.ToleranceMode != "MANUAL" {
+		t.Fatal("accepted patch lost its manual deviation")
 	}
 }
