@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/occccad/occccad/internal/database"
@@ -43,14 +44,18 @@ func (service *Service) Put(ctx context.Context, kind Kind, contentType string, 
 	if err != nil {
 		return Object{}, err
 	}
-	var result Object
-	err = service.database.QueryRow(ctx, `INSERT INTO occccad.artifact_objects(
+	return scanObject(service.database.QueryRow(ctx, registerObjectSQL, kind, stored.SHA256, stored.Key, contentType, stored.Size, service.store.Backend()))
+}
+
+const registerObjectSQL = `INSERT INTO occccad.artifact_objects(
 		kind,sha256,storage_backend,object_key,content_type,size_bytes,state,verified_at)
 		VALUES($1,$2,$6,$3,$4,$5,'READY',now())
 		ON CONFLICT(kind,sha256) DO UPDATE SET verified_at=now(),storage_backend=EXCLUDED.storage_backend,object_key=EXCLUDED.object_key
-		RETURNING id::text,kind,sha256,storage_backend,object_key,content_type,size_bytes`,
-		kind, stored.SHA256, stored.Key, contentType, stored.Size, service.store.Backend()).Scan(&result.ID, &result.Kind,
-		&result.SHA256, &result.Backend, &result.Key, &result.ContentType, &result.Size)
+		RETURNING id::text,kind,sha256,storage_backend,object_key,content_type,size_bytes`
+
+func scanObject(row database.Row) (Object, error) {
+	var result Object
+	err := row.Scan(&result.ID, &result.Kind, &result.SHA256, &result.Backend, &result.Key, &result.ContentType, &result.Size)
 	return result, err
 }
 
@@ -107,41 +112,97 @@ func (service *Service) Adopt(ctx context.Context, kind Kind, contentType, stagi
 	return result, nil
 }
 
-// AdoptVerifiedBytes checks the complete staging payload before publication
-// and returns those same bytes for immediate decoding, including with S3.
-func (service *Service) AdoptVerifiedBytes(ctx context.Context, kind Kind, contentType, stagingKey, digest string, size int64) (Object, []byte, error) {
+// PreparedObject owns durable content and its staging key until registration.
+type PreparedObject struct {
+	stored     StoredObject
+	kind       Kind
+	stagingKey string
+}
+
+// PrepareVerified copies one immutable payload outside the database transaction.
+// A caller decoding the root can retain exactly the verified bytes; history blocks stream.
+func (service *Service) PrepareVerified(ctx context.Context, kind Kind, contentType, stagingKey, digest string, size int64, capture bool) (PreparedObject, []byte, error) {
 	if size < 0 || size == math.MaxInt64 || len(digest) != sha256.Size*2 {
-		return Object{}, nil, fmt.Errorf("invalid staged object reference")
+		return PreparedObject{}, nil, fmt.Errorf("invalid staged object reference")
 	}
 	source, err := service.staging.Open(ctx, stagingKey)
 	if err != nil {
-		return Object{}, nil, err
+		return PreparedObject{}, nil, err
 	}
+	var input io.Reader = io.LimitReader(contextReader{ctx, source}, size+1)
 	var captured bytes.Buffer
-	n, readErr := captured.ReadFrom(io.LimitReader(contextReader{ctx, source}, size+1))
+	if capture {
+		input = io.TeeReader(input, &captured)
+	}
+	// A Store publishes on EOF. Reject a bad reference before a truncated
+	// prefix or an unexpected payload can be installed at a permanent key.
+	hash := sha256.New()
+	stream := &countedReader{reader: io.TeeReader(input, hash)}
+	checked := &verifiedTransform{output: stream, finish: func() error {
+		if stream.count != size || hex.EncodeToString(hash.Sum(nil)) != digest {
+			return fmt.Errorf("staged artifact integrity mismatch")
+		}
+		return ctx.Err()
+	}}
+	stored, writeErr := service.store.Put(ctx, kind, contentType, checked)
 	closeErr := source.Close()
-	if readErr != nil {
-		return Object{}, nil, readErr
+	if writeErr != nil {
+		return PreparedObject{}, nil, writeErr
 	}
 	if closeErr != nil {
-		return Object{}, nil, closeErr
+		return PreparedObject{}, nil, closeErr
 	}
-	data := captured.Bytes()
-	sum := sha256.Sum256(data)
-	if n != size || hex.EncodeToString(sum[:]) != digest {
-		return Object{}, nil, fmt.Errorf("staged artifact integrity mismatch")
+	if stored.SHA256 != digest || stored.Size != size {
+		return PreparedObject{}, nil, fmt.Errorf("staged artifact integrity mismatch")
 	}
-	object, err := service.Put(ctx, kind, contentType, bytes.NewReader(data))
+	return PreparedObject{stored: stored, kind: kind, stagingKey: stagingKey}, captured.Bytes(), nil
+}
+
+// PublishPrepared registers a verified set atomically, in caller order. Concurrent
+// publications acquire shared object rows in the same order. File I/O stays outside SQL.
+func (service *Service) PublishPrepared(ctx context.Context, prepared []PreparedObject) ([]Object, error) {
+	order := make([]int, len(prepared))
+	for i := range order {
+		order[i] = i
+	}
+	sort.Slice(order, func(i, j int) bool {
+		a, b := prepared[order[i]], prepared[order[j]]
+		if a.kind != b.kind {
+			return a.kind < b.kind
+		}
+		return a.stored.SHA256 < b.stored.SHA256
+	})
+	var batch database.Batch
+	for _, i := range order {
+		p := prepared[i]
+		batch.Queue(registerObjectSQL, p.kind, p.stored.SHA256, p.stored.Key, p.stored.ContentType, p.stored.Size, service.store.Backend())
+	}
+	tx, err := service.database.Begin(ctx)
 	if err != nil {
-		return Object{}, nil, err
+		return nil, err
 	}
-	if object.SHA256 != digest || object.Size != size {
-		return Object{}, nil, fmt.Errorf("stored artifact integrity mismatch")
+	defer tx.Rollback(ctx)
+	rows := tx.SendBatch(ctx, &batch)
+	objects := make([]Object, len(prepared))
+	for _, i := range order {
+		objects[i], err = scanObject(rows.QueryRow())
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
 	}
-	if err := service.staging.Delete(ctx, stagingKey); err != nil {
-		return Object{}, nil, err
+	if err = rows.Close(); err != nil {
+		return nil, err
 	}
-	return object, data, nil
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	for _, p := range prepared {
+		if err = service.staging.Delete(ctx, p.stagingKey); err != nil {
+			return nil, err
+		}
+	}
+	return objects, nil
 }
 
 func StagingKey(requestID, fileName string) string {

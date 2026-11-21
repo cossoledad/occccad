@@ -90,25 +90,34 @@ func (s *Service) namingHistoryLoader(ctx context.Context, parent *string) namin
 	}
 }
 
-func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvaluationManifest, geometryID, brep string, displayAssociations bool) (artifactstore.Object, *topologyManifest, error) {
-	defer perf.Start(ctx, "naming-adopt")()
-	finish := perf.Start(ctx, "naming-stage-root")
-	ref := m.GetTopologyManifestArtifact()
-	if s.artifacts == nil || ref.GetObjectKey() == "" {
-		return artifactstore.Object{}, nil, fmt.Errorf("persistent result requires Naming ArtifactReference")
+func (s *Service) adoptNamedGeometry(ctx context.Context, m *workerv1.PartEvaluationManifest, geometryID string, brep *workerv1.ArtifactReference, representations map[string]artifactstore.Object, displayAssociations bool) (*topologyManifest, error) {
+	if s.artifacts == nil || brep.GetObjectKey() == "" {
+		return nil, fmt.Errorf("persistent result requires BREP ArtifactReference")
 	}
-	if err := validateTopologyManifestDigests(m.TopologyManifestDigest, ref.Sha256, ""); err != nil {
-		return artifactstore.Object{}, nil, err
-	}
-	root, data, err := s.artifacts.AdoptVerifiedBytes(ctx, artifactstore.KindTopologyManifest, ref.ContentType, ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes))
+	finish := perf.Start(ctx, "part-adopt-brep")
+	preparedBREP, _, err := s.artifacts.PrepareVerified(ctx, artifactstore.KindBREP, brep.ContentType, brep.ObjectKey, brep.Sha256, int64(brep.SizeBytes), false)
 	finish()
 	if err != nil {
-		return root, nil, err
+		return nil, err
+	}
+	defer perf.Start(ctx, "naming-adopt")()
+	finish = perf.Start(ctx, "naming-stage-root")
+	ref := m.GetTopologyManifestArtifact()
+	if ref.GetObjectKey() == "" {
+		return nil, fmt.Errorf("persistent result requires Naming ArtifactReference")
+	}
+	if err := validateTopologyManifestDigests(m.TopologyManifestDigest, ref.Sha256, ""); err != nil {
+		return nil, err
+	}
+	preparedRoot, data, err := s.artifacts.PrepareVerified(ctx, artifactstore.KindTopologyManifest, ref.ContentType, ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), true)
+	finish()
+	if err != nil {
+		return nil, err
 	}
 	finish = perf.Start(ctx, "naming-root-decode")
 	stored := &workerv1.PartTopologyManifest{}
 	if err = proto.Unmarshal(data, stored); err != nil {
-		return root, nil, err
+		return nil, err
 	}
 	finish()
 	finish = perf.Start(ctx, "naming-prefix-check")
@@ -116,7 +125,7 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 	digests := []string{}
 	for _, ref := range stored.History {
 		if wanted[ref.Sha256] != nil {
-			return root, nil, fmt.Errorf("duplicate naming history reference")
+			return nil, fmt.Errorf("duplicate naming history reference")
 		}
 		wanted[ref.Sha256] = ref
 		digests = append(digests, ref.Sha256)
@@ -134,35 +143,51 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 	}
 	finish()
 	finish = perf.Start(ctx, "naming-adopt-blocks")
-	objects, err := s.artifacts.ReadyByDigests(ctx, artifactstore.KindNamingHistory, digests[prefix:])
-	if err != nil {
-		return root, nil, err
+	if stored.GeometryId != geometryID || stored.BrepSha256 != brep.Sha256 {
+		return nil, fmt.Errorf("feature association snapshot mismatch")
 	}
-	provided := map[string]bool{}
+	prepared := []artifactstore.PreparedObject{preparedBREP, preparedRoot}
+	provided := make(map[string]bool, len(m.NamingHistoryArtifacts))
 	for _, ref := range m.NamingHistoryArtifacts {
-		expected := wanted[ref.Sha256]
-		if expected == nil || provided[ref.Sha256] || ref.SizeBytes != expected.SizeBytes || ref.Backend != "LOCAL" {
-			return root, nil, fmt.Errorf("unexpected naming history output")
+		expected := wanted[ref.GetSha256()]
+		if expected == nil || provided[ref.Sha256] || ref.SizeBytes != expected.SizeBytes || ref.Backend != "LOCAL" || ref.ObjectKey == "" {
+			return nil, fmt.Errorf("unexpected naming history output")
 		}
 		provided[ref.Sha256] = true
-		object, err := s.adoptEvaluationObject(ctx, ref, artifactstore.KindNamingHistory)
+		member, _, err := s.artifacts.PrepareVerified(ctx, artifactstore.KindNamingHistory, ref.ContentType, ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), false)
 		if err != nil {
-			return root, nil, err
+			return nil, err
 		}
+		prepared = append(prepared, member)
+	}
+	var missing []string
+	for _, digest := range digests[prefix:] {
+		if !provided[digest] {
+			missing = append(missing, digest)
+		}
+	}
+	objects, err := s.artifacts.ReadyByDigests(ctx, artifactstore.KindNamingHistory, missing)
+	if err != nil {
+		return nil, err
+	}
+	admitted, err := s.artifacts.PublishPrepared(ctx, prepared)
+	if err != nil {
+		return nil, err
+	}
+	root := admitted[1]
+	representations["BREP"], representations["NAMING"] = admitted[0], root
+	for _, object := range admitted[2:] {
 		objects[object.SHA256] = object
 	}
 	finish()
-	if stored.GeometryId != geometryID || stored.BrepSha256 != brep {
-		return root, nil, fmt.Errorf("feature association snapshot mismatch")
-	}
 	if prefix > 0 {
 		view, err := s.adoptNamingContinuation(ctx, checkpoint, root, stored, objects, displayAssociations)
 		if view != nil || err != nil {
-			return root, view, err
+			return view, err
 		}
 		older, err := s.artifacts.ReadyByDigests(ctx, artifactstore.KindNamingHistory, digests[:prefix])
 		if err != nil {
-			return root, nil, err
+			return nil, err
 		}
 		for digest, object := range older {
 			objects[digest] = object
@@ -178,19 +203,19 @@ func (s *Service) adoptNamingHistory(ctx context.Context, m *workerv1.PartEvalua
 	})
 	finish()
 	if err != nil {
-		return root, nil, err
+		return nil, err
 	}
-	if view.GeometryID != geometryID || view.BRepSHA256 != brep {
-		return root, nil, fmt.Errorf("feature association snapshot mismatch")
+	if view.GeometryID != geometryID || view.BRepSHA256 != brep.Sha256 {
+		return nil, fmt.Errorf("feature association snapshot mismatch")
 	}
 	ordered := make([]artifactstore.Object, 0, len(stored.History))
 	for _, ref := range stored.History {
 		ordered = append(ordered, objects[ref.Sha256])
 	}
 	if err = s.artifacts.RecordNamingClosure(ctx, root, ordered); err != nil {
-		return root, nil, err
+		return nil, err
 	}
-	return root, view, nil
+	return view, nil
 }
 
 func namingViewKey(id, digest string) string {

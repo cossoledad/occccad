@@ -107,7 +107,11 @@ func (s *Service) partCheckpoint(ctx context.Context, model PartModel) (partChec
 	if a.ValidationPolicy != geometryValidationPolicy || !a.Naming.CanBind || a.EvaluatorVersion != evaluatorVersion {
 		return partCheckpoint{}, nil
 	}
-	raw, err := s.readRepresentation(ctx, checkpoint.key, "NAMING")
+	object, err := s.representationObject(ctx, checkpoint.key, "NAMING")
+	if err != nil {
+		return partCheckpoint{}, ctx.Err()
+	}
+	raw, err := s.readRepresentationObject(ctx, object, "NAMING")
 	if err != nil {
 		return partCheckpoint{}, ctx.Err()
 	}
@@ -124,10 +128,6 @@ func (s *Service) partCheckpoint(ctx context.Context, model PartModel) (partChec
 		if stage.FeatureId != ordered[i] {
 			return partCheckpoint{}, nil
 		}
-	}
-	object, err := s.representationObject(ctx, checkpoint.key, "NAMING")
-	if err != nil {
-		return partCheckpoint{}, err
 	}
 	checkpoint.continuation.ValidationPolicy = a.ValidationPolicy
 	checkpoint.continuation.Naming = &workerv1.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType}

@@ -81,7 +81,7 @@ func TestTransformedPublicationVerifiesDiscardedSourceBeforeReady(t *testing.T) 
 	}
 }
 
-func TestAdoptVerifiedBytesPublishesOnlyExactStagedPayload(t *testing.T) {
+func TestVerifiedSetPublishesOnlyExactStagedPayload(t *testing.T) {
 	db, err := database.Open(t.Context(), "sqlite:"+filepath.Join(t.TempDir(), "artifact.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestAdoptVerifiedBytesPublishesOnlyExactStagedPayload(t *testing.T) {
 	}{
 		{strings.Repeat("0", 64), staged.Size}, {staged.SHA256, staged.Size - 1}, {staged.SHA256, staged.Size + 1},
 	} {
-		_, data, err := service.AdoptVerifiedBytes(t.Context(), KindTopologyManifest, staged.ContentType, staged.Key, tc.digest, tc.size)
+		_, data, err := service.PrepareVerified(t.Context(), KindTopologyManifest, staged.ContentType, staged.Key, tc.digest, tc.size, true)
 		if err == nil || data != nil {
 			t.Fatal("accepted invalid staged data")
 		}
@@ -128,10 +128,43 @@ func TestAdoptVerifiedBytesPublishesOnlyExactStagedPayload(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dest.Root(), existing.Key), bytes.Repeat([]byte{'x'}, len(input)), 0600); err != nil {
 		t.Fatal(err)
 	}
-	o, data, err := service.AdoptVerifiedBytes(t.Context(), KindTopologyManifest, staged.ContentType, staged.Key, staged.SHA256, staged.Size)
-	if err != nil || !bytes.Equal(data, input) || o.SHA256 != staged.SHA256 {
-		t.Fatal(o, data, err)
+	root, data, err := service.PrepareVerified(t.Context(), KindTopologyManifest, staged.ContentType, staged.Key, staged.SHA256, staged.Size, true)
+	if err != nil || !bytes.Equal(data, input) {
+		t.Fatal(data, err)
 	}
+	member, err := stage.Put(t.Context(), KindNamingHistory, "application/octet-stream", strings.NewReader("history block"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, raw, err := service.PrepareVerified(t.Context(), KindNamingHistory, member.ContentType, member.Key, member.SHA256, member.Size, false)
+	if err != nil || raw != nil {
+		t.Fatal(raw, err)
+	}
+	// Force the later upsert to fail, after the block insert in the same transaction.
+	badRoot := root
+	badRoot.stored.Size = -1
+	if _, err = service.PublishPrepared(t.Context(), []PreparedObject{badRoot, block}); err == nil {
+		t.Fatal("accepted invalid object set")
+	}
+	if err = db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.artifact_objects`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("partial registration", count, err)
+	}
+	for _, key := range []string{member.Key, staged.Key} {
+		r, err := stage.Open(t.Context(), key)
+		if err != nil {
+			t.Fatal("lost staged source on rollback", err)
+		}
+		r.Close()
+	}
+	objects, err := service.PublishPrepared(t.Context(), []PreparedObject{root, block})
+	if err != nil || len(objects) != 2 || objects[0].SHA256 != staged.SHA256 || objects[1].SHA256 != member.SHA256 {
+		t.Fatal(objects, err)
+	}
+	retried, err := service.PublishPrepared(t.Context(), []PreparedObject{block, root})
+	if err != nil || len(retried) != 2 || retried[0].ID != objects[1].ID || retried[1].ID != objects[0].ID {
+		t.Fatal("retry changed verified object identities", retried, err)
+	}
+	o := objects[0]
 	reader, err := dest.Open(t.Context(), o.Key)
 	if err != nil {
 		t.Fatal(err)
@@ -141,8 +174,10 @@ func TestAdoptVerifiedBytesPublishesOnlyExactStagedPayload(t *testing.T) {
 	if err != nil || !bytes.Equal(saved, data) {
 		t.Fatal(saved, err)
 	}
-	if reader, err := stage.Open(t.Context(), staged.Key); err == nil {
-		reader.Close()
-		t.Fatal("accepted stage was retained")
+	for _, key := range []string{staged.Key, member.Key} {
+		if reader, err := stage.Open(t.Context(), key); err == nil {
+			reader.Close()
+			t.Fatal("accepted stage was retained", key)
+		}
 	}
 }

@@ -622,8 +622,9 @@ func TestStoredGrowingTopologyNamingReplayThroughRouter(t *testing.T) {
 	}
 	accepted := activeBodyArtifact(t, view)
 	tip := view.Part.Features[len(view.Part.Features)-1]
+	coldCtx, timings := perf.WithRecorder(workspace.WithColdEvaluation(ctx))
 	start := time.Now()
-	cold, err := service.PreviewCommand(workspace.WithColdEvaluation(ctx), documentID, workspace.CommandRequest{Type: "EDIT_FEATURE", ActorID: p6Actor, RequestID: documentID + "-cross-build-replay", TargetID: tip.ID, Feature: &tip, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, tip.ID)})
+	cold, err := service.PreviewCommand(coldCtx, documentID, workspace.CommandRequest{Type: "EDIT_FEATURE", ActorID: p6Actor, RequestID: documentID + "-cross-build-replay", TargetID: tip.ID, Feature: &tip, ExpectedFeatureDigest: findP6FeatureDigest(t, view.StructureTree, tip.ID)})
 	elapsed := time.Since(start)
 	if err != nil || cold.Artifact == nil {
 		t.Fatal("cold stored chain", err)
@@ -633,8 +634,15 @@ func TestStoredGrowingTopologyNamingReplayThroughRouter(t *testing.T) {
 	if err != nil || current.Document.VersionID != view.Document.VersionID {
 		t.Fatal("cross-build preview moved Head", err)
 	}
-	t.Logf("stored-growing-replay features=%d elapsed_ms=%.3f brep=%s naming=%s visual=%s exact_geometry_and_typed_naming_unchanged=true",
-		len(view.Part.Features), float64(elapsed)/float64(time.Millisecond), cold.Artifact.Representations["BREP"].Digest,
+	if cold.Runtime == nil || len(cold.Runtime.WorkerRuns) != 1 {
+		t.Fatal("missing cold Worker run")
+	}
+	run := cold.Runtime.WorkerRuns[0]
+	if run.StagesExecuted == 0 || run.StagesReused != 0 || run.FrozenPrefixStages != 0 {
+		t.Fatal("cold replay reused a stage", mustRuntimeJSON(run))
+	}
+	t.Logf("stored-growing-replay features=%d elapsed_ms=%.3f stages=%v executed=%d blocks=%d brep=%s naming=%s visual=%s exact_geometry_and_typed_naming_unchanged=true",
+		len(view.Part.Features), float64(elapsed)/float64(time.Millisecond), timings.SnapshotMilliseconds(), run.StagesExecuted, run.NamingBlocksComputed, cold.Artifact.Representations["BREP"].Digest,
 		cold.Artifact.Representations["NAMING"].Digest, cold.Artifact.Representations["VISUAL"].Digest)
 }
 

@@ -20,22 +20,22 @@ import (
 )
 
 func (s *Service) representationObject(ctx context.Context, key, role string) (artifactstore.Object, error) {
-	var id string
-	err := s.database.QueryRow(ctx, `SELECT object_id::text FROM occccad.geometry_representations WHERE geometry_key=$1 AND role=$2`, key, role).Scan(&id)
-	if err != nil {
-		return artifactstore.Object{}, err
-	}
 	if s.artifacts == nil {
 		return artifactstore.Object{}, fmt.Errorf("ArtifactStore required")
 	}
-	return s.artifacts.Get(ctx, id)
+	var o artifactstore.Object
+	err := s.database.QueryRow(ctx, `SELECT o.id::text,o.kind,o.sha256,o.storage_backend,o.object_key,o.content_type,o.size_bytes FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id WHERE r.geometry_key=$1 AND r.role=$2 AND o.state='READY'`, key, role).Scan(&o.ID, &o.Kind, &o.SHA256, &o.Backend, &o.Key, &o.ContentType, &o.Size)
+	return o, err
 }
 func (s *Service) readRepresentation(ctx context.Context, key, role string) ([]byte, error) {
 	o, err := s.representationObject(ctx, key, role)
 	if err != nil {
 		return nil, err
 	}
-	_, r, err := s.artifacts.Open(ctx, o.ID)
+	return s.readRepresentationObject(ctx, o, role)
+}
+func (s *Service) readRepresentationObject(ctx context.Context, o artifactstore.Object, role string) ([]byte, error) {
+	r, err := s.artifacts.OpenReadyObject(ctx, o)
 	if err != nil {
 		return nil, err
 	}
@@ -109,24 +109,17 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 	if (e.GetRepresentationKind() != "PERSISTENT" && e.GetRepresentationKind() != "EXACT_STAGE") || solid && (geometryDomain(e) != "SOLID_SET" || e.GetTopology().GetSolidCount() == 0 || e.GetValidationPolicy() != geometryValidationPolicy) {
 		return fmt.Errorf("%w: persistent solid result required", ErrValidation)
 	}
-	finish := perf.Start(ctx, "part-adopt-brep")
-	brep, err := s.adoptEvaluationObject(ctx, e.BrepArtifact, artifactstore.KindBREP)
-	finish()
-	if err != nil {
-		return err
-	}
-	objects := map[string]artifactstore.Object{"BREP": brep}
+	objects := map[string]artifactstore.Object{}
 	if m := e.EvaluationManifest; m != nil {
 		if m.SchemaVersion != modelcore.TopologyNamingSchemaVersion || m.TopologyPolicyId != modelcore.TopologyNamingPolicyID || m.TopologyEvaluatorVersion != modelcore.TopologyNamingEvaluator || m.TopologyPolicyDigest != modelcore.TopologyNamingPolicyDigest {
 			return fmt.Errorf("topology manifest contract mismatch")
 		}
-		naming, manifest, err := s.adoptNamingHistory(ctx, m, e.GeometryId, brep.SHA256, e.GetRepresentationKind() != "EXACT_STAGE")
+		manifest, err := s.adoptNamedGeometry(ctx, m, e.GeometryId, e.BrepArtifact, objects, e.GetRepresentationKind() != "EXACT_STAGE")
 		if err != nil {
 			return err
 		}
-
 		if e.GetRepresentationKind() != "EXACT_STAGE" {
-			finish = perf.Start(ctx, "part-display-associations")
+			finish := perf.Start(ctx, "part-display-associations")
 			v.FeatureAssociations = manifest.associations
 			if v.FeatureAssociations == nil {
 				v.FeatureAssociations = deriveFeatureAssociations(manifest)
@@ -134,7 +127,14 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 			v.FeatureContributions = featureContributionStatuses(v.FeatureAssociations)
 			finish()
 		}
-		objects["NAMING"] = naming
+	} else {
+		finish := perf.Start(ctx, "part-adopt-brep")
+		brep, err := s.adoptEvaluationObject(ctx, e.BrepArtifact, artifactstore.KindBREP)
+		finish()
+		if err != nil {
+			return err
+		}
+		objects["BREP"] = brep
 	}
 	if e.GetRepresentationKind() == "EXACT_STAGE" {
 		worker := s.worker.WorkerFor(key)
@@ -147,7 +147,7 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 		return fmt.Errorf("visual ArtifactReference required")
 	}
 	v.Precision = e.GetVisualPrecision()
-	finish = perf.Start(ctx, "part-adopt-visual")
+	finish := perf.Start(ctx, "part-adopt-visual")
 	visual, err := s.artifacts.AdoptTransformed(ctx, artifactstore.KindGLB, "model/gltf-binary", ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), func(data io.Reader, size int64) (io.Reader, error) {
 		defer perf.Start(ctx, "part-assemble-glb")()
 		return glbWithVisualizationReader(data, size, v, map[string]string{"geometryId": e.GeometryId, "namingDigest": e.GetEvaluationManifest().GetTopologyManifestDigest()})
