@@ -28,15 +28,13 @@ func (r *raster) meshEdges(ctx context.Context, instance meshInstance) error {
 		return nil
 	}
 	edges := make(map[edgeKey]edgeNormals)
-	for i, t := range m.Triangles {
+	for i, index := range instance.mesh.triangles {
 		if i%512 == 0 {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
 		}
-		if !validTriangle(m, t) {
-			continue
-		}
+		t := m.Triangles[index]
 		normal := instance.pose.rotate(unit(cross(sub(m.Vertices[t[1]], m.Vertices[t[0]]), sub(m.Vertices[t[2]], m.Vertices[t[0]]))))
 		for j := 0; j < 3; j++ {
 			a, b := m.Vertices[t[j]], m.Vertices[t[(j+1)%3]]

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 )
 
 type Association struct {
@@ -201,19 +202,21 @@ func Decode(data []byte) (Mesh, json.RawMessage, error) {
 					return fail("zero topology locator")
 				}
 			}
-			indices := make([]float64, len(positions)/3)
-			for i := range indices {
-				indices[i] = float64(i)
-			}
+			var indices []float64
 			if p.Indices != nil {
 				indices, err = read(*p.Indices, 1, 5125)
 				if err != nil {
 					return fail(err.Error())
 				}
-			}
-			for _, id := range indices {
-				if id >= float64(len(positions)/3) {
-					return fail("primitive index")
+				for _, id := range indices {
+					if id >= float64(len(positions)/3) {
+						return fail("primitive index")
+					}
+				}
+			} else {
+				indices = make([]float64, len(positions)/3)
+				for i := range indices {
+					indices[i] = float64(i)
 				}
 			}
 			point := func(i float64) [3]float64 {
@@ -237,12 +240,16 @@ func Decode(data []byte) (Mesh, json.RawMessage, error) {
 					if len(values) != len(positions) {
 						return fail("normal count")
 					}
+					empty.Normals = slices.Grow(empty.Normals, len(values)/3)
 					for i := 0; i < len(values); i += 3 {
 						empty.Normals = append(empty.Normals, [3]float64{values[i], values[i+1], values[i+2]})
 					}
 				} else {
 					completeNormals = false
 				}
+				empty.Vertices = slices.Grow(empty.Vertices, len(positions)/3)
+				empty.Triangles = slices.Grow(empty.Triangles, len(ids))
+				empty.FaceIDs = slices.Grow(empty.FaceIDs, len(ids))
 				base := uint32(len(empty.Vertices))
 				for i := 0; i < len(positions)/3; i++ {
 					empty.Vertices = append(empty.Vertices, point(float64(i)))
@@ -317,7 +324,12 @@ func Decode(data []byte) (Mesh, json.RawMessage, error) {
 		for _, id := range empty.FaceIDs {
 			faces[id] = true
 		}
-		profile := &EdgeProfile{}
+		profile := &EdgeProfile{
+			Positions: make([][3]float64, 0, len(positions)/3),
+			NormalA:   make([][3]float64, 0, len(a)/3),
+			NormalB:   make([][3]float64, 0, len(b)/3),
+			Metadata:  make([][4]uint32, 0, len(metadata)/4),
+		}
 		for i := 0; i < len(positions); i += 3 {
 			profile.Positions = append(profile.Positions, [3]float64{positions[i], positions[i+1], positions[i+2]})
 			profile.NormalA = append(profile.NormalA, [3]float64{a[i], a[i+1], a[i+2]})

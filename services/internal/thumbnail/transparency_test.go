@@ -8,6 +8,17 @@ import (
 	"testing"
 )
 
+func (r *raster) triangle(ctx context.Context, p [3]screenPoint, shade [3]float64, colors ...color.RGBA) error {
+	base := surfaceColor("")
+	if len(colors) > 0 {
+		base = colors[0]
+	}
+	return r.triangleAlpha(ctx, p, shade, base, float64(base.A)/255)
+}
+func (r *raster) triangleAlpha(ctx context.Context, p [3]screenPoint, shade [3]float64, base color.RGBA, opacity float64) error {
+	return r.drawTriangle(ctx, p, opacity, func() ([3]float64, color.RGBA) { return shade, base })
+}
+
 func transparencyRaster() *raster {
 	r := &raster{pixels: image.NewRGBA(image.Rect(0, 0, 32, 32)), depth: make([]float64, 32*32), width: 32, height: 32}
 	for i := range r.depth {
@@ -78,5 +89,51 @@ func TestThumbnailTransparencyDepthZeroAndOrder(t *testing.T) {
 	}
 	if r.transparentWeight != nil {
 		t.Fatal("opaque scenes allocated transparency buffers")
+	}
+}
+
+func TestLightingWaitsForVisibleSamples(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		opacity   float64
+		openPixel bool
+		reversed  bool
+		wantCalls int
+	}{
+		{"occluded solid", 1, false, false, 0},
+		{"occluded glass", .4, false, true, 0},
+		{"opening in front of reversed sheet", 1, true, true, 1},
+		{"glass visible through opening", .4, true, true, 1},
+		{"invisible face", 0, true, false, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := transparencyRaster()
+			for i := range r.depth {
+				r.depth[i] = 10
+			}
+			const index = 16*32 + 6
+			if test.openPixel {
+				r.depth[index] = math.Inf(-1)
+			}
+			p := [3]screenPoint{{2, 2, 0}, {30, 2, 0}, {2, 30, 0}}
+			if test.reversed {
+				p[1], p[2] = p[2], p[1]
+			}
+			calls := 0
+			err := r.drawTriangle(t.Context(), p, test.opacity, func() ([3]float64, color.RGBA) {
+				calls++
+				return [3]float64{1, 1, 1}, color.RGBA{0, 0, 255, 255}
+			})
+			if err != nil || calls != test.wantCalls {
+				t.Fatalf("lighting calls=%d, want %d, err=%v", calls, test.wantCalls, err)
+			}
+			if err := r.compositeTransparency(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			pixel := r.pixels.RGBAAt(6, 16)
+			if (pixel.R < 255) != (test.wantCalls == 1) {
+				t.Fatalf("unexpected opening color %v", pixel)
+			}
+		})
 	}
 }

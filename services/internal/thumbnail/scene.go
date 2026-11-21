@@ -63,6 +63,8 @@ type normalKey struct {
 }
 type preparedMesh struct {
 	mesh          workspace.Mesh
+	triangles     []uint32 // original ordinals, preserving per-face appearance
+	vertices      []uint32 // referenced by a valid surface triangle
 	normals       map[normalKey]vec
 	vertexNormals []vec
 	edgeStyles    []lineProfile
@@ -148,20 +150,8 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				}
 				cache[a.GeometryKey] = prepared
 			}
-			s.meshes = append(s.meshes, meshInstance{mesh: prepared, pose: p, appearance: appearance, domain: a.GeometryDomain})
-			// Only referenced finite vertices influence framing; unused mesh vertices do not.
-			for i, t := range a.Mesh.Triangles {
-				if i%1024 == 0 {
-					if err := ctx.Err(); err != nil {
-						return err
-					}
-				}
-				if !validTriangle(a.Mesh, t) {
-					continue
-				}
-				for _, index := range t {
-					s.include(p.point(a.Mesh.Vertices[index]))
-				}
+			if err := s.addMesh(ctx, meshInstance{mesh: prepared, pose: p, appearance: appearance, domain: a.GeometryDomain}); err != nil {
+				return err
 			}
 		}
 		for _, edge := range a.Mesh.Edges {
@@ -210,13 +200,8 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				if err != nil {
 					return err
 				}
-				s.meshes = append(s.meshes, meshInstance{mesh: prepared, pose: p})
-				for _, t := range mesh.Triangles {
-					if validTriangle(mesh, t) {
-						for _, index := range t {
-							s.include(p.point(mesh.Vertices[index]))
-						}
-					}
+				if err := s.addMesh(ctx, meshInstance{mesh: prepared, pose: p}); err != nil {
+					return err
 				}
 			} else if primitive.Kind == "POINTS" || primitive.Kind == "POLYLINE" {
 				points := make([]vec, 0, len(primitive.Positions))
@@ -346,13 +331,28 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 	}
 	return s, ctx.Err()
 }
+func (s *renderScene) addMesh(ctx context.Context, instance meshInstance) error {
+	s.meshes = append(s.meshes, instance)
+	for i, index := range instance.mesh.vertices {
+		if i%1024 == 0 && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		s.include(instance.pose.point(instance.mesh.mesh.Vertices[index]))
+	}
+	return nil
+}
+
 func validTriangle(m workspace.Mesh, t [3]uint32) bool {
+	return triangleNormal(m.Vertices, t) != (vec{})
+}
+
+func triangleNormal(vertices []vec, t [3]uint32) vec {
 	for _, i := range t {
-		if uint64(i) >= uint64(len(m.Vertices)) || !valid(m.Vertices[i]) {
-			return false
+		if uint64(i) >= uint64(len(vertices)) || !valid(vertices[i]) {
+			return vec{}
 		}
 	}
-	return unit(cross(sub(m.Vertices[t[1]], m.Vertices[t[0]]), sub(m.Vertices[t[2]], m.Vertices[t[0]]))) != vec{}
+	return unit(cross(sub(vertices[t[1]], vertices[t[0]]), sub(vertices[t[2]], vertices[t[0]])))
 }
 func prepareMesh(ctx context.Context, m workspace.Mesh) (*preparedMesh, error) {
 	result := &preparedMesh{mesh: m, normals: map[normalKey]vec{}}
@@ -379,25 +379,32 @@ func prepareMesh(ctx context.Context, m workspace.Mesh) (*preparedMesh, error) {
 				complete = false
 			}
 		}
-		if complete {
-			return result, nil
-		}
 	}
 	// Smooth within an exact B-Rep face, including duplicated tessellation vertices;
 	// never blend normals across a CAD face boundary or infer persistent identity.
-	if len(m.FaceIDs) != len(m.Triangles) {
-		return result, nil
-	}
+	smooth := !complete && len(m.FaceIDs) == len(m.Triangles)
+	used := make([]bool, len(m.Vertices))
+	result.triangles = make([]uint32, 0, len(m.Triangles))
 	for i, t := range m.Triangles {
 		if i%512 == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 		}
-		if !validTriangle(m, t) {
+		normal := triangleNormal(m.Vertices, t)
+		if normal == (vec{}) {
 			continue
 		}
-		normal := unit(cross(sub(m.Vertices[t[1]], m.Vertices[t[0]]), sub(m.Vertices[t[2]], m.Vertices[t[0]])))
+		result.triangles = append(result.triangles, uint32(i))
+		for _, index := range t {
+			if !used[index] {
+				used[index] = true
+				result.vertices = append(result.vertices, index)
+			}
+		}
+		if !smooth {
+			continue
+		}
 		for _, index := range t {
 			key := normalKey{m.Vertices[index], m.FaceIDs[i]}
 			result.normals[key] = add(result.normals[key], normal)

@@ -311,10 +311,13 @@ func (s *Service) namingReference(ctx context.Context, key string) (*string, *st
 
 // HydrateArtifact decodes the immutable display representation for a local consumer.
 func (s *Service) HydrateArtifact(ctx context.Context, a *Artifact) error {
+	finish := perf.Start(ctx, "visual-read")
 	data, err := s.readRepresentation(ctx, a.GeometryKey, "VISUAL")
+	finish()
 	if err != nil {
 		return err
 	}
+	defer perf.Start(ctx, "visual-decode")()
 	mesh, metadata, err := visual.Decode(data)
 	if err != nil {
 		return err

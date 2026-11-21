@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
@@ -114,7 +115,9 @@ func RenderDisplay(parent context.Context, view workspace.DocumentView, base tim
 		}
 		target := int(int64(overviewTriangles) * int64(size) / max(int64(1), denominator, int64(size)*int64(n)))
 		var err error
+		finish := perf.Start(ctx, "simplify")
 		a.Mesh, err = compactMesh(ctx, a.Mesh, max(12, min(overviewTriangles, target)))
+		finish()
 		if err != nil {
 			return nil, true, err
 		}
@@ -130,18 +133,24 @@ func render(ctx context.Context, view workspace.DocumentView) ([]byte, error) {
 }
 
 func renderScenePNG(ctx context.Context, view workspace.DocumentView, overview bool) ([]byte, error) {
+	finish := perf.Start(ctx, "scene")
 	scene, err := collectScene(ctx, view)
+	finish()
 	if err != nil {
 		return nil, err
 	}
 	if !scene.hasBounds || (len(scene.meshes) == 0 && len(scene.lines) == 0) {
 		return Default(view), nil
 	}
+	finish = perf.Start(ctx, "raster")
 	raster := newRaster(scene)
 	raster.overview = overview
-	if err := raster.draw(ctx, scene); err != nil {
+	err = raster.draw(ctx, scene)
+	finish()
+	if err != nil {
 		return nil, err
 	}
+	defer perf.Start(ctx, "resolve-png")()
 	return encodePNG(ctx, raster.image())
 }
 

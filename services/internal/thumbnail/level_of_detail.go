@@ -162,11 +162,13 @@ func cluster(ctx context.Context, m workspace.Mesh, cells int) (workspace.Mesh, 
 		if i%2048 == 0 && ctx.Err() != nil {
 			return out, ctx.Err()
 		}
-		if !validTriangle(m, t) {
+		// Most source triangles collapse to a point or a line. Test those
+		// cheap cases before computing the original triangle's unit normal.
+		if uint64(t[0]) >= uint64(len(remap)) || uint64(t[1]) >= uint64(len(remap)) || uint64(t[2]) >= uint64(len(remap)) {
 			continue
 		}
 		face := [3]uint32{remap[t[0]], remap[t[1]], remap[t[2]]}
-		if face[0] == face[1] || face[1] == face[2] || face[2] == face[0] || seen[face] {
+		if face[0] == face[1] || face[1] == face[2] || face[2] == face[0] || seen[face] || !validTriangle(m, t) {
 			continue
 		}
 		seen[face] = true

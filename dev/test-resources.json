@@ -1021,6 +1021,14 @@
     ]
   },
   {
+    "path": "services/internal/thumbnail/document_measurement_integration_test.go",
+    "resources": [
+      "configured development database and ArtifactStore",
+      "existing document IDs from OCCCCAD_THUMBNAIL_DOCUMENT_IDS",
+      "optional PNG output directory from OCCCCAD_THUMBNAIL_GALLERY"
+    ]
+  },
+  {
     "path": "services/internal/workspace/assembly_offline_replay_test.go",
     "resources": [
       "configured Worker executable",

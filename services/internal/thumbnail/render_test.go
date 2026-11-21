@@ -306,3 +306,47 @@ func TestPlacedMeshBudgetRendersActualGeometryOncePerDefinition(t *testing.T) {
 		t.Fatal("hidden placement changed overview", err)
 	}
 }
+
+func TestTransparentBodyPreservesFaceOverrideAndBackOfSheet(t *testing.T) {
+	// Triangles overlap exactly in projection. Only the front triangle has
+	// reversed winding. Its face opacity overrides the invisible body.
+	vertices := []vec{}
+	for _, depth := range []float64{0, 4} {
+		for _, xy := range [][2]float64{{-2, -2}, {2, -2}, {0, 2}} {
+			vertices = append(vertices, add(add(mul(right, xy[0]), mul(up, xy[1])), mul(eye, depth)))
+		}
+	}
+	view := partView(workspace.Mesh{Vertices: vertices, Triangles: [][3]uint32{{0, 1, 2}, {5, 4, 3}}, FaceIDs: []uint32{11, 12}})
+	zero, one := 0., 1.
+	disabled := false
+	for _, alpha := range []float64{0, .5, 1} {
+		view.BodyAppearances = map[string]workspace.ResolvedAppearance{"body": {
+			GraphicProperties: workspace.GraphicProperties{Opacity: &zero, Edges: &disabled},
+			Faces:             map[uint64]string{11: "#0000ff", 12: "#ff0000"},
+			FaceProperties:    map[uint64]workspace.GraphicProperties{11: {Opacity: &one}, 12: {Opacity: &alpha}},
+		}}
+		data, err := Render(view)
+		if err != nil {
+			t.Fatal(err)
+		}
+		red, green, blue, _ := decode(t, data).At(Width/2, Height/2).RGBA()
+		if green != 0 || (red > 0) != (alpha > 0) || (blue > 0) != (alpha < 1) {
+			t.Fatalf("front sheet alpha %g: RGB=%d,%d,%d", alpha, red, green, blue)
+		}
+	}
+}
+
+func TestClusterKeepsFirstValidFaceInOccupiedCells(t *testing.T) {
+	m := workspace.Mesh{
+		Vertices: []vec{{0, 0, 0}, {2.1, 2.2, 0}, {4, 4, 0}, {2, 2, 0}, {math.NaN(), 0, 0}},
+		Triangles: [][3]uint32{
+			{99, 1, 2}, {4, 1, 2}, {0, 3, 2}, // invalid index, nonfinite, collinear
+			{0, 1, 3}, {0, 1, 2}, {0, 1, 2}, // collapsed, surviving face, duplicate
+		},
+		FaceIDs: []uint32{1, 2, 3, 4, 5, 6},
+	}
+	out, err := cluster(t.Context(), m, 4)
+	if err != nil || len(out.FaceIDs) != 1 || out.FaceIDs[0] != 5 {
+		t.Fatalf("unexpected surviving face IDs %v, err=%v", out.FaceIDs, err)
+	}
+}

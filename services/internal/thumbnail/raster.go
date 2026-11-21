@@ -54,66 +54,97 @@ func illumination(n vec) float64 {
 	} // double-sided display for open shells
 	return .38 + .72*max(0, dot(n, keyLight)) + .16*max(0, dot(n, fillLight)) + .08*math.Pow(max(0, dot(n, halfLight)), 10)
 }
-func (r *raster) draw(ctx context.Context, s *renderScene) error {
-	hasTransparency := false
-	for _, instance := range s.meshes {
-		if instance.appearance.Opacity != nil && *instance.appearance.Opacity < 1 {
-			hasTransparency = true
-		}
-		for _, face := range instance.appearance.FaceProperties {
-			if face.Opacity != nil && *face.Opacity < 1 {
-				hasTransparency = true
+
+// Shade a surface only after a sample passes the opaque depth test. Supplied
+// vertex lighting is shared by visible triangles of this placement.
+func (instance *meshInstance) surfaceLighting(i int, cached []float64) ([3]float64, color.RGBA) {
+	prepared := instance.mesh
+	m := &prepared.mesh
+	t := m.Triangles[i]
+	var shades [3]float64
+	var flat vec
+	for corner, index := range t {
+		if len(cached) > 0 && prepared.vertexNormals[index] != (vec{}) {
+			if cached[index] == 0 {
+				cached[index] = illumination(instance.pose.rotate(prepared.vertexNormals[index]))
 			}
+			shades[corner] = cached[index]
+			continue
+		}
+		var normal vec
+		if len(prepared.normals) > 0 {
+			normal = prepared.normals[normalKey{m.Vertices[index], m.FaceIDs[i]}]
+		}
+		if normal == (vec{}) {
+			if flat == (vec{}) {
+				flat = unit(cross(sub(m.Vertices[t[1]], m.Vertices[t[0]]), sub(m.Vertices[t[2]], m.Vertices[t[0]])))
+			}
+			normal = flat
+		}
+		shades[corner] = illumination(instance.pose.rotate(normal))
+	}
+	base := instance.appearance.Color
+	if base == "" && (instance.domain == "SHEET_SET" || instance.domain == "MIXED_SET") {
+		base = "#819db4"
+	}
+	if i < len(m.FaceIDs) {
+		if face := instance.appearance.Faces[uint64(m.FaceIDs[i])]; face != "" {
+			base = face
 		}
 	}
+	return shades, surfaceColor(base)
+}
+
+func (r *raster) draw(ctx context.Context, s *renderScene) error {
 	type drawMesh struct {
-		points []screenPoint
-		shades []float64
+		points                    []screenPoint
+		shades                    []float64
+		opacity                   float64
+		hasOpaque, hasTransparent bool
 	}
 	draws := make([]drawMesh, len(s.meshes))
 	for k, instance := range s.meshes {
-		m := instance.mesh.mesh
-		draws[k].points = make([]screenPoint, len(m.Vertices))
-		if len(instance.mesh.vertexNormals) == len(m.Vertices) {
-			draws[k].shades = make([]float64, len(m.Vertices))
+		m := &instance.mesh.mesh
+		draw := &draws[k]
+		draw.opacity = 1
+		if instance.appearance.Opacity != nil {
+			draw.opacity = *instance.appearance.Opacity
 		}
-		for i, v := range m.Vertices {
-			if i%1024 == 0 {
-				if err := ctx.Err(); err != nil {
-					return err
-				}
+		draw.hasOpaque = draw.opacity >= 1
+		draw.hasTransparent = draw.opacity > 0 && draw.opacity < 1
+		for _, face := range instance.appearance.FaceProperties {
+			if face.Opacity != nil {
+				draw.hasOpaque = draw.hasOpaque || *face.Opacity >= 1
+				draw.hasTransparent = draw.hasTransparent || (*face.Opacity > 0 && *face.Opacity < 1)
 			}
-			draws[k].points[i] = r.screen(instance.pose.point(v))
-			if len(draws[k].shades) > 0 {
-				n := instance.mesh.vertexNormals[i]
-				draws[k].shades[i] = math.NaN()
-				if n != (vec{}) {
-					draws[k].shades[i] = illumination(instance.pose.rotate(n))
-				}
+		}
+		if !draw.hasOpaque && !draw.hasTransparent || len(instance.mesh.triangles) == 0 {
+			continue
+		}
+		draw.points = make([]screenPoint, len(m.Vertices))
+		if len(instance.mesh.vertexNormals) > 0 {
+			draw.shades = make([]float64, len(m.Vertices))
+		}
+		for i, index := range instance.mesh.vertices {
+			if i%1024 == 0 && ctx.Err() != nil {
+				return ctx.Err()
 			}
+			draw.points[index] = r.screen(instance.pose.point(m.Vertices[index]))
 		}
 	}
 	for pass := 0; pass < 2; pass++ {
-		if pass == 1 && !hasTransparency {
-			break
-		}
-		for meshIndex, instance := range s.meshes {
-			m := instance.mesh.mesh
-			points, vertexShades := draws[meshIndex].points, draws[meshIndex].shades
-			for i, t := range m.Triangles {
-				if i%128 == 0 {
-					if err := ctx.Err(); err != nil {
-						return err
-					}
+		for k := range s.meshes {
+			instance, draw := &s.meshes[k], &draws[k]
+			if pass == 0 && !draw.hasOpaque || pass == 1 && !draw.hasTransparent {
+				continue
+			}
+			m := &instance.mesh.mesh
+			for ordinal, i := range instance.mesh.triangles {
+				if ordinal%128 == 0 && ctx.Err() != nil {
+					return ctx.Err()
 				}
-				if !validTriangle(m, t) {
-					continue
-				}
-				opacity := 1.0
-				if instance.appearance.Opacity != nil {
-					opacity = *instance.appearance.Opacity
-				}
-				if i < len(m.FaceIDs) {
+				opacity := draw.opacity
+				if int(i) < len(m.FaceIDs) {
 					if face := instance.appearance.FaceProperties[uint64(m.FaceIDs[i])]; face.Opacity != nil {
 						opacity = *face.Opacity
 					}
@@ -121,31 +152,11 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 				if opacity <= 0 || (pass == 0 && opacity < 1) || (pass == 1 && opacity >= 1) {
 					continue
 				}
-				n := unit(cross(sub(m.Vertices[t[1]], m.Vertices[t[0]]), sub(m.Vertices[t[2]], m.Vertices[t[0]])))
-				shades := [3]float64{}
-				for corner, index := range t {
-					if len(vertexShades) > 0 && !math.IsNaN(vertexShades[index]) {
-						shades[corner] = vertexShades[index]
-						continue
-					}
-					normal := n
-					if len(m.FaceIDs) == len(m.Triangles) {
-						if smooth := instance.mesh.normals[normalKey{m.Vertices[index], m.FaceIDs[i]}]; smooth != (vec{}) {
-							normal = smooth
-						}
-					}
-					shades[corner] = illumination(instance.pose.rotate(normal))
-				}
-				base := instance.appearance.Color
-				if base == "" && (instance.domain == "SHEET_SET" || instance.domain == "MIXED_SET") {
-					base = "#819db4"
-				}
-				if i < len(m.FaceIDs) {
-					if face := instance.appearance.Faces[uint64(m.FaceIDs[i])]; face != "" {
-						base = face
-					}
-				}
-				if err := r.triangleAlpha(ctx, [3]screenPoint{points[t[0]], points[t[1]], points[t[2]]}, shades, surfaceColor(base), opacity); err != nil {
+				t := m.Triangles[i]
+				points := [3]screenPoint{draw.points[t[0]], draw.points[t[1]], draw.points[t[2]]}
+				if err := r.drawTriangle(ctx, points, opacity, func() ([3]float64, color.RGBA) {
+					return instance.surfaceLighting(int(i), draw.shades)
+				}); err != nil {
 					return err
 				}
 			}
@@ -343,18 +354,13 @@ func surfaceColor(value string) color.RGBA {
 	}
 	return color.RGBA{142, 159, 175, 255}
 }
-func (r *raster) triangle(ctx context.Context, p [3]screenPoint, shade [3]float64, colors ...color.RGBA) error {
-	base := surfaceColor("")
-	if len(colors) > 0 {
-		base = colors[0]
-	}
-	return r.triangleAlpha(ctx, p, shade, base, float64(base.A)/255)
-}
-func (r *raster) triangleAlpha(ctx context.Context, p [3]screenPoint, shade [3]float64, base color.RGBA, opacity float64) error {
+func (r *raster) drawTriangle(ctx context.Context, p [3]screenPoint, opacity float64, lighting func() ([3]float64, color.RGBA)) error {
 	if opacity <= 0 {
 		return nil
 	}
-	linear := [3]float64{surfaceLinear[base.R], surfaceLinear[base.G], surfaceLinear[base.B]}
+	var shade, linear [3]float64
+	var dl float64
+	lit := false
 	area := edgeFunction(p[0], p[1], p[2].x, p[2].y)
 	if !finite(area) || math.Abs(area) < 1e-12 {
 		return nil
@@ -365,7 +371,6 @@ func (r *raster) triangleAlpha(ctx context.Context, p [3]screenPoint, shade [3]f
 	maxY := min(r.height-1, int(math.Ceil(max(p[0].y, max(p[1].y, p[2].y)))))
 	da, db := (p[1].y-p[2].y)/area, (p[2].y-p[0].y)/area
 	dz := da*(p[0].z-p[2].z) + db*(p[1].z-p[2].z)
-	dl := da*(shade[0]-shade[2]) + db*(shade[1]-shade[2])
 	sorted := p
 	if sorted[0].y > sorted[1].y {
 		sorted[0], sorted[1] = sorted[1], sorted[0]
@@ -402,9 +407,31 @@ func (r *raster) triangleAlpha(ctx context.Context, p [3]screenPoint, shade [3]f
 			left, right = right, left
 		}
 		start, end := max(minX, int(math.Ceil(left-.5))), min(maxX, int(math.Floor(right-.5)))
+		if start > end {
+			continue
+		}
 		a := edgeFunction(p[1], p[2], float64(start)+.5, py) / area
 		b := edgeFunction(p[2], p[0], float64(start)+.5, py) / area
-		z, light := a*p[0].z+b*p[1].z+(1-a-b)*p[2].z, a*shade[0]+b*shade[1]+(1-a-b)*shade[2]
+		z := a*p[0].z + b*p[1].z + (1-a-b)*p[2].z
+		if !lit {
+			// Use the same stepped depth and tie rule as the color pass.
+			probe := z
+			for x := start; x <= end; x++ {
+				if probe > r.depth[y*r.width+x] {
+					var base color.RGBA
+					shade, base = lighting()
+					linear = [3]float64{surfaceLinear[base.R], surfaceLinear[base.G], surfaceLinear[base.B]}
+					dl = da*(shade[0]-shade[2]) + db*(shade[1]-shade[2])
+					lit = true
+					break
+				}
+				probe += dz
+			}
+			if !lit {
+				continue
+			}
+		}
+		light := a*shade[0] + b*shade[1] + (1-a-b)*shade[2]
 		for x := start; x <= end; x++ {
 			index := y*r.width + x
 			if z > r.depth[index] {
@@ -441,6 +468,9 @@ func (r *raster) stroke(a, b screenPoint, c color.RGBA, width, opacity float64, 
 		if length > 0 {
 			t = max(0, min(1, ((float64(x)+.5-a.x)*dx+(float64(y)+.5-a.y)*dy)/length))
 		}
+		if a.z+t*(b.z-a.z) < r.depth[y*r.width+x]-2*samples {
+			return
+		}
 		distance := math.Hypot(float64(x)+.5-a.x-t*dx, float64(y)+.5-a.y-t*dy)
 		alpha := min(1, max(0, radius+.5-distance)) * opacity
 		ink := c
@@ -452,7 +482,7 @@ func (r *raster) stroke(a, b screenPoint, c color.RGBA, width, opacity float64, 
 				ink = studioEdgeInk[int(math.Round(sharp*256))]
 			}
 		}
-		if alpha <= 0 || a.z+t*(b.z-a.z) < r.depth[y*r.width+x]-2*samples {
+		if alpha <= 0 {
 			return
 		}
 		old := r.pixels.RGBAAt(x, y)
