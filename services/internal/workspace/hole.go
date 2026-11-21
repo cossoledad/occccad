@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -32,6 +33,12 @@ func validateHole(f Feature, earlier map[string]Feature) error {
 		p := &position
 		if f.Sketch != nil || f.ProfileMemberSlot != nil || f.KeepTools || f.Operation != "REMOVE" || f.Profile != "" || f.ProfileSelection != nil || f.NeutralPlane != nil || f.NeutralPlaneID != "" || f.AxisEntityID != "" || len(f.Tools) > 0 || len(f.Selections) > 0 || len(f.Sections) > 0 || f.Pattern != nil || (f.Extent != "BLIND" && f.Extent != "THROUGH_ALL" && f.Extent != "TO_PLANE") {
 			return fmt.Errorf("%w: HOLE_DEFINITION_INVALID", ErrValidation)
+		}
+		if p.Geometry != nil {
+			if !validSolidPoint(*p) || f.HoleDirection == nil {
+				return fmt.Errorf("%w: HOLE_POINT_AND_DIRECTION_REQUIRED", ErrValidation)
+			}
+			continue
 		}
 		if !validHoleReference(*p) {
 			return fmt.Errorf("%w: HOLE_SKETCH_LOCATION_REQUIRED", ErrValidation)
@@ -70,11 +77,17 @@ func validHoleReference(p PatternPointReference) bool {
 
 // Structural identity remains valid after point deletion. Resolution is separate
 // so a legal sketch edit can leave an inspectable, explicitly repairable Hole.
-func holePointState(model PartModel, f Feature) FeatureInputResolution {
+func (s *Service) holePointState(ctx context.Context, requestID string, model PartModel, f Feature) FeatureInputResolution {
 	if len(holePositions(f)) == 0 {
 		return singleHolePointState(model, f)
 	}
 	for _, p := range holePositions(f) {
+		if p.Geometry != nil {
+			if _, _, err := s.geometryPointPosition(ctx, requestID, model, *p.Geometry); err != nil {
+				return FeatureInputResolution{Status: modelcore.SelectionSourceUnavailable, DiagnosticCode: "HOLE_POINT_UNAVAILABLE", Diagnostic: err.Error()}
+			}
+			continue
+		}
 		single := f
 		single.HolePoint = &p
 		state := singleHolePointState(model, single)
@@ -116,35 +129,54 @@ func singleHolePointState(model PartModel, f Feature) FeatureInputResolution {
 	return missing
 }
 
-func holeInput(model PartModel, f Feature) (geometry.ProfilePad, error) {
-	return holeGroupInput(model, f)
-}
-func singleHoleInput(model PartModel, f Feature) (geometry.ProfilePad, error) {
-	state := singleHolePointState(model, f)
-	if state.Status != modelcore.SelectionResolved {
-		return geometry.ProfilePad{}, fmt.Errorf("%w: %s: %s", ErrValidation, state.DiagnosticCode, state.Diagnostic)
+func (s *Service) singleHoleInput(ctx context.Context, requestID string, model PartModel, f Feature, direction *datumFrame) (geometry.ProfilePad, error) {
+	var origin, u, n [3]float64
+	p := *f.HolePoint
+	sourceID, id := p.SketchID, p.Reference.EntityID
+	var err error
+	if p.Geometry != nil {
+		if direction == nil || !validSolidPoint(p) {
+			return geometry.ProfilePad{}, fmt.Errorf("%w: HOLE_POINT_AND_DIRECTION_REQUIRED", ErrValidation)
+		}
+		origin, _, err = s.geometryPointPosition(ctx, requestID, model, *p.Geometry)
+		id = solidPointIdentity(p)
+		sourceID = geometryInputFeatureID(*p.Geometry)
+		if p.Geometry.Datum != nil {
+			sourceID = p.Geometry.Datum.EntityID
+		}
+	} else {
+		state := singleHolePointState(model, f)
+		if state.Status != modelcore.SelectionResolved {
+			return geometry.ProfilePad{}, fmt.Errorf("%w: %s: %s", ErrValidation, state.DiagnosticCode, state.Diagnostic)
+		}
+		origin, err = patternReferencePoint(model, p)
+		for _, source := range model.Features {
+			if source.ID == p.SketchID && source.Sketch != nil {
+				var ok bool
+				_, u, n, ok = supportFrame(model, source.Sketch.Support)
+				if !ok {
+					return geometry.ProfilePad{}, fmt.Errorf("%w: HOLE_SUPPORT_UNAVAILABLE", ErrValidation)
+				}
+				break
+			}
+		}
+		if p.Reference.SubElement != "POINT" {
+			raw, _ := json.Marshal(p.Reference)
+			id = "location/" + modelcore.ValueDigest(raw)
+		}
 	}
-	origin, err := patternReferencePoint(model, *f.HolePoint)
 	if err != nil {
 		return geometry.ProfilePad{}, err
 	}
-	var source Feature
-	for _, s := range model.Features {
-		if s.ID == f.HolePoint.SketchID {
-			source = s
-			break
+	if direction != nil {
+		var ok bool
+		n, ok = normalize3(direction.direction)
+		if !ok {
+			return geometry.ProfilePad{}, fmt.Errorf("%w: HOLE_DIRECTION_INVALID", ErrValidation)
 		}
+		u, _ = stableSupportX(n, u)
 	}
-	_, u, n, ok := supportFrame(model, source.Sketch.Support)
-	if !ok {
-		return geometry.ProfilePad{}, fmt.Errorf("%w: HOLE_SUPPORT_UNAVAILABLE", ErrValidation)
-	}
-	id := f.HolePoint.Reference.EntityID
-	if f.HolePoint.Reference.SubElement != "POINT" {
-		raw, _ := json.Marshal(f.HolePoint.Reference)
-		id = "location/" + modelcore.ValueDigest(raw)
-	}
-	return geometry.ProfilePad{FeatureID: f.ID, BodyID: f.BodyID, Generator: "HOLE", HoleKind: holeKind(f), RecessDiameter: f.RecessDiameter, RecessDepth: f.RecessDepth, CountersinkAngle: f.CountersinkAngle * math.Pi / 180, BodyOperation: "REMOVE", ProfileFeatureID: source.ID, Extent: f.Extent, Length: f.Depth, Reversed: f.Reversed, PlaneOrigin: origin, PlaneNormal: n, PlaneUDirection: u, Regions: []geometry.ProfileRegion{{ID: "hole/" + source.ID + "/" + id, Outer: geometry.ProfileLoop{ID: "hole-loop/" + id, Curves: []geometry.ProfileCurve{{EntityID: id, Kind: "CIRCLE", Radius: f.Diameter / 2}}}}}}, nil
+	return geometry.ProfilePad{FeatureID: f.ID, BodyID: f.BodyID, Generator: "HOLE", HoleKind: holeKind(f), RecessDiameter: f.RecessDiameter, RecessDepth: f.RecessDepth, CountersinkAngle: f.CountersinkAngle * math.Pi / 180, BodyOperation: "REMOVE", ProfileFeatureID: sourceID, Extent: f.Extent, Length: f.Depth, Reversed: f.Reversed, PlaneOrigin: origin, PlaneNormal: n, PlaneUDirection: u, Regions: []geometry.ProfileRegion{{ID: "hole/" + sourceID + "/" + id, Outer: geometry.ProfileLoop{ID: "hole-loop/" + id, Curves: []geometry.ProfileCurve{{EntityID: id, Kind: "CIRCLE", Radius: f.Diameter / 2}}}}}}, nil
 }
 
 func holeKind(f Feature) string {

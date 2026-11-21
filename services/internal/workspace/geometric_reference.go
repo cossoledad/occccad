@@ -59,7 +59,7 @@ func validateGeometryReference(input GeometricInput, earlier map[string]Feature,
 			return bad()
 		}
 		if input.Kind == "POINT" {
-			if input.Point == nil || input.Datum != nil || input.Point.SketchID == "" || input.Point.AxisEntityID != "" || input.Point.Reference.ControlPointIndex != nil {
+			if input.Point == nil || input.Point.Geometry != nil || input.Datum != nil || input.Point.SketchID == "" || input.Point.AxisEntityID != "" || input.Point.Reference.ControlPointIndex != nil {
 				return bad()
 			}
 			sketch, ok := earlier[input.Point.SketchID]
@@ -223,7 +223,13 @@ func (s *Service) geometryReferenceFrame(ctx context.Context, requestID string, 
 		}
 	} else if input.Kind == "TOPOLOGY" && input.Selection != nil {
 		pick := input.Selection
-		key, err := s.featureStageInModel(ctx, model, "", geometryInputFeatureID(input), pick.Selection.SourceBodyID)
+		var key string
+		var err error
+		if owner := pick.Selection.SourceResult; owner != nil {
+			key, err = s.evaluateGeometricFeature(ctx, requestID+"/support", &model, owner.FeatureID)
+		} else {
+			key, err = s.featureStageInModel(ctx, model, "", geometryInputFeatureID(input), pick.Selection.SourceBodyID)
+		}
 		if err != nil {
 			return frame, snapshot, err
 		}
@@ -253,15 +259,12 @@ func (s *Service) geometryReferenceFrame(ctx context.Context, requestID string, 
 			return bad()
 		}
 	} else if input.Kind == "RESULT" {
-		source, err := s.geometrySource(ctx, requestID+"/reference", model, input)
+		var key string
+		source, err := s.geometrySourceForUse(ctx, requestID+"/reference", model, input, finiteElement, &key)
 		if err != nil {
 			return frame, snapshot, err
 		}
 		snapshot.Source = source
-		key, err := s.featureStageInModel(ctx, model, "", geometryInputFeatureID(input), "")
-		if err != nil {
-			return frame, snapshot, err
-		}
 		manifest, _, err := s.topologyManifestForGeometryKey(ctx, key)
 		if err != nil {
 			return frame, snapshot, err

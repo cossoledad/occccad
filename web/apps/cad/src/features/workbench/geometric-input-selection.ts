@@ -17,8 +17,9 @@ export function wholeSurfaceResultSelection(view:DocumentView,s:SelectionItem,fe
  return {...context,kind:'feature',id:f.id,entityId:f.id,result:{featureId:f.id,resultId:f.result.id},geometryKey:f.result.geometryKey};
 }
 
-export function acceptsGeometryReference(view:DocumentView,s:SelectionItem,role:GeometryReferenceRole):boolean{
- const feature=view.part?.features.find(f=>f.id===(s.result?.featureId??s.entityId??s.id));
+export function acceptsGeometryReference(view:DocumentView,s:SelectionItem,role:GeometryReferenceRole,features=view.part?.features??[]):boolean{
+ const feature=features.find(f=>f.id===(s.result?.featureId??s.entityId??s.id));
+ if('featureId' in s&&s.featureId&&!features.some(f=>f.id===s.featureId&&!f.suppressed)||s.result&&!features.some(f=>f.id===s.result?.featureId&&!f.suppressed)||s.displayStageFeatureId&&!features.some(f=>f.id===s.displayStageFeatureId&&!f.suppressed))return false;
  const id=s.entityId??s.id,reference=[...(view.part?.datumPoints??[]),...(view.part?.datumAxes??[]),...(view.part?.datumPlanes??[])].find(v=>v.id===id);if(reference?.evaluationStatus||feature?.evaluationStatus==='FAILED'||feature?.evaluationStatus==='BLOCKED')return false;
  if(role==='point')return s.kind==='vertex'||['reference-point','datum-point','axis-system'].includes(s.kind)||s.entityKind==='REFERENCE_POINT'||s.kind==='visual'&&s.visualType==='POINT'&&!!s.sketchReference||feature?.result?.domain==='POINT_SET';
  if(s.kind==='plane'||s.kind==='face'||feature?.result?.domain==='SHEET_SET')return role==='plane'||role==='direction';
@@ -27,14 +28,14 @@ export function acceptsGeometryReference(view:DocumentView,s:SelectionItem,role:
  return s.kind==='visual'&&s.visualType==='CURVE'&&!!view.part?.features.find(f=>f.id===s.featureId)?.sketch?.entities.some(e=>e.id===s.entityId&&e.kind==='LINE');
 }
 
-export async function bindGeometryReference(view:DocumentView,s:SelectionItem,versionId:string,role:GeometryReferenceRole):Promise<GeometricInput>{
+export async function bindGeometryReference(view:DocumentView,s:SelectionItem,versionId:string,role:GeometryReferenceRole,features=view.part?.features??[]):Promise<GeometricInput>{
  if((s.ownerDocumentId??s.documentId)!==view.document.id||s.versionId&&s.versionId!==versionId)throw new CommandInputError('所选对象的文档或版本已变化');
  let input:GeometricInput;
  if(role==='point'&&(s.kind==='reference-point'||s.kind==='datum-point'||s.kind==='axis-system'||s.entityKind==='REFERENCE_POINT'))input={kind:'DATUM',datum:{kind:'POINT',entityId:s.entityId??s.id}};
  else if(s.kind==='axis')input={kind:'DATUM',datum:s.axis==='DATUM'?{kind:'AXIS',entityId:s.entityId??s.id}:{kind:'AXIS_SYSTEM',entityId:s.entityId??s.id,axis:s.axis}};
  else if(role==='point'&&s.kind==='visual'&&s.visualType==='POINT'&&s.sketchReference)input={kind:'POINT',point:{sketchId:s.featureId,reference:s.sketchReference}};
  else if(role!=='point'&&s.kind==='visual'&&s.visualType==='CURVE')input={kind:'DATUM',datum:{kind:'SKETCH_LINE',featureId:s.featureId,entityId:s.entityId}};
- else input=await bindGeometricInput(view,s,versionId);
+ else input=await bindGeometricInput(view,s,versionId,features);
  if(input.kind==='TOPOLOGY'){
   const selection=input.selection!.selection,type=selection.creationEvidence.geometryType;
   if(role==='point'&&selection.expectedType!=='VERTEX')throw new CommandInputError('请选择点或顶点');

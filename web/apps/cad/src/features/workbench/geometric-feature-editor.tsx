@@ -65,7 +65,7 @@ export function GeometricFeatureEditor({onCurveInputs,view,feature,digest,unit,o
   if(!field||(s.ownerDocumentId??s.documentId)!==view.document.id||(s.occurrencePath??'')!==''||s.versionId&&s.versionId!==base)return false;
   const stage=s.result?.featureId??s.displayStageFeatureId;if(stage&&!upstream.some(f=>f.id===stage))return false;
   if(field==='body')return !!s.bodyId;
-  const refRole=roleFor(field);if(refRole)return acceptsGeometryReference(view,s,refRole);
+  const refRole=roleFor(field);if(refRole)return acceptsGeometryReference(view,s,refRole,upstream);
   if(directFaceKind(kind)&&field.startsWith('input:'))return s.kind==='face'&&!!s.bodyId&&!s.result;
   const role=refs.find(r=>r.key===field)?.role??roles[Number(field.split(':')[1])]?.role;if(!role)return false;
   if(s.kind==='plane')return role==='plane'||role==='geometry'&&kind==='SURFACE_TRIM'&&field==='input:1'||role==='surface'&&(kind==='PROJECT'||kind==='INTERSECTION'||kind==='SURFACE_TRIM'&&field==='input:1'||field.startsWith('boundary-support:'));
@@ -88,7 +88,7 @@ export function GeometricFeatureEditor({onCurveInputs,view,feature,digest,unit,o
   queue.current=queue.current.then(async()=>{
    if(!alive.current||!scope.current.current(ticket))return;
    if(field==='body'){change(f=>{f.bodyId=s.bodyId});setPicking();return}
-   const input=role?await bindGeometryReference(view,s,base,role):await bindGeometricInput(view,s,base,upstream);
+   const input=role?await bindGeometryReference(view,s,base,role,upstream):await bindGeometricInput(view,s,base,upstream);
    if(!alive.current||!scope.current.current(ticket))return;
    visuals.current.set(geometryInputIdentity(input),s);
    change(f=>{
@@ -148,7 +148,7 @@ export function GeometricFeatureEditor({onCurveInputs,view,feature,digest,unit,o
  let input:Record<string,unknown>|undefined,problem:unknown;
  const missing=selectionInputs.some(i=>!geometryInputAvailable(view,i))||!geometryReady(draft.geometry!)||geometryBodyKind(kind)&&draft.operation!=='NEW_BODY'&&!draft.bodyId;
  try{
-  if(!missing&&validRevision){const next=structuredClone(draft),expressions:Record<string,string>={};
+  if(!missing&&!pending&&validRevision){const next=structuredClone(draft),expressions:Record<string,string>={};
    for(const field of geometryFields(next.geometry!)){
     const text=committed[field.slot]??String(field.unit==='mm'?millimetersToDisplayLength(field.value,unit):field.value),parsed=parseParameterSource(text,field.unit==='mm'?unit:field.unit);
     if(parsed.kind==='EXPRESSION'){if(!parsed.expression)throw new CommandInputError('请输入参数');expressions[field.slot]=parsed.expression}

@@ -8,6 +8,7 @@ import (
 )
 
 type LoftBoundaryDefinition struct {
+	Direction         *GeometricInput    `json:"direction,omitempty"`
 	Condition         string             `json:"condition"` // NORMAL | DIRECTION | G1 | G2; nil is free
 	DirectionEntityID string             `json:"directionEntityId,omitempty"`
 	Reversed          bool               `json:"reversed,omitempty"`
@@ -44,7 +45,10 @@ func validateLoftBoundaries(f Feature, earlier map[string]Feature) error {
 		if (b.Condition == "NORMAL" || b.Condition == "DIRECTION") && len(b.Supports) > 0 {
 			return fmt.Errorf("%w: LOFT_FREE_DIRECTION_HAS_NO_SUPPORT", ErrValidation)
 		}
-		if b.Condition == "DIRECTION" && b.DirectionEntityID == "" {
+		if b.Direction != nil && (b.DirectionEntityID != "" || b.Condition == "NORMAL") {
+			return fmt.Errorf("%w: LOFT_DIRECTION_INVALID", ErrValidation)
+		}
+		if b.Condition == "DIRECTION" && b.DirectionEntityID == "" && b.Direction == nil {
 			return fmt.Errorf("%w: LOFT_DIRECTION_REQUIRED", ErrValidation)
 		}
 		for _, p := range b.Supports {
@@ -82,7 +86,13 @@ func (s *Service) loftBoundaryInput(ctx context.Context, requestID string, model
 		return nil, nil, nil
 	}
 	out := &geometry.LoftBoundary{Condition: b.Condition, Magnitude: b.Magnitude, Reversed: b.Reversed}
-	if b.DirectionEntityID != "" {
+	if b.Direction != nil {
+		frame, err := s.solidAxisFrame(ctx, requestID, model, *b.Direction)
+		if err != nil {
+			return nil, nil, err
+		}
+		out.Direction = frame.direction
+	} else if b.DirectionEntityID != "" {
 		p, err := resolvePatternAxisDefinition(model, PatternDefinition{AxisEntityID: b.DirectionEntityID})
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: LOFT_DIRECTION_UNAVAILABLE: %v", ErrValidation, err)

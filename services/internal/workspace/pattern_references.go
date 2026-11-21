@@ -9,12 +9,16 @@ import (
 
 // A picked center is a model reference, not a sampled viewport coordinate.
 type PatternPointReference struct {
+	Geometry     *GeometricInput   `json:"geometry,omitempty"`
 	SketchID     string            `json:"sketchId,omitempty"`
-	Reference    SketchGeometryRef `json:"reference"`
+	Reference    SketchGeometryRef `json:"reference,omitzero"`
 	AxisEntityID string            `json:"axisEntityId,omitempty"`
 }
 
 func patternReferencePoint(model PartModel, reference PatternPointReference) ([3]float64, error) {
+	if reference.Geometry != nil {
+		return [3]float64{}, fmt.Errorf("%w: pattern requires a sketch or datum center", ErrValidation)
+	}
 	if reference.AxisEntityID != "" {
 		axis, err := resolvePatternAxisDefinition(model, PatternDefinition{AxisEntityID: reference.AxisEntityID})
 		return axis.Origin, err

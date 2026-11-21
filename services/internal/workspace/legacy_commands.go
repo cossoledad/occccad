@@ -708,7 +708,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 			sketch = &resolved
 		}
-		if generator == "REVOLVE" {
+		if generator == "REVOLVE" && request.AxisReference == nil {
 			if _, _, err := resolveRevolveAxis(model, *sketch, request.AxisEntityID); err != nil {
 				return "", nil, err
 			}
@@ -723,7 +723,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		feature := Feature{BodyID: request.BodyID, ID: commandEntityID(prefix, request.RequestID), Type: generator,
 			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID, ProfileMemberSlot: request.ProfileMemberSlot, ProfileSelection: request.ProfileSelection,
 			TerminationPlaneID: request.TerminationPlaneID, TerminationPlane: request.TerminationPlane, TerminationSurface: request.TerminationSurface, ThinWall: request.ThinWall, StartOffset: request.StartOffset, EndOffset: request.EndOffset, Length: request.Length, Angle: request.Angle, Extent: request.Extent, Length2: request.Length2, Operation: operation,
-			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
+			AxisEntityID: request.AxisEntityID, AxisReference: request.AxisReference, Reversed: request.Reversed}
 		if err := service.qualifyTerminationPlane(ctx, documentID, &feature); err != nil {
 			return "", nil, err
 		}

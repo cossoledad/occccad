@@ -93,12 +93,13 @@ export function geometryInputIdentity(input:GeometricInput):string{
 export function pointInput(point:GeometryControlPoint):GeometricInput|undefined{return point.reference??(point.pointId?{kind:'DATUM',datum:{kind:'POINT',entityId:point.pointId}}:undefined)}
 export function geometryReady(d:GeometricFeatureDefinition):boolean{
  const roles=geometryInputRoles(d.kind),inputs=d.inputs??[];
- if(geometryMultipleKind(d.kind)?inputs.length<(d.kind==='SURFACE_LOFT'?2:1):roles.some((_,i)=>!inputs[i]))return false;
+ if(geometryMultipleKind(d.kind)?inputs.filter(Boolean).length<(d.kind==='SURFACE_LOFT'?2:1):roles.some((_,i)=>!inputs[i]))return false;
  if(['SURFACE_TRIM','SURFACE_MUTUAL_TRIM'].includes(d.kind)&&!d.keepPoint||d.kind==='SURFACE_MUTUAL_TRIM'&&!d.secondKeepPoint)return false;
  if(d.surface?.spine&&(inputs.some(i=>!d.surface?.sections?.find(c=>surfaceInputIdentity(c.section)===surfaceInputIdentity(i))?.stationPoint)||d.surface.ruled))return false;
  if(d.surface?.sections?.some(c=>c.couplings?.some(p=>!p.point)))return false;
  if(d.surface?.guide&&d.kind==='SURFACE_LOFT'&&!d.surface.spine)return false;
  if(d.surface?.boundaries?.some(c=>c.continuity!=='G0'&&!c.support))return false;
+ if(['LINE','SPLINE','CIRCLE','ARC'].includes(d.kind)&&!d.curve)return false;
  if(d.curve){if(d.curve.points.length<(d.kind==='LINE'||d.kind==='SPLINE'?2:1)||d.curve.points.some(p=>!pointInput(p)))return false;if(['CIRCLE','ARC'].includes(d.kind)&&!d.curve.support)return false}
  if(['SURFACE_EXTRUDE','TRANSLATE','PROJECT'].includes(d.kind)&&!d.direction)return false;
  if(['ROTATE','SURFACE_REVOLVE'].includes(d.kind)&&!d.axis||d.kind==='MIRROR'&&!d.mirrorPlane)return false;

@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"fmt"
 	"github.com/occccad/occccad/internal/geometry"
 	"math"
@@ -32,9 +33,9 @@ func validateHolePositionSet(f Feature) error {
 	if f.HolePoint != nil && len(f.HolePoints) > 0 || len(holePositions(f)) == 0 || len(holePositions(f)) > 128 {
 		return fmt.Errorf("%w: HOLE_POSITION_SET_INVALID", ErrValidation)
 	}
-	seen := map[[4]string]bool{}
+	seen := map[string]bool{}
 	for _, p := range holePositions(f) {
-		key := [4]string{p.SketchID, p.Reference.EntityID, p.Reference.SubElement, p.Reference.PointID}
+		key := solidPointIdentity(p)
 		if seen[key] {
 			return fmt.Errorf("%w: HOLE_POSITION_DUPLICATE", ErrValidation)
 		}
@@ -69,13 +70,24 @@ func holeCylinderDepth(f Feature) float64 {
 	}
 	return f.Depth
 }
-func holeGroupInput(model PartModel, f Feature) (geometry.ProfilePad, error) {
+func (s *Service) holeInput(ctx context.Context, requestID string, model PartModel, f Feature) (geometry.ProfilePad, error) {
 	var result geometry.ProfilePad
+	var direction *datumFrame
+	if f.HoleDirection != nil {
+		frame, _, err := s.geometryReferenceFrame(ctx, requestID+"/direction", model, *f.HoleDirection)
+		if err != nil {
+			return result, err
+		}
+		if frame.point {
+			return result, fmt.Errorf("%w: HOLE_DIRECTION_INVALID", ErrValidation)
+		}
+		direction = &frame
+	}
 	for i, p := range holePositions(f) {
 		single := f
 		single.HolePoint = &p
 		single.HolePoints = nil
-		spec, err := singleHoleInput(model, single)
+		spec, err := s.singleHoleInput(ctx, requestID, model, single, direction)
 		if err != nil {
 			return result, err
 		}

@@ -154,7 +154,7 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 						}
 					}
 					if feature.ID == edit.FeatureID && feature.Type == "HOLE" && !feature.Suppressed {
-						if _, err := holeInput(model, feature); err != nil {
+						if _, err := service.holeInput(ctx, prepared.requestID, model, feature); err != nil {
 							return err
 						}
 					}

@@ -724,6 +724,17 @@ func validatePartStructure(model PartModel) error {
 		if err := validateGeometricFeature(feature, features, validationModel); err != nil {
 			return err
 		}
+		if feature.AxisReference != nil && (feature.Type != "REVOLVE" || feature.AxisEntityID != "") {
+			return fmt.Errorf("%w: SOLID_AXIS_INVALID", ErrValidation)
+		}
+		if feature.HoleDirection != nil && feature.Type != "HOLE" {
+			return fmt.Errorf("%w: HOLE_DIRECTION_UNEXPECTED", ErrValidation)
+		}
+		for _, input := range solidGeometryReferences(feature) {
+			if err := validateGeometryReference(input, features, validationModel); err != nil {
+				return err
+			}
+		}
 		if err := validateSolidStage(feature, features); err != nil {
 			return err
 		}
@@ -986,8 +997,18 @@ func buildPartGraph(model PartModel) (*modelcore.DependencyGraph, error) {
 			}
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(source), Target: key, Kind: modelcore.ReadGeometry})
 		}
+		forSolidSpatialReference(feature, func(_ string, g GeometricInput) {
+			edges = append(edges, modelcore.DependencyEdge{Source: solidReferenceDependency(g), Target: key, Kind: modelcore.ReadGeometry})
+		})
 		if feature.Type == "HOLE" {
+			if feature.HoleDirection != nil {
+				edges = append(edges, modelcore.DependencyEdge{Source: solidReferenceDependency(*feature.HoleDirection), Target: key, Kind: modelcore.ReadGeometry})
+			}
 			for _, p := range holePositions(feature) {
+				if p.Geometry != nil {
+					edges = append(edges, modelcore.DependencyEdge{Source: solidReferenceDependency(*p.Geometry), Target: key, Kind: modelcore.ReadGeometry})
+					continue
+				}
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + p.SketchID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
@@ -1040,7 +1061,9 @@ func buildPartGraph(model PartModel) (*modelcore.DependencyGraph, error) {
 		}
 		for _, section := range feature.Sections {
 			source := "feature:" + section.SketchID
-			if section.Point != nil && section.Point.AxisEntityID != "" {
+			if section.Point != nil && section.Point.Geometry != nil {
+				source = string(solidReferenceDependency(*section.Point.Geometry))
+			} else if section.Point != nil && section.Point.AxisEntityID != "" {
 				parts := strings.Split(section.Point.AxisEntityID, ":")
 				if len(parts) >= 2 {
 					source = "datum:" + parts[1]

@@ -25,7 +25,7 @@
 
 复用种子几何，以 `BRepBuilderAPI_Transform` 真实历史合成 Boolean/同域合并 Naming。拓扑预算为源命名输出数乘成员数不超过 100000；成员身份稳定不保证布尔后的面永不分裂，仍执行完整性、缺失与歧义门禁。任意局部特征组重执行、路径分布阵列和逐成员独立变尺寸未包含；这些对象仍可在合法时明确选取已求值实体阶段。
 
-入口：Part 和草图工具栏的“阵列”（面板内切换线性／圆周），Part 工具栏的“镜像”；空间草图成员可在视图区和树中分别选择，用于独立拉伸、旋转和放样。实体与空间草图阵列在树中编辑/抑制/删除；草图内阵列也有独立树节点，解除关联仍由阵列面板执行。空间与实体阵列默认绑定标准轴，方向、轴和圆周中心支持视图区拾取，反向改变分布步进符号。中心和方向的源引用进入依赖图及删除保护。
+入口：Part 和草图工具栏的“阵列”（面板内切换线性／圆周），Part 工具栏的“镜像”；空间草图成员可在视图区和树中分别选择，用于独立拉伸、旋转和放样。实体与空间草图阵列在树中编辑/抑制/删除；草图内阵列也有独立树节点，解除关联仍由阵列面板执行。空间与实体阵列显式选择方向或轴；实体阵列也可绑定上游直线结果与空间中心点，方向、轴和圆周中心支持视图区拾取，反向改变分布步进符号。中心和方向的源引用进入依赖图及删除保护。
 
 定向入口：`GeometryExchange.BlindEngineeringHoleToolsReplicateFromWarmCheckpoints`、`GeometryExchange.DirectionalThroughHoleToolsRebuildAgainstFrozenPatternTarget`、`GeometryExchange.FiniteRemovalRangesPreserveInnerFilletsAndWarmNaming`、`draft_pattern_integration_test.go` 的有限加工范围场景、`services/internal/control/hole_pattern_integration_test.go` 与 `solid-feature-live.spec.ts` 的 `finite Hole` 场景，分别检查完整沉孔工具体积／成员 Naming、真实命令历史与温缓存／冷重建、视图区与结构树拾取及成员失效后的原编辑器修复。运行结果以当轮交付为准。
 

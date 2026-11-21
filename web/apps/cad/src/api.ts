@@ -409,7 +409,7 @@ export const restApi = {
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
   createSolidFeature: (documentId: string, input: { sketchId: string; generator: "LINEAR_EXTRUDE" | "REVOLVE";
 	operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT"; bodyId?: string; length?: number; angle?: number;
-	lengthExpression?: string; extent?: Feature["extent"]; length2?:number; parameterExpressions?:Record<string,string>; axisEntityId?: string; reversed?: boolean; previewId?: string }, intentRequestId?: string) =>
+	lengthExpression?: string; extent?: Feature["extent"]; length2?:number; parameterExpressions?:Record<string,string>; axisEntityId?: string; axisReference?:Feature["axisReference"]; reversed?: boolean; previewId?: string }, intentRequestId?: string) =>
     restApi.command(documentId, { type: "CREATE_SOLID_FEATURE", ...input,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
 	editFeature: (documentId: string, input: { featureId: string; expectedFeatureDigest: string; length?: number; lengthExpression?: string; previewId?: string }) =>

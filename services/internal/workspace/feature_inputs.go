@@ -68,7 +68,14 @@ func featureInputs(f Feature) []featureInput {
 		}
 	}
 	for _, p := range holePositions(f) {
+		if p.Geometry != nil {
+			appendGeometryReferenceInput(&out, "POSITION", *p.Geometry)
+			continue
+		}
 		add("POSITION", p.SketchID, p.Reference.EntityID, nil)
+	}
+	if f.HoleDirection != nil {
+		appendGeometryReferenceInput(&out, "HOLE_DIRECTION", *f.HoleDirection)
 	}
 	if f.TerminationPlaneID != "" {
 		out = append(out, featureInput{Role: "TERMINATION_PLANE", EntityKind: "PLANE", FeatureID: f.TerminationPlaneID})
@@ -97,7 +104,9 @@ func featureInputs(f Feature) []featureInput {
 	}
 	for order, s := range f.Sections {
 		start := len(out)
-		if s.Point != nil {
+		if s.Point != nil && s.Point.Geometry != nil {
+			appendGeometryReferenceInput(&out, "SECTION_POINT", *s.Point.Geometry)
+		} else if s.Point != nil {
 			add("SECTION_POINT", s.Point.SketchID, s.Point.Reference.EntityID, nil)
 			axis(s.Point.AxisEntityID)
 		} else {
@@ -107,6 +116,7 @@ func featureInputs(f Feature) []featureInput {
 			out[i].SectionOrder = order
 		}
 	}
+	forSolidSpatialReference(f, func(role string, input GeometricInput) { appendGeometryReferenceInput(&out, role, input) })
 	axis(f.AxisEntityID)
 	if f.NeutralPlaneID != "" {
 		out = append(out, featureInput{Role: "NEUTRAL_PLANE", EntityKind: "PLANE", FeatureID: f.NeutralPlaneID})

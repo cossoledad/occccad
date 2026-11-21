@@ -70,6 +70,13 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 				if section.MemberSlot != nil || section.Point.SketchID != section.SketchID || (section.Point.AxisEntityID != "" && section.SketchID != "") {
 					return fmt.Errorf("%w: invalid loft point reference", ErrValidation)
 				}
+				if section.Point.Geometry != nil {
+					if !validSolidPoint(*section.Point) || seen[loftSectionIdentity(section)] {
+						return fmt.Errorf("%w: invalid loft point", ErrValidation)
+					}
+					seen[loftSectionIdentity(section)] = true
+					continue
+				}
 				if section.Point.AxisEntityID != "" {
 					parts := strings.Split(section.Point.AxisEntityID, ":")
 					if len(parts) < 2 || (parts[0] != "AXIS_SYSTEM" && parts[0] != "DATUM_AXIS") {
@@ -109,6 +116,13 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 			return err
 		}
 	}
+	if f.Type == "CHAMFER" && f.ChamferMode == "" && len(f.Selections) > 1 {
+		for _, p := range f.Selections {
+			if p.Selection.ExpectedType == modelcore.PersistentTopologyFace {
+				return fmt.Errorf("%w: CHAMFER_SELECTION_INVALID", ErrValidation)
+			}
+		}
+	}
 	if f.ChamferMode != "" {
 		if f.Type != "CHAMFER" || (f.ChamferMode != "TWO_DISTANCES" && f.ChamferMode != "DISTANCE_ANGLE") {
 			return fmt.Errorf("%w: CHAMFER_MODE_INVALID", ErrValidation)
@@ -119,7 +133,7 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 				faces++
 			}
 		}
-		if faces != 1 || len(f.Selections) < 2 {
+		if faces != 1 {
 			return fmt.Errorf("%w: CHAMFER_REFERENCE_FACE_REQUIRED", ErrValidation)
 		}
 	}
@@ -154,7 +168,7 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 		}
 		for _, pick := range f.Selections {
 			expected := modelcore.PersistentTopologyFace
-			if f.Type == "FILLET" || f.Type == "CHAMFER" && (f.ChamferMode == "" || pick.Selection.ExpectedType != modelcore.PersistentTopologyFace) {
+			if f.Type == "FILLET" || f.Type == "CHAMFER" && pick.Selection.ExpectedType != modelcore.PersistentTopologyFace {
 				expected = modelcore.PersistentTopologyEdge
 			}
 			if err := pick.Selection.Validate(); err != nil {
@@ -679,6 +693,17 @@ func (s *Service) loftGeometrySections(ctx context.Context, requestID string, mo
 	for _, section := range feature.Sections {
 		value := geometry.LoftSection{SketchID: section.SketchID, Reversed: section.Reversed, SeamEntityID: section.SeamEntityID, SeamAngle: section.SeamAngle * math.Pi / 180, CorrespondenceResolved: section.CorrespondenceResolved}
 		if section.Point != nil {
+			if section.Point.Geometry != nil {
+				point, _, err := s.geometryPointPosition(ctx, requestID, model, *section.Point.Geometry)
+				if err != nil {
+					return nil, err
+				}
+				value.Point = point
+				value.PointID = solidPointIdentity(*section.Point)
+				value.SketchID = value.PointID
+				result = append(result, value)
+				continue
+			}
 			point, err := patternReferencePoint(model, *section.Point)
 			if err != nil {
 				return nil, fmt.Errorf("%w: LOFT_POINT_UNAVAILABLE: %v", ErrValidation, err)
@@ -807,6 +832,9 @@ func (s *Service) prepareLoftDefinition(ctx context.Context, requestID string, m
 
 func loftSectionIdentity(section LoftSection) string {
 	if section.Point != nil {
+		if section.Point.Geometry != nil {
+			return solidPointIdentity(*section.Point)
+		}
 		raw, _ := json.Marshal(section.Point)
 		return "point/" + string(raw)
 	}

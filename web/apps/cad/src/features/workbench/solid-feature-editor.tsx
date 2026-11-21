@@ -1,17 +1,17 @@
-import {bindGeometricInput} from './geometric-input-selection';
-import {geometryInputName} from './geometric-feature-model';
+import {acceptsGeometryReference,bindGeometryReference,bindGeometricInput} from './geometric-input-selection';
+import {geometryInputName,geometryInputAvailable,geometryInputSelections} from './geometric-feature-model';
 import {commandForView,viewContextKey} from "../../api/context-edit-scope";
 import {boundContextParameter,ContextInputSource} from './context-input-source';
 import {FeaturePickScope} from "../../cad/interaction/feature-selection";
 import {CommandInputError} from "../../cad/command/operation-failure";
 import {CommandField,CommandStatus,fieldErrorText} from "../../cad/overlay/command-form";
-import { pickedPatternCenter } from "./pattern-selection";
+
 import { PatternFeatureEditor } from "./pattern-feature-editor";
 import { Button, Input, Segmented, Select, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
 import { api } from "../../api/client";
-import type { Artifact, DocumentView, Feature, FeatureInputResolution, SelectionItem } from "../../types";
+import type { Artifact, DocumentView, Feature, FeatureInputResolution, GeometricInput,SolidPointReference,SelectionItem } from "../../types";
 import type { FeaturePickRole, FeatureSelectionSession } from "../../cad/interaction/feature-selection";
 import { selectionKey } from "../../cad/interaction/selection-identity";
 import { parameterDisplayValue,parameterSourceText } from "./parameter-editor";
@@ -68,7 +68,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
     const splitBody = feature.type === "SPLIT_BODY";
     const planeModifier = feature.type === "DRAFT" || feature.type === "SPLIT_FACE" || splitBody;
     const angular = feature.type === "REVOLVE" || feature.type === "DRAFT";
-    const pickRole: FeaturePickRole = hole ? "sketch-point" : modifier ? (feature.type === "FILLET" || feature.type === "CHAMFER" ? "edge" : "face") : "profile";
+    const [wholeChamfer,setWholeChamfer]=useState(feature.type==="CHAMFER"&&feature.selections?.length===1&&feature.selections[0].selection.expectedType==="FACE");
+    const pickRole: FeaturePickRole = wholeChamfer ? "face" : hole ? "point" : modifier ? (feature.type === "FILLET" || feature.type === "CHAMFER" ? "edge" : "face") : "profile";
     const [showConnections,setShowConnections]=useState(false);
     const acceptedSections=useRef<Feature["sections"]>(undefined);
     const [draft, setDraft] = useState<Feature>({ ...(resume?.feature??feature), profileSelection:(resume?.feature??feature).profileSelection??((resume?.feature??feature).thinWall?.input!=="CHAINS"&&!feature.id&&!modifier&&!loft&&!hole?{mode:"REGIONS",regionIds:[]}:undefined) });
@@ -79,7 +80,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
     const rib=!!draft.thinWall?.rib;
     const editSweep=(patch:Partial<NonNullable<Feature["sweep"]>>)=>{if(draft.sweep)edit({sweep:{...draft.sweep,...patch}})};
     const explicitRegions = !modifier&&!loft&&!hole&&!thinChains&&draft.profileSelection?.mode==="REGIONS";
-    const profileRole:FeaturePickRole=hole?"sketch-point":explicitRegions?"profile-region":"profile";
+    const profileRole:FeaturePickRole=hole?"point":explicitRegions?"profile-region":"profile";
     const [regionReplacement,setRegionReplacement]=useState<string>();
     const [sectionReplacement,setSectionReplacement]=useState<number>();
     const [role, setRoleState] = useState<FeaturePickRole|undefined>(splitBody?"plane":rib?"geometry":!feature.id&&!modifier&&!loft&&!hole||feature.profileSelection?.mode==="REGIONS"?"profile-region":pickRole), [seamIndex, setSeamIndex] = useState<number>();
@@ -204,7 +205,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
             }
             setPicks(previous => {
                 const bound: BoundPick = {id:replaceID??randomUUID(),definition,visual:selection,resolution:{status:"RESOLVED"}};
-                if (state.draft.chamferMode && selection.kind==="face") return [...previous.filter(p=>p.definition.selection.expectedType!=="FACE"),bound];
+                if ((wholeChamfer||state.draft.chamferMode) && selection.kind==="face") return [...previous.filter(p=>p.definition.selection.expectedType!=="FACE"),bound];
                 if (replaceID) return previous.map(p=>p.id===replaceID?bound:p);
                 return previous.some(p=>p.visual && selectionKey(p.visual)===key) ? previous.filter(p=>!p.visual || selectionKey(p.visual)!==key) : [...previous,bound];
             });
@@ -262,22 +263,56 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
             edit({profile:source.id,profileMemberSlot:undefined,profileSelection:undefined,thinWall:{...draft.thinWall!,directions:source.id===draft.profile?draft.thinWall?.directions?.filter(d=>next.includes(d.entityId)&&d.entityId!==entity.id):undefined,entityIds:next}});
             if(thinReplacement){setThinReplacement(undefined);setRole(undefined)}return;
         }
-        if(hole&&chosenRole==="sketch-point") {
-            if(selection.kind!=="visual")return;
-            const sketch=upstream.find(f=>f.id===selection.featureId&&f.type==="SKETCH"&&!f.suppressed);
-            const entity=sketch?.sketch?.entities.find(e=>e.id===selection.entityId);
-            const reference=entity && holePointReference(entity,selection.sketchReference);
-            if(selection.visualType!=="POINT"||!sketch||!reference||["FAILED_SUPPORT","BLOCKED"].includes(sketch.sketch!.support.status??""))return;
-            const ref={sketchId:sketch.id,reference};
-            pointReplaced.current=true;
-            if(draft.holePoints){const key=holeKey,k=key(ref),items=draft.holePoints;
-             if(holeReplacement&&items.some(p=>key(p)===k&&key(p)!==holeReplacement)){setError('该孔位已在孔组中');return;}
-             edit({holePoints:holeReplacement?items.map(p=>key(p)===holeReplacement?ref:p):items.some(p=>key(p)===k)?items.filter(p=>key(p)!==k):[...items,ref]});setHoleReplacement(undefined);if(holeReplacement)setRole(undefined);
-            }else {edit({holePoint:ref});setRole(undefined);}
-            setPointResolution({status:"RESOLVED"});return;
+        const spatialAxis = chosenRole === "axis" && (loft || draft.type === "REVOLVE");
+        if (spatialAxis || hole && (chosenRole === "point" || chosenRole === "direction") || loft && chosenRole === "point") {
+            // Keep the compact datum/sketch axis identity used by existing models.
+            const namedAxis = spatialAxis && selectedAxis(view,selection,upstream);
+            if(namedAxis){
+                if(loft)editBoundary(loftEnd,{directionEntityId:namedAxis,direction:undefined});
+                else {edit({axisEntityId:namedAxis,axisReference:undefined});setAxisVisual(selection);}
+                setRole(undefined);return;
+            }
+            const purpose = spatialAxis ? "axis" : chosenRole === "direction" ? "direction" : "point";
+            if (!acceptsGeometryReference(view,selection,purpose) || binding) return;
+            const persist = (input:GeometricInput) => {
+                if(purpose==="axis"){
+                    if(loft)editBoundary(loftEnd,{directionEntityId:undefined,direction:input});
+                    else{edit({axisEntityId:undefined,axisReference:input});setAxisVisual(selection);}
+                    setRole(undefined);return;
+                }
+                if(purpose === "direction"){edit({holeDirection:input});setRole(undefined);return;}
+                let ref:SolidPointReference;
+                if(input.kind==="POINT" && input.point){
+                    if(hole){
+                        const sketch=upstream.find(f=>f.id===input.point?.sketchId && !f.suppressed)?.sketch;
+                        const entity=sketch?.entities.find(e=>e.id===input.point?.reference.entityId);
+                        if(!entity || !holePointReference(entity,input.point.reference))return;
+                    }
+                    ref=input.point;
+                } else {ref={geometry:input};}
+                if(loft){
+                    const section={sketchId:ref.sketchId??"",point:ref};
+                    edit({sections:sectionReplacement===undefined?[...(draft.sections??[]).filter(s=>!s.point||holeKey(s.point)!==holeKey(ref)),section]:(draft.sections??[]).map((s,i)=>i===sectionReplacement?section:s)});
+                    setSectionReplacement(undefined);setRole(undefined);return;
+                }
+                pointReplaced.current=true;
+                if(draft.holePoints){
+                    const k=holeKey(ref),items=draft.holePoints;
+                    if(holeReplacement && items.some(p=>holeKey(p)===k && k!==holeReplacement)){setError('该孔位已在孔组中');return;}
+                    edit({holePoints:holeReplacement?items.map(p=>holeKey(p)===holeReplacement?ref:p):items.some(p=>holeKey(p)===k)?items.filter(p=>holeKey(p)!==k):[...items,ref]});
+                    setHoleReplacement(undefined);if(holeReplacement)setRole(undefined);
+                }else{edit({holePoint:ref});setRole(ref.geometry&&!draft.holeDirection?'direction':undefined);}
+                setPointResolution({status:"RESOLVED"});
+            };
+            const ticket=pickOwner.current.capture();
+            setBinding(n=>n+1);
+            void bindGeometryReference(view,selection,version.current,purpose,upstream).then(input=>{
+                if(alive.current && pickOwner.current.current(ticket))persist(input);
+            }).catch(error=>{if(alive.current && pickOwner.current.current(ticket))setError(error)}).finally(()=>{if(alive.current && pickOwner.current.current(ticket))setBinding(n=>Math.max(0,n-1))});
+            return;
         }
         if(loft&&chosenRole==="face"){bindLoftSupport(selection,loftEnd);return;}
- if(loft&&chosenRole==="axis"){const axis=selectedAxis(view,selection,upstream);if(axis){editBoundary(loftEnd,{directionEntityId:axis});setRole(undefined)}else setError("请选择基准轴或上游草图直线");return;}
+
  if(sweep&&chosenRole==='geometry'&&(selection.kind==='edge'||upstream.some(f=>f.id===(selection.result?.featureId??selection.entityId??selection.id)&&f.result?.domain==='WIRE_SET'))){
    const ticket=pickOwner.current.capture();setBinding(n=>n+1);
    void bindGeometricInput(view,selection,version.current,upstream).then(geometry=>{if(alive.current&&pickOwner.current.current(ticket)){editSweep({path:{sketchId:'',entityIds:[],geometry}});setRole(undefined)}}).catch(error=>{if(alive.current&&pickOwner.current.current(ticket))setError(error)}).finally(()=>{if(alive.current)setBinding(n=>Math.max(0,n-1))});return;
@@ -299,14 +334,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
             bindPick(selection, replacement);
             return;
         }
-        if (chosenRole === "point" && loft) {
-            const point=pickedPatternCenter(selection);
-            if(!point || point.sketchId && !upstream.some(f=>f.id===point.sketchId))return;
-            const section={sketchId:point.sketchId??"",point};
-            edit({sections:sectionReplacement===undefined?[...(draft.sections??[]).filter(s=>JSON.stringify(s.point)!==JSON.stringify(point)),section]:(draft.sections??[]).map((s,i)=>i===sectionReplacement?section:s)});
-            setSectionReplacement(undefined);setRole(undefined);
-            return;
-        }
+
         if(chosenRole === "profile-region" && selection.kind==="profile-region") {
             const candidate=profileRegionCandidates(view,upstream,draft.profile).find(c=>c.sketchId===selection.featureId);
             if(!candidate?.regions.some(r=>r.id===selection.regionId))return;
@@ -326,19 +354,10 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
             }
             else {
                 edit({ ...(thinChains&&sketch.id!==draft.profile?{thinWall:{...draft.thinWall!,entityIds:[],directions:undefined}}:{}),profile: sketch.id, profileMemberSlot:sketch.type==="SKETCH_PATTERN"?sketch.profileMemberSlot:undefined, profileSelection:explicitRegions?{mode:"REGIONS",regionIds:[...(view.sketchAnalyses?.[sketch.id]?.regionIds??[])]}:draft.profileSelection });
-                if (feature.type === "REVOLVE" && !draft.axisEntityId)
+                if (feature.type === "REVOLVE" && !draft.axisEntityId && !draft.axisReference)
                     setRole("axis");
                 else setRole(undefined);
             }
-        }
-        else if (chosenRole === "axis") {
-            const axis = selectedAxis(view, selection, upstream);
-            if (!axis) {
-                setError("请选择草图中的直线或基准轴");
-                return;
-            }
-            edit({ axisEntityId: axis });
-            setAxisVisual(selection);setRole(undefined);
         }
         else if (chosenRole === "plane" && selection.kind === "plane") {
             const plane = view.part?.datumPlanes.find(p => p.id === selection.datumPlane?.id || p.id === selection.entityId || p.id === selection.id);
@@ -367,10 +386,10 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
         kind: "visual", visualType: "CURVE", id: `${occurrencePath || "root"}:${axisParts[1]}:${axisParts[2]}`, featureId: axisParts[1], entityId: axisParts[2], bodyId: upstream.find(f => f.id === axisParts[1])?.bodyId, documentId: view.document.id, versionId: version.current, occurrencePath
     } : undefined;
     const holeRefs=draft.holePoints??(draft.holePoint?[draft.holePoint]:[]);
-    const holeKey=(p:NonNullable<Feature['holePoint']>)=>JSON.stringify([p.sketchId,p.reference.entityId,p.reference.subElement,p.reference.pointId]);
-    const validHoleRef=(p:NonNullable<Feature['holePoint']>)=>{const s=upstream.find(f=>f.id===p.sketchId&&!f.suppressed);return !!s?.sketch&&!['FAILED_SUPPORT','BLOCKED'].includes(s.sketch.support.status??'')&&s.sketch.entities.some(e=>e.id===p.reference.entityId&&!!holePointReference(e,p.reference))};
+    const holeKey=(p:NonNullable<Feature['holePoint']>)=>JSON.stringify(p.geometry?.selection ? [p.geometry.selection.sourceFeatureId,p.geometry.selection.selection.anchor,p.geometry.selection.selection.selector] : p.geometry ?? [p.sketchId,p.axisEntityId,p.reference]);
+    const validHoleRef=(p:NonNullable<Feature['holePoint']>)=>{if(p.geometry)return geometryInputAvailable(view,p.geometry);const s=upstream.find(f=>f.id===p.sketchId&&!f.suppressed);return !!s?.sketch&&!['FAILED_SUPPORT','BLOCKED'].includes(s.sketch.support.status??'')&&s.sketch.entities.some(e=>e.id===p.reference.entityId&&!!holePointReference(e,p.reference))};
     const holeReady=!!holeRefs.length&&holeRefs.every(validHoleRef)&&(!pointResolution||pointResolution.status==='RESOLVED');
-    const highlights: SelectionItem[] = hole ? holeRefs.filter(validHoleRef).map(p=>({kind:'visual',visualType:'POINT',id:`${occurrencePath||'root'}:${holeKey(p)}`,featureId:p.sketchId,entityId:p.reference.entityId,sketchReference:p.reference,bodyId:upstream.find(f=>f.id===p.sketchId)?.bodyId,documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem)) : modifier ? picks.flatMap(p => p.visual ? [p.visual] : []) : loft ? (draft.sections ?? []).map(s => s.point?.sketchId ? ({kind:"visual",visualType:"POINT",id:`loft-point:${s.sketchId}:${JSON.stringify(s.point.reference)}`,featureId:s.sketchId,entityId:s.point.reference.entityId??s.point.reference.target,sketchReference:s.point.reference,documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : s.point?.axisEntityId ? ({kind:"axis-system",id:s.point.axisEntityId.split(":")[1],entityId:s.point.axisEntityId.split(":")[1],documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : sketchPick(view, s.sketchId, occurrencePath, s.memberSlot)) : draft.profile ? explicitRegions ? (draft.profileSelection?.regionIds??[]).map(id=>profileRegionPick(view,draft.profile!,id,occurrencePath)) : [sketchPick(view, draft.profile, occurrencePath, draft.profileMemberSlot)] : [];
+    const highlights: SelectionItem[] = hole ? holeRefs.filter(validHoleRef).flatMap(p=>p.geometry?geometryInputSelections(view,p.geometry):[{kind:'visual',visualType:'POINT',id:`${occurrencePath||'root'}:${holeKey(p)}`,featureId:p.sketchId,entityId:p.reference.entityId,sketchReference:p.reference,bodyId:upstream.find(f=>f.id===p.sketchId)?.bodyId,documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem]) : modifier ? picks.flatMap(p => p.visual ? [p.visual] : []) : loft ? (draft.sections ?? []).map(s => s.point?.geometry ? geometryInputSelections(view,s.point.geometry)[0] : s.point?.sketchId ? ({kind:"visual",visualType:"POINT",id:`loft-point:${s.sketchId}:${JSON.stringify(s.point.reference)}`,featureId:s.sketchId,entityId:s.point.reference.entityId??s.point.reference.target,sketchReference:s.point.reference,documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : s.point?.axisEntityId ? ({kind:"axis-system",id:s.point.axisEntityId.split(":")[1],entityId:s.point.axisEntityId.split(":")[1],documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : sketchPick(view, s.sketchId, occurrencePath, s.memberSlot)).filter((item):item is SelectionItem=>!!item) : draft.profile ? explicitRegions ? (draft.profileSelection?.regionIds??[]).map(id=>profileRegionPick(view,draft.profile!,id,occurrencePath)) : [sketchPick(view, draft.profile, occurrencePath, draft.profileMemberSlot)] : [];
     if(sweep&&draft.sweep)for(const id of draft.sweep.path.entityIds)highlights.push({...occurrenceContext,kind:"visual",visualType:"CURVE",id:`sweep:${draft.sweep.path.sketchId}:${id}`,featureId:draft.sweep.path.sketchId,entityId:id,documentId:view.document.id,versionId:version.current,occurrencePath});
     if(thinChains&&draft.profile)for(const id of draft.thinWall?.entityIds??[])if(upstream.find(f=>f.id===draft.profile)?.sketch?.entities.some(e=>e.id===id&&!e.suppressed))highlights.push({...occurrenceContext,kind:"visual",visualType:"CURVE",id:`thin:${draft.profile}:${id}`,featureId:draft.profile!,entityId:id,bodyId:upstream.find(f=>f.id===draft.profile)?.bodyId,documentId:view.document.id,versionId:version.current,occurrencePath});
     if (axisVisual ?? restoredAxis)
@@ -393,10 +412,10 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
     let input: Record<string, unknown> | undefined, parameterError: string | undefined;
     const unresolved = picks.filter(p=>p.resolution.status!=="RESOLVED");
     const sweepReady=!sweep||!!draft.sweep?.path.geometry||!!draft.sweep?.path.entityIds.length&&upstream.some(f=>f.id===draft.sweep?.path.sketchId&&f.sketch&&!f.suppressed);
-    const loftBoundaryReady=!loft||(["loftStart","loftEnd"] as const).every(end=>!draft[end]||((draft[end]!.condition!=="DIRECTION"||!!draft[end]!.directionEntityId)&&(!["G1","G2"].includes(draft[end]!.condition)||!!loftRows[end].length&&loftRows[end].every(p=>p.resolution.status==="RESOLVED"))));
-    const chamferSupport = draft.chamferMode ? picks.find(p=>p.definition.selection.expectedType==="FACE") : undefined;
+    const loftBoundaryReady=!loft||(["loftStart","loftEnd"] as const).every(end=>!draft[end]||((draft[end]!.condition!=="DIRECTION"||!!draft[end]!.directionEntityId||!!draft[end]!.direction)&&(!["G1","G2"].includes(draft[end]!.condition)||!!loftRows[end].length&&loftRows[end].every(p=>p.resolution.status==="RESOLVED"))));
+    const chamferSupport = !wholeChamfer && draft.chamferMode ? picks.find(p=>p.definition.selection.expectedType==="FACE") : undefined;
     const edgeOrFacePicks = draft.chamferMode ? picks.filter(p=>p!==chamferSupport) : picks;
-    const ready = (!draft.chamferMode || !!chamferSupport && edgeOrFacePicks.length>0) && loftBoundaryReady && sweepReady && (!(hole||modifier)&&draft.operation!=="NEW_BODY"?!!draft.bodyId:true) && (!terminating||!terminationLoadError&&!!(draft.terminationPlaneId||draft.terminationPlane||draft.terminationSurface)&&(!terminationResolution||terminationResolution.status==="RESOLVED")) && (!explicitRegions||regionIDs.length>0&&!missingRegions.length) && (!thinChains||!!draft.thinWall?.entityIds?.length) && validRevision && !loadingInput && !binding && !inputError && (!(modifier||hole) || !feature.id && !insertion || !!inputContext) && !unresolved.length && (!neutralResolution || neutralResolution.status==="RESOLVED") && (hole ? holeReady&&!!draft.bodyId : loft ? (draft.sections?.length ?? 0) >= 2 && !!draft.sections?.some(s=>!s.point) && !draft.sections?.some((s,i)=>s.point&&i!==0&&i!==draft.sections!.length-1) : modifier ? (splitBody || picks.length > 0) && !!draft.bodyId && (!planeModifier || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
+    const ready = (wholeChamfer || !draft.chamferMode || !!chamferSupport && edgeOrFacePicks.length>0) && loftBoundaryReady && sweepReady && (!(hole||modifier)&&draft.operation!=="NEW_BODY"?!!draft.bodyId:true) && (!terminating||!terminationLoadError&&!!(draft.terminationPlaneId||draft.terminationPlane||draft.terminationSurface)&&(!terminationResolution||terminationResolution.status==="RESOLVED")) && (!explicitRegions||regionIDs.length>0&&!missingRegions.length) && (!thinChains||!!draft.thinWall?.entityIds?.length) && validRevision && !loadingInput && !binding && !inputError && (!(modifier||hole) || !feature.id && !insertion || !!inputContext) && !unresolved.length && (!neutralResolution || neutralResolution.status==="RESOLVED") && (hole ? holeReady&&(!holeRefs.some(p=>!!p.geometry)||!!draft.holeDirection)&&(!draft.holeDirection||geometryInputAvailable(view,draft.holeDirection))&&!!draft.bodyId : loft ? (draft.sections?.length ?? 0) >= 2 && !!draft.sections?.some(s=>!s.point) && !draft.sections?.some((s,i)=>s.point&&i!==0&&i!==draft.sections!.length-1) : modifier ? (splitBody || picks.length > 0) && !!draft.bodyId && (!planeModifier || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId || !!draft.axisReference));
     try {
         const value = { ...draft,loftStart:draft.loftStart?{...draft.loftStart}:undefined,loftEnd:draft.loftEnd?{...draft.loftEnd}:undefined,thread:draft.thread?{...draft.thread}:undefined,thinWall:draft.thinWall?{...draft.thinWall}:undefined, selections: modifier ? picks.map(p => p.definition) : draft.selections }, expressions: Record<string, string> = {};
         const read = (slot: SolidQuantitySlot, text: string) => { const parsed = solidParameterEdit(slot, text, original.current[slot], unit); if (parsed.value !== undefined) {
@@ -431,7 +450,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
         if(value.thinWall){read("thin:thickness",thinThickness);if(value.thinWall.mode==="TWO_SIDED")read("thin:thickness2",thinSecond);else delete value.thinWall.thickness2;}
         const common = { ...frozen.current,requestId: intent.current, parameterExpressions: expressions };
         if (ready && (!insertion || !!inputContext))
-            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value,afterFeatureId:insertion?.afterFeatureId,versionId:insertion?.versionId,geometryKey:insertion?inputContext?.artifact.geometryKey:undefined } : loft||hole||sweep ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value,afterFeatureId:insertion?.afterFeatureId,versionId:insertion?.versionId,geometryKey:insertion?inputContext?.artifact.geometryKey:undefined } : { ...common, type: "CREATE_SOLID_FEATURE", afterFeatureId:insertion?.afterFeatureId, versionId:insertion?.versionId, geometryKey:insertion?inputContext?.artifact.geometryKey:undefined, terminationPlaneId:value.terminationPlaneId,terminationPlane:value.terminationPlane,terminationSurface:value.terminationSurface,startOffset:value.startOffset,endOffset:value.endOffset,thinWall:value.thinWall,sketchId: value.profile, profileSelection:value.profileSelection, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
+            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value,afterFeatureId:insertion?.afterFeatureId,versionId:insertion?.versionId,geometryKey:insertion?inputContext?.artifact.geometryKey:undefined } : loft||hole||sweep ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value,afterFeatureId:insertion?.afterFeatureId,versionId:insertion?.versionId,geometryKey:insertion?inputContext?.artifact.geometryKey:undefined } : { ...common, type: "CREATE_SOLID_FEATURE", afterFeatureId:insertion?.afterFeatureId, versionId:insertion?.versionId, geometryKey:insertion?inputContext?.artifact.geometryKey:undefined, terminationPlaneId:value.terminationPlaneId,terminationPlane:value.terminationPlane,terminationSurface:value.terminationSurface,startOffset:value.startOffset,endOffset:value.endOffset,thinWall:value.thinWall,sketchId: value.profile, profileSelection:value.profileSelection, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId,axisReference:value.axisReference, reversed: value.reversed };
     }
     catch (cause) {
         parameterError = fieldErrorText(cause);
@@ -445,7 +464,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
     const coneDepth=bore?.evaluatedValue&&recess?.evaluatedValue&&cone?.evaluatedValue?parameterDisplayValue({...bore,displayUnit:unit,evaluatedValue:{...bore.evaluatedValue,siValue:(recess.evaluatedValue.siValue-bore.evaluatedValue.siValue)/(2*Math.tan(cone.evaluatedValue.siValue/2))}}):'—';
     acceptedSections.current=preview.loftSections;
     useEffect(() => {
-        callbacks.current.onSelectionSession(role?{ seedEnabled:!feature.id&&!insertion&&!resume,seedSlot:role,seedMultiple:modifier||loft||!!draft.holePoints||role==='profile-region'||role==='geometry',...occurrenceContext,role,topologyPick:sweep&&role==='geometry'?'EDGE':undefined,accept:sweep&&role==='geometry'?s=>(s.ownerDocumentId??s.documentId)===view.document.id&&(s.occurrencePath??'')===(occurrencePath??'')&&(!s.versionId||s.versionId===version.current)&&(s.kind==='edge'||s.kind==='visual'&&s.visualType==='CURVE'&&upstream.some(f=>f.id===s.featureId&&f.sketch)||upstream.some(f=>f.id===(s.result?.featureId??s.entityId??s.id)&&f.result?.domain==='WIRE_SET')):undefined,project:surface?s=>s.kind==='plane'?null:s:undefined,sketchPoints:hole?upstream.filter(f=>sketchIds.includes(f.id)).flatMap(f=>f.sketch?.entities.filter(e=>!e.sourceEntityId&&!e.suppressed).map(e=>({sketchId:f.id,entityId:e.id}))??[]):undefined,planeGeometryKeys:terminating||planeModifier?planeGeometryKeys:undefined, profileRegions:explicitRegions?regionCandidates:undefined, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, geometryKey:modifier && (feature.id || insertion) ? inputContext?.artifact.geometryKey : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) }:undefined);
+        callbacks.current.onSelectionSession(role?{ seedEnabled:!feature.id&&!insertion&&!resume,seedSlot:role,seedMultiple:modifier||loft||!!draft.holePoints||role==='profile-region'||role==='geometry',...occurrenceContext,role,topologyPick:(loft&&role==='point'||hole&&role==='point')?'VERTEX':(role==='axis'||hole&&role==='direction'||sweep&&role==='geometry')?'EDGE':undefined,accept:(role==='axis'||hole&&(role==='direction'||role==='point')||loft&&role==='point')?s=>(s.ownerDocumentId??s.documentId)===view.document.id&&(s.occurrencePath??'')===(occurrencePath??'')&&(!s.versionId||s.versionId===version.current)&&acceptsGeometryReference(view,s,role==='axis'?'axis':role==='direction'?'direction':'point',upstream):sweep&&role==='geometry'?s=>(s.ownerDocumentId??s.documentId)===view.document.id&&(s.occurrencePath??'')===(occurrencePath??'')&&(!s.versionId||s.versionId===version.current)&&(s.kind==='edge'||s.kind==='visual'&&s.visualType==='CURVE'&&upstream.some(f=>f.id===s.featureId&&f.sketch)||upstream.some(f=>f.id===(s.result?.featureId??s.entityId??s.id)&&f.result?.domain==='WIRE_SET')):undefined,project:surface?s=>s.kind==='plane'?null:s:undefined,sketchPoints:hole?upstream.filter(f=>sketchIds.includes(f.id)).flatMap(f=>f.sketch?.entities.filter(e=>!e.sourceEntityId&&!e.suppressed).map(e=>({sketchId:f.id,entityId:e.id}))??[]):undefined,planeGeometryKeys:terminating||planeModifier?planeGeometryKeys:undefined, profileRegions:explicitRegions?regionCandidates:undefined, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, geometryKey:modifier && (feature.id || insertion) ? inputContext?.artifact.geometryKey : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) }:undefined);
     }, [role, highlightsToken, sketchIdsToken, draft.bodyId,inputContext?.artifact.geometryKey,showConnections,JSON.stringify(preview.loftConnections),explicitRegions,draft.profile,terminating,surface,JSON.stringify(planeGeometryKeys)]);
     const apply = async () => { if (!input || !preview.ready || committing)
         {feedback.reportValidation();return;} setCommitting(true); try {
@@ -484,9 +503,10 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
    </>}
    {insertion&&<CommandField label="插入位置" width="expression"><span>{insertion.label} 之后</span></CommandField>}
    {hole&&<>
-    <CommandField label="多点孔组" width="option"><Switch aria-label="多点孔组" checked={!!draft.holePoints} disabled={committing||!!draft.holePoints&&draft.holePoints.length>1} onChange={group=>{edit(group?{holePoints:draft.holePoint?[draft.holePoint]:[],holePoint:undefined}:{holePoint:draft.holePoints?.[0],holePoints:undefined});setPointResolution(undefined);setRole('sketch-point')}}/></CommandField>
-    <FeaturePickField label="定位点" mode={draft.holePoints?'multiple':'single'} value={draft.holePoints?`${holeRefs.length} 个定位点`:draft.holePoint?holeReady?`${name(draft.holePoint.sketchId)} · 已选择定位点`:pointResolution?inputStatusText(pointResolution):'原定位点已失效':'选择草图点、端点或圆心'} selected={!!holeRefs.length} selections={highlights.filter(s=>s.kind==='visual'&&s.visualType==='POINT')} active={role==='sketch-point'&&!holeReplacement} onActivate={()=>{setHoleReplacement(undefined);setRole('sketch-point')}} onClear={holeRefs.length?()=>{pointReplaced.current=true;edit(draft.holePoints?{holePoints:[]}:{holePoint:undefined});setPointResolution(undefined)}:undefined}
-      items={draft.holePoints?.map((p,i)=>({key:holeKey(p),actionLabel:`孔位 ${i+1}`,value:`${name(p.sketchId)} / 孔位 ${i+1}`,state:validHoleRef(p)?'RESOLVED':'MISSING',error:!validHoleRef(p),active:role==='sketch-point'&&holeReplacement===holeKey(p),onActivate:()=>{setHoleReplacement(holeKey(p));setRole('sketch-point')},onClear:()=>{pointReplaced.current=true;edit({holePoints:draft.holePoints!.filter(q=>holeKey(q)!==holeKey(p))});setPointResolution(undefined)}}))}/>
+    <CommandField label="多点孔组" width="option"><Switch aria-label="多点孔组" checked={!!draft.holePoints} disabled={committing||!!draft.holePoints&&draft.holePoints.length>1} onChange={group=>{edit(group?{holePoints:draft.holePoint?[draft.holePoint]:[],holePoint:undefined}:{holePoint:draft.holePoints?.[0],holePoints:undefined});setPointResolution(undefined);setRole('point')}}/></CommandField>
+    <FeaturePickField label="定位点" mode={draft.holePoints?'multiple':'single'} value={draft.holePoints?`${holeRefs.length} 个定位点`:draft.holePoint?holeReady?`${draft.holePoint.geometry?geometryInputName(view,draft.holePoint.geometry):name(draft.holePoint.sketchId)} · 已选择定位点`:pointResolution?inputStatusText(pointResolution):'原定位点已失效':'选择定位点'} selected={!!holeRefs.length} selections={highlights} active={role==='point'&&!holeReplacement} onActivate={()=>{setHoleReplacement(undefined);setRole('point')}} onClear={holeRefs.length?()=>{pointReplaced.current=true;edit(draft.holePoints?{holePoints:[]}:{holePoint:undefined});setPointResolution(undefined)}:undefined}
+      items={draft.holePoints?.map((p,i)=>({key:holeKey(p),actionLabel:`孔位 ${i+1}`,value:`${p.geometry?geometryInputName(view,p.geometry):name(p.sketchId)} / 孔位 ${i+1}`,state:validHoleRef(p)?'RESOLVED':'MISSING',error:!validHoleRef(p),active:role==='point'&&holeReplacement===holeKey(p),onActivate:()=>{setHoleReplacement(holeKey(p));setRole('point')},onClear:()=>{pointReplaced.current=true;edit({holePoints:draft.holePoints!.filter(q=>holeKey(q)!==holeKey(p))});setPointResolution(undefined)}}))}/>
+    {(holeRefs.some(p=>!!p.geometry)||draft.holeDirection)&&<FeaturePickField label="孔轴方向" value={draft.holeDirection?geometryInputName(view,draft.holeDirection):'选择轴、直线或平面'} selected={!!draft.holeDirection} active={role==='direction'} onActivate={()=>setRole('direction')} onClear={draft.holeDirection?()=>edit({holeDirection:undefined}):undefined}/>}
     <FeaturePickField label="目标实体" value={view.part?.bodies.find(b=>b.id===draft.bodyId)?.name??"选择实体"} disabled={!!feature.id} selected={!!draft.bodyId} active={role==="body"} onActivate={()=>setRole("body")} onClear={!feature.id&&draft.bodyId?()=>edit({bodyId:undefined}):undefined}/>
     <CommandField label="孔型" width="content"><Segmented value={draft.holeKind??'SIMPLE'} options={[{value:'SIMPLE',label:'普通孔'},{value:'COUNTERBORE',label:'圆柱沉孔'},{value:'COUNTERSINK',label:'锥沉孔'}]} onChange={kind=>edit({holeKind:kind as Feature['holeKind']})}/></CommandField>
     <CommandField label="孔径规格" width="content"><Select aria-label="孔径规格" value={draft.holeStandard??""} disabled={!!boundSlot("diameter")} options={[{value:"",label:"自定义"},...Object.entries(view.holeStandards??{}).sort((a,b)=>a[1]-b[1]).map(([value,d])=>({value,label:`${value.split("_").at(-1)} · 中等间隙 Ø${d} mm`}))]} onChange={value=>{
@@ -512,15 +532,18 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
     {draft.holeKind==='COUNTERSINK'&&<><CommandField actions={<ContextInputSource view={view} binding={boundSlot("countersinkAngle")}/>} label="锥面夹角（°）" width="expression"><ParameterReferenceInput value={countersinkAngle} disabled={committing||!!boundSlot("countersinkAngle")} onChange={setCountersinkAngle} parameters={view.part?.parameters??[]} unit={undefined} onConfirm={()=>void apply()}/></CommandField><CommandField label="锥段深度" width="content"><span>{coneDepth}</span></CommandField></>}
    </>}
    {draft.profile && upstream.find(f=>f.id===draft.profile)?.type==="SKETCH_PATTERN" && <CommandField  label={<>草图成员槽位</>} width="expression"><Input type="number" min={0} step={1} value={draft.profileMemberSlot} onChange={e=>edit({profileMemberSlot:e.target.value===""?undefined:Number(e.target.value)})}/></CommandField>}
-   {feature.type === "REVOLVE" && <FeaturePickField label="旋转轴" value={draft.axisEntityId ? "已选择 1 条轴线" : "选择直线或轴"} selected={!!draft.axisEntityId} selections={axisVisual?[axisVisual]:restoredAxis?[restoredAxis]:[]} active={role === "axis"} onActivate={() => setRole("axis")} onClear={draft.axisEntityId ? () => { edit({ axisEntityId: undefined }); setAxisVisual(undefined); } : undefined}/>}
+   {feature.type === "REVOLVE" && <FeaturePickField label="旋转轴" value={draft.axisReference?geometryInputName(view,draft.axisReference):draft.axisEntityId ? "已选择 1 条轴线" : "选择直线或轴"} selected={!!(draft.axisEntityId||draft.axisReference)} selections={axisVisual?[axisVisual]:restoredAxis?[restoredAxis]:draft.axisReference?geometryInputSelections(view,draft.axisReference):[]} active={role === "axis"} onActivate={() => setRole("axis")} onClear={draft.axisEntityId||draft.axisReference ? () => { edit({ axisEntityId: undefined,axisReference:undefined }); setAxisVisual(undefined); } : undefined}/>}
+   {feature.type==="CHAMFER"&&<CommandField label="选择对象" width="content"><Segmented value={wholeChamfer?"FACE":"EDGE"} options={[{value:"EDGE",label:"边"},{value:"FACE",label:"整面"}]} onChange={mode=>{
+       const face=mode==="FACE";setWholeChamfer(face);setPicks([]);setReplacement(undefined);setRole(face||draft.chamferMode?"face":"edge");
+   }}/></CommandField>}
    {feature.type==="CHAMFER"&&<CommandField label="倒角方式" width="content"><Segmented value={draft.chamferMode??"EQUAL"} options={[{value:"EQUAL",label:"等距"},{value:"TWO_DISTANCES",label:"双距离"},{value:"DISTANCE_ANGLE",label:"距离与角度"}]} onChange={mode=>{
        const chamferMode=mode==="EQUAL"?undefined:mode as Feature["chamferMode"];
        edit({chamferMode,length2:chamferMode==="TWO_DISTANCES"?draft.length2??2:undefined,angle:chamferMode==="DISTANCE_ANGLE"?draft.angle??45:undefined});
-       if(!chamferMode)setPicks(previous=>previous.filter(p=>p.definition.selection.expectedType!=="FACE"));
-       setReplacement(undefined);setRole(chamferMode&&!chamferSupport?"face":"edge");
+       if(!chamferMode&&!wholeChamfer)setPicks(previous=>previous.filter(p=>p.definition.selection.expectedType!=="FACE"));
+       setReplacement(undefined);setRole(wholeChamfer||chamferMode&&!chamferSupport?"face":"edge");
    }}/></CommandField>}
-   {draft.chamferMode&&<FeaturePickField label="第一距离参照面" selected={!!chamferSupport} active={role==="face"} error={!!chamferSupport&&chamferSupport.resolution.status!=="RESOLVED"} value={chamferSupport?"已选择参照面":"选择与边相邻的面"} selections={chamferSupport?.visual?[chamferSupport.visual]:[]} onActivate={()=>{setReplacement(chamferSupport?.id);setRole("face")}} onClear={chamferSupport?()=>setPicks(previous=>previous.filter(p=>p!==chamferSupport)):undefined}/>}
-   {modifier&&!splitBody&&<FeaturePickField mode="multiple" label={pickRole==='edge'?'边集':'面集'} detail={loadingInput?'正在恢复选择…':undefined} active={role===pickRole&&!replacement} disabled={loadingInput||!!inputError||!!binding} onActivate={()=>{setReplacement(undefined);setRole(pickRole)}} onClear={edgeOrFacePicks.length&&!binding?()=>{setPicks(chamferSupport?[chamferSupport]:[]);setReplacement(undefined)}:undefined} items={edgeOrFacePicks.map((p,i)=>({key:p.id,actionLabel:`${pickRole==='edge'?'边':'面'} ${i+1}`,value:`${view.part?.features.find(f=>f.id===p.definition.sourceFeatureId)?.name??'上游几何'} / ${pickRole==='edge'?'边':'面'} ${i+1}`,state:p.resolution.status,error:p.resolution.status!=='RESOLVED',detail:p.resolution.status==='RESOLVED'?undefined:inputStatusText(p.resolution),active:role===pickRole&&replacement===p.id,selections:p.visual?[p.visual]:[],onActivate:()=>{setReplacement(p.id);setRole(pickRole)},onClear:()=>{setPicks(previous=>previous.filter(item=>item.id!==p.id));setReplacement(undefined)}}))}/>}
+   {draft.chamferMode&&!wholeChamfer&&<FeaturePickField label="第一距离参照面" selected={!!chamferSupport} active={role==="face"} error={!!chamferSupport&&chamferSupport.resolution.status!=="RESOLVED"} value={chamferSupport?"已选择参照面":"选择与边相邻的面"} selections={chamferSupport?.visual?[chamferSupport.visual]:[]} onActivate={()=>{setReplacement(chamferSupport?.id);setRole("face")}} onClear={chamferSupport?()=>setPicks(previous=>previous.filter(p=>p!==chamferSupport)):undefined}/>}
+   {modifier&&!splitBody&&<FeaturePickField mode="multiple" label={wholeChamfer?'倒角面':pickRole==='edge'?'边集':'面集'} detail={loadingInput?'正在恢复选择…':undefined} active={role===pickRole&&!replacement} disabled={loadingInput||!!inputError||!!binding} onActivate={()=>{setReplacement(undefined);setRole(pickRole)}} onClear={edgeOrFacePicks.length&&!binding?()=>{setPicks(chamferSupport?[chamferSupport]:[]);setReplacement(undefined)}:undefined} items={edgeOrFacePicks.map((p,i)=>({key:p.id,actionLabel:`${pickRole==='edge'?'边':'面'} ${i+1}`,value:`${view.part?.features.find(f=>f.id===p.definition.sourceFeatureId)?.name??'上游几何'} / ${pickRole==='edge'?'边':'面'} ${i+1}`,state:p.resolution.status,error:p.resolution.status!=='RESOLVED',detail:p.resolution.status==='RESOLVED'?undefined:inputStatusText(p.resolution),active:role===pickRole&&replacement===p.id,selections:p.visual?[p.visual]:[],onActivate:()=>{setReplacement(p.id);setRole(pickRole)},onClear:()=>{setPicks(previous=>previous.filter(item=>item.id!==p.id));setReplacement(undefined)}}))}/>}
    {terminating&&<>
     <FeaturePickField label={surface?"终止曲面":"终止平面"} value={terminationLoadError?"原目标解析受阻，请重新选择":terminationResolution&&terminationResolution.status!=="RESOLVED"?inputStatusText(terminationResolution):draft.terminationSurface?"已选择上游实体曲面":draft.terminationPlane?"已选择上游实体平面":view.part?.datumPlanes.find(p=>p.id===draft.terminationPlaneId)?.name??"选择基准平面或上游实体平面"} selected={!!(draft.terminationPlane||draft.terminationPlaneId||draft.terminationSurface)} selections={terminationVisual?[terminationVisual]:[]} active={role==="plane"} disabled={loadingInput||!!binding} onActivate={()=>setRole("plane")} onClear={draft.terminationPlane||draft.terminationPlaneId||draft.terminationSurface?()=>{edit({terminationPlane:undefined,terminationPlaneId:undefined,terminationSurface:undefined});setTerminationResolution(undefined);setTerminationLoadError(undefined);setTerminationVisual(undefined);}:undefined}/>
    </>}
@@ -532,7 +555,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
     <FeaturePickField label="点端" value="选择草图点或基准原点" active={role === "point"&&sectionReplacement===undefined} onActivate={()=>{setSectionReplacement(undefined);setRole("point");}}/>
     <CommandField  label={<>显示连接线</>} width="option"><Switch checked={showConnections} onChange={setShowConnections}/></CommandField>
     <FeaturePickField mode="ordered" label="截面" active={role==='profile'&&sectionReplacement===undefined} onActivate={()=>{setSectionReplacement(undefined);setRole('profile')}} onClear={draft.sections?.length?()=>edit({sections:[]}):undefined} items={(preview.loftSections??draft.sections??[]).map((section,i)=>({
-     key:`${section.sketchId}/${section.memberSlot??''}/${JSON.stringify(section.point??'')}/${i}`,actionLabel:`截面 ${i+1}`,value:section.point?`点端 · ${section.point.axisEntityId?view.part?.axisSystems.find(a=>a.id===section.point?.axisEntityId?.split(':')[1])?.name??'引用原点已丢失':name(section.sketchId)}`:name(section.sketchId),selections:highlights[i]?[highlights[i]]:[],active:sectionReplacement===i&&(role==='profile'||role==='point'),onActivate:()=>{setSectionReplacement(i);setRole(section.point?'point':'profile')},onClear:()=>edit({sections:draft.sections?.filter((_,j)=>j!==i)}),
+     key:`${section.sketchId}/${section.memberSlot??''}/${JSON.stringify(section.point??'')}/${i}`,actionLabel:`截面 ${i+1}`,value:section.point?`点端 · ${section.point.geometry?geometryInputName(view,section.point.geometry):section.point.axisEntityId?view.part?.axisSystems.find(a=>a.id===section.point?.axisEntityId?.split(':')[1])?.name??'引用原点已丢失':name(section.sketchId)}`:name(section.sketchId),selections:highlights[i]?[highlights[i]]:[],active:sectionReplacement===i&&(role==='profile'||role==='point'),onActivate:()=>{setSectionReplacement(i);setRole(section.point?'point':'profile')},onClear:()=>edit({sections:draft.sections?.filter((_,j)=>j!==i)}),
      actions:<><Button size="small" aria-label={`上移截面 ${i+1}`} disabled={!i} onClick={()=>{const sections=[...draft.sections!];[sections[i-1],sections[i]]=[sections[i],sections[i-1]];edit({sections});}}>↑</Button><Button size="small" aria-label={`下移截面 ${i+1}`} disabled={i===(draft.sections?.length??0)-1} onClick={()=>{const sections=[...draft.sections!];[sections[i+1],sections[i]]=[sections[i],sections[i+1]];edit({sections});}}>↓</Button></>,
      settings:section.point?undefined:<>
      {upstream.find(f=>f.id===section.sketchId)?.type==="SKETCH_PATTERN"&&<CommandField  label={<>成员槽位</>} width="expression"><Input type="number" min={0} step={1} value={section.memberSlot} onChange={e=>edit({sections:(acceptedSections.current??draft.sections)?.map((s,j)=>i===j?{...s,memberSlot:e.target.value===""?undefined:Number(e.target.value)}:s)})}/></CommandField>}
@@ -547,7 +570,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrenceP
      <CommandField label={`${label}条件`} width="expression"><Select aria-label={`${label}条件`} value={b?.condition??'FREE'} options={[{value:'FREE',label:'自由'},{value:'NORMAL',label:'垂直截面'},{value:'DIRECTION',label:'指定端部方向'},{value:'G1',label:'匹配切向 G1'},{value:'G2',label:'匹配曲率 G2'}]} onChange={condition=>{edit({ruled:false,[end]:condition==='FREE'?undefined:{condition,magnitude:b?.magnitude??1,supports:[]}});setLoftRows(r=>({...r,[end]:[]}));setLoftEnd(end);setLoftReplacement(undefined);setRole(['G1','G2'].includes(condition)?'face':condition==='DIRECTION'?'axis':undefined)}}/></CommandField>
      {b&&<>
       <CommandField label={`${label}影响系数`} width="expression"><ParameterReferenceInput value={end==='loftStart'?startMagnitude:endMagnitude} onChange={end==='loftStart'?setStartMagnitude:setEndMagnitude} parameters={view.part?.parameters??[]} disabled={!!boundSlot(slot)} onConfirm={()=>void apply()}/></CommandField>
-      {b.condition!=='NORMAL'&&<FeaturePickField label={`${label}方向`} value={b.directionEntityId??'使用截面法向'} selected={!!b.directionEntityId} active={role==='axis'&&loftEnd===end} onActivate={()=>{setLoftEnd(end);setRole('axis')}} onClear={b.directionEntityId?()=>editBoundary(end,{directionEntityId:undefined}):undefined}/>}
+      {b.condition!=='NORMAL'&&<FeaturePickField label={`${label}方向`} value={b.direction?geometryInputName(view,b.direction):b.directionEntityId??'使用截面法向'} selected={!!(b.direction||b.directionEntityId)} active={role==='axis'&&loftEnd===end} onActivate={()=>{setLoftEnd(end);setRole('axis')}} onClear={b.directionEntityId||b.direction?()=>editBoundary(end,{directionEntityId:undefined,direction:undefined}):undefined}/>}
       <CommandField label={`${label}方向反转`} width="option"><Switch checked={b.reversed} onChange={reversed=>editBoundary(end,{reversed})}/></CommandField>
       {['G1','G2'].includes(b.condition)&&<FeaturePickField mode="multiple" label={`${label}连续性支撑`} active={role==='face'&&loftEnd===end&&!loftReplacement} onActivate={()=>{setLoftEnd(end);setLoftReplacement(undefined);setRole('face')}} onClear={()=>{setLoftRows(r=>({...r,[end]:[]}));editBoundary(end,{supports:[]})}} items={rows.map((p,i)=>({key:p.id,actionLabel:`${label}支撑 ${i+1}`,value:`支撑面 ${i+1}`,state:p.resolution.status,error:p.resolution.status!=='RESOLVED',detail:inputStatusText(p.resolution),selections:p.visual?[p.visual]:[],active:role==='face'&&loftEnd===end&&loftReplacement===p.id,onActivate:()=>{setLoftEnd(end);setLoftReplacement(p.id);setRole('face')},onClear:()=>{const next=rows.filter(r=>r.id!==p.id);setLoftRows(r=>({...r,[end]:next}));editBoundary(end,{supports:next.map(p=>p.definition)})}}))}/>}
      </>}

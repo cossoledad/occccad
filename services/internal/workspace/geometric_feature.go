@@ -540,9 +540,9 @@ func (s *Service) evaluateGeometrySpec(ctx context.Context, requestID string, sp
 	return key, nil
 }
 func (s *Service) geometrySource(ctx context.Context, requestID string, model PartModel, input GeometricInput) (*workerv1.GeometryFeatureInput, error) {
-	return s.geometrySourceForUse(ctx, requestID, model, input, finiteElement)
+	return s.geometrySourceForUse(ctx, requestID, model, input, finiteElement, nil)
 }
-func (s *Service) geometrySourceForUse(ctx context.Context, requestID string, model PartModel, input GeometricInput, use namingUse) (*workerv1.GeometryFeatureInput, error) {
+func (s *Service) geometrySourceForUse(ctx context.Context, requestID string, model PartModel, input GeometricInput, use namingUse, sourceKey *string) (*workerv1.GeometryFeatureInput, error) {
 	result := &workerv1.GeometryFeatureInput{Reversed: input.Reversed}
 	if input.Kind == "PLANE" {
 		for _, p := range model.DatumPlanes {
@@ -591,6 +591,9 @@ func (s *Service) geometrySourceForUse(ctx context.Context, requestID string, mo
 	}
 	if err != nil {
 		return nil, err
+	}
+	if sourceKey != nil {
+		*sourceKey = key
 	}
 	brep, err := s.loadBrepArtifactReference(ctx, key)
 	if err != nil {
@@ -783,7 +786,7 @@ func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, mod
 		if d.Kind == "SURFACE_JOIN" || d.Kind == "SURFACE_SEW" {
 			use = descendantSet
 		}
-		resolved, e := s.geometrySourceForUse(ctx, requestID+"/"+f.ID, model, input, use)
+		resolved, e := s.geometrySourceForUse(ctx, requestID+"/"+f.ID, model, input, use, nil)
 		if e != nil {
 			return nil, e
 		}
@@ -995,7 +998,8 @@ func (s *Service) geometryPointPosition(ctx context.Context, requestID string, m
 		}
 		return frame.origin, []*workerv1.SemanticTopologyRef{{FeatureId: owner, OutputSlot: "point", SourceIds: []string{geometryReferenceSource(input)}}}, nil
 	}
-	source, err := s.geometrySource(ctx, requestID+"/point", model, input)
+	var key string
+	source, err := s.geometrySourceForUse(ctx, requestID+"/point", model, input, finiteElement, &key)
 	if err != nil {
 		return [3]float64{}, nil, err
 	}
@@ -1007,20 +1011,6 @@ func (s *Service) geometryPointPosition(ctx context.Context, requestID string, m
 	}
 	// The source snapshot already passed owner/stage validation. Locate its
 	// single declared point using Naming; display points never supply position.
-	var key string
-	if input.Kind == "RESULT" {
-		for _, f := range model.Features {
-			if f.ID == input.FeatureID {
-				key, err = s.evaluateGeometricFeature(ctx, requestID+"/point-result", &model, f.ID)
-				break
-			}
-		}
-	} else {
-		key, err = s.featureStageInModel(ctx, model, "", geometryInputFeatureID(input), input.Selection.Selection.SourceBodyID)
-	}
-	if err != nil {
-		return [3]float64{}, nil, err
-	}
 	if input.Kind == "RESULT" {
 		a, e := s.loadArtifact(ctx, key)
 		if e != nil {

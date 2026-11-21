@@ -32,7 +32,7 @@ import (
 
 const geometryValidationPolicy = "occccad.geometry.brep-valid.v1"
 
-const evaluatorVersion = "part-solid-generators-v90-occt-fb4a17b508257b7fd375ead67d019146"
+const evaluatorVersion = "part-solid-generators-v91-occt-fb4a17b508257b7fd375ead67d019146"
 
 // Representation changes qualify newly evaluated artifacts independently of
 // the semantic Naming policy, exact shape identity and dependency manifest.
@@ -1253,6 +1253,10 @@ func resolveRevolveAxis(model PartModel, sketch Feature, reference string) ([2]f
 	if !found {
 		return zero, zero, fmt.Errorf("%w: revolve axis %s is missing", ErrValidation, reference)
 	}
+	return projectRevolveAxis(model, sketch, origin, direction)
+}
+func projectRevolveAxis(model PartModel, sketch Feature, origin, direction [3]float64) ([2]float64, [2]float64, error) {
+	var zero [2]float64
 	frameOrigin, frameU, frameNormal, hasFrame := supportFrame(model, sketch.Sketch.Support)
 	if !hasFrame {
 		return zero, zero, fmt.Errorf("%w: sketch support plane is missing", ErrValidation)
@@ -1686,7 +1690,7 @@ func mutatePart(model *PartModel, request CommandRequest) error {
 		if sketch == nil {
 			return fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
 		}
-		if generator == "REVOLVE" {
+		if generator == "REVOLVE" && request.AxisReference == nil {
 			if _, _, err := resolveRevolveAxis(*model, *sketch, request.AxisEntityID); err != nil {
 				return err
 			}
@@ -1698,7 +1702,7 @@ func mutatePart(model *PartModel, request CommandRequest) error {
 		model.Features = append(model.Features, Feature{ID: newID(strings.ToLower(label)), Type: generator,
 			Name: numberedFeatureName(model.Features, generator, label), Profile: sketch.ID,
 			Length: request.Length, Angle: request.Angle, Operation: operation,
-			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed})
+			AxisEntityID: request.AxisEntityID, AxisReference: request.AxisReference, Reversed: request.Reversed})
 	case "IMPORT_EXCHANGE":
 		if strings.TrimSpace(request.GeometryKey) == "" {
 			return fmt.Errorf("%w: imported geometry key is required", ErrValidation)
@@ -1882,7 +1886,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: feature.Type, BodyOperation: feature.Operation, GeometryGenerator: spec.GeometryFeatureSpec})
 			bodyTipFeatureID = feature.ID
 		case "HOLE":
-			spec, err := holeInput(fullModel, feature)
+			spec, err := service.holeInput(ctx, reqID, fullModel, feature)
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
@@ -2019,7 +2023,15 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			if strings.EqualFold(feature.Type, "REVOLVE") {
 				generator = "REVOLVE"
 				angle = feature.Angle * math.Pi / 180
-				axisStart, axisEnd, err = resolveRevolveAxis(model, sketch, feature.AxisEntityID)
+				if feature.AxisReference != nil {
+					var frame datumFrame
+					frame, err = service.solidAxisFrame(ctx, reqID, fullModel, *feature.AxisReference)
+					if err == nil {
+						axisStart, axisEnd, err = projectRevolveAxis(model, sketch, frame.origin, frame.direction)
+					}
+				} else {
+					axisStart, axisEnd, err = resolveRevolveAxis(model, sketch, feature.AxisEntityID)
+				}
 				if err != nil {
 					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 				}

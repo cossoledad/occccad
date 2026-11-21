@@ -74,8 +74,10 @@ func patternSeeds(p *FeaturePattern) []PatternSeed {
 }
 
 type FeaturePattern struct {
-	AdditionalSources []PatternSeed `json:"additionalSources,omitempty"`
-	ResultMode        string        `json:"resultMode,omitempty"` // COMBINE | INDEPENDENT
+	AxisReference     *GeometricInput `json:"axisReference,omitempty"`
+	CenterGeometry    *GeometricInput `json:"centerGeometry,omitempty"`
+	AdditionalSources []PatternSeed   `json:"additionalSources,omitempty"`
+	ResultMode        string          `json:"resultMode,omitempty"` // COMBINE | INDEPENDENT
 	PatternDefinition
 	Source         FeatureStageRef `json:"source"`
 	SourceKind     string          `json:"sourceKind"`               // SKETCH_FRAME, GENERATOR_TOOL, BODY_STAGE, FEATURE_DELTA, FEATURE_REEXECUTION
@@ -149,6 +151,9 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 		return fmt.Errorf("%w: pattern identity required", ErrValidation)
 	}
 	p := f.Pattern
+	if (p.AxisReference != nil || p.CenterGeometry != nil) && (f.Type != "SOLID_PATTERN" || p.Kind == "MIRROR" || p.AxisReference != nil && p.AxisEntityID != "" || p.CenterGeometry != nil && (p.Kind != "CIRCULAR" || p.CenterReference != nil || !validSolidPoint(PatternPointReference{Geometry: p.CenterGeometry}))) {
+		return fmt.Errorf("%w: PATTERN_SPATIAL_REFERENCE_INVALID", ErrValidation)
+	}
 	if err := validatePatternReexecutionBudget(p); err != nil {
 		return err
 	}

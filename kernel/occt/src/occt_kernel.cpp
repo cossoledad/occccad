@@ -21,6 +21,7 @@
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <internal/shell_history.hpp>
+#include <internal/ruled_shell.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -3881,7 +3882,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
             throw std::invalid_argument("MODIFIER_SELECTION_MISSING_OR_AMBIGUOUS");
         const auto expected =
             (spec.generator == "FILLET" || spec.generator == "CHAMFER") ? TopAbs_EDGE : TopAbs_FACE;
-        if (matches.front().ShapeType() != expected && !(spec.generator=="CHAMFER" && !spec.chamfer_mode.empty() && matches.front().ShapeType()==TopAbs_FACE))
+        if (matches.front().ShapeType() != expected && !(spec.generator=="CHAMFER" && matches.front().ShapeType()==TopAbs_FACE))
             throw std::invalid_argument("MODIFIER_SELECTION_TYPE_MISMATCH");
         if (std::none_of(selected.begin(), selected.end(),
                          [&](const auto& shape) { return shape.IsSame(matches.front()); }))
@@ -4103,28 +4104,59 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
     if (spec.generator == "CHAMFER") {
         validate_positive(spec.pad_length, "chamfer distance");
         BRepFilletAPI_MakeChamfer algorithm(input);
+        TopTools_IndexedMapOfShape edges;
+        const bool whole_face = selected.size() == 1 && selected.front().ShapeType() == TopAbs_FACE;
+        if (whole_face) {
+            const auto face = TopoDS::Face(selected.front());
+            for (TopExp_Explorer it(face, TopAbs_EDGE); it.More(); it.Next()) {
+                const auto edge = TopoDS::Edge(it.Current());
+                if (edge.Orientation() == TopAbs_INTERNAL || BRep_Tool::Degenerated(edge) ||
+                    BRep_Tool::IsClosed(edge, face))
+                    continue;
+                edges.Add(edge);
+            }
+            if (edges.IsEmpty())
+                throw std::invalid_argument("CHAMFER_FACE_NO_BOUNDARY");
+        } else
+            for (const auto& shape : selected)
+                if (shape.ShapeType() == TopAbs_EDGE)
+                    edges.Add(shape);
         if (spec.chamfer_mode.empty()) {
-            for (const auto& edge : selected) algorithm.Add(spec.pad_length, TopoDS::Edge(edge));
+            if (!whole_face && edges.Extent() != static_cast<int>(selected.size()))
+                throw std::invalid_argument("CHAMFER_SELECTION_INVALID");
+            for (int i = 1; i <= edges.Extent(); ++i)
+                if (!algorithm.Contour(TopoDS::Edge(edges(i))))
+                    algorithm.Add(spec.pad_length, TopoDS::Edge(edges(i)));
         } else {
             if (spec.chamfer_mode != "TWO_DISTANCES" && spec.chamfer_mode != "DISTANCE_ANGLE")
                 throw std::invalid_argument("CHAMFER_MODE_INVALID");
-            if (spec.chamfer_mode == "TWO_DISTANCES") validate_positive(spec.second_length, "second chamfer distance");
+            if (spec.chamfer_mode == "TWO_DISTANCES")
+                validate_positive(spec.second_length, "second chamfer distance");
             else if (!(spec.revolve_angle > 0 && spec.revolve_angle < 1.5707963267948966))
                 throw std::invalid_argument("CHAMFER_ANGLE_INVALID");
             TopoDS_Face support;
-            for (const auto& shape : selected) if (shape.ShapeType() == TopAbs_FACE) {
-                if (!support.IsNull()) throw std::invalid_argument("CHAMFER_REFERENCE_FACE_REQUIRED");
-                support = TopoDS::Face(shape);
-            }
-            if (support.IsNull() || selected.size()<2) throw std::invalid_argument("CHAMFER_REFERENCE_FACE_REQUIRED");
+            for (const auto& shape : selected)
+                if (shape.ShapeType() == TopAbs_FACE) {
+                    if (!support.IsNull())
+                        throw std::invalid_argument("CHAMFER_REFERENCE_FACE_REQUIRED");
+                    support = TopoDS::Face(shape);
+                }
+            if (support.IsNull() || edges.IsEmpty())
+                throw std::invalid_argument("CHAMFER_REFERENCE_FACE_REQUIRED");
             TopTools_IndexedMapOfShape boundary;
-            TopExp::MapShapes(support,TopAbs_EDGE,boundary);
-            for (const auto& shape : selected) {
-                if (shape.ShapeType() == TopAbs_FACE) continue;
-                if (!boundary.Contains(shape)) throw std::invalid_argument("CHAMFER_EDGE_OUTSIDE_REFERENCE_FACE");
+            TopExp::MapShapes(support, TopAbs_EDGE, boundary);
+            for (int i = 1; i <= edges.Extent(); ++i) {
+                const auto& shape = edges(i);
+                if (!boundary.Contains(shape))
+                    throw std::invalid_argument("CHAMFER_EDGE_OUTSIDE_REFERENCE_FACE");
+                if (algorithm.Contour(TopoDS::Edge(shape)))
+                    continue;
                 if (spec.chamfer_mode == "TWO_DISTANCES")
-                    algorithm.Add(spec.pad_length, spec.second_length, TopoDS::Edge(shape), support);
-                else algorithm.AddDA(spec.pad_length, spec.revolve_angle, TopoDS::Edge(shape), support);
+                    algorithm.Add(spec.pad_length, spec.second_length, TopoDS::Edge(shape),
+                                  support);
+                else
+                    algorithm.AddDA(spec.pad_length, spec.revolve_angle, TopoDS::Edge(shape),
+                                    support);
             }
         }
         algorithm.Build();
@@ -4253,8 +4285,24 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
             if (result) return *result;
         }
         if (!spec.reversed) {
-            auto result = attempt([&](const auto& shape, const auto& closing) { return simple_open_shell(shape, closing, spec.pad_length, toleranceLimit); });
-            if (result) return *result;
+            if (detail::has_ruled_wall_ring(input, selected)) {
+                auto result = attempt([&](const auto& shape, const auto& closing) {
+                    const auto check = [&] {
+                        if (facts)
+                            facts->check();
+                    };
+                    auto wall = detail::inward_ruled_shell(shape, closing, spec.pad_length,
+                                                           toleranceLimit, check);
+                    return ComposedModifier{wall.shape, wall.history};
+                });
+                if (result)
+                    return *result;
+            }
+            auto result = attempt([&](const auto& shape, const auto& closing) {
+                return simple_open_shell(shape, closing, spec.pad_length, toleranceLimit);
+            });
+            if (result)
+                return *result;
             result = attempt([&](const auto& shape, const auto& closing) { return inward_face_shell(shape, closing, spec.pad_length, toleranceLimit); }, true);
             if (result) return *result;
             for(const double scale:{10.,1.}) for(const double angle:{1.2,-1.2,.7,1.5}) {

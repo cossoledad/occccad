@@ -6965,6 +6965,7 @@
     },
     {
       "id": "part-features",
+      "variants": {"variants:edge-finish":"圆角与倒角"},
       "name": "实体特征",
       "styleKey": "part",
       "position": "top-left",
@@ -7002,12 +7003,12 @@
         },
         {
           "commandId": "part.fillet",
-          "groupKey": "primary",
+          "groupKey": "variants:edge-finish",
           "order": 60
         },
         {
           "commandId": "part.chamfer",
-          "groupKey": "primary",
+          "groupKey": "variants:edge-finish",
           "order": 70
         },
         {

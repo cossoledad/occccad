@@ -6,7 +6,7 @@
 
 | 方向 | 范围与验收重点 | 当前依据 |
 |---|---|---|
-| 实体建模正确性 | 已有材料差拦截和复制选源展示；修复复杂放样内抽壳构造，通过正向几何与外壁命名回归 | [实体审计](../docs/references/solid-modeling.md)、[工程验收](../docs/validation/solid-modeling-workflows.md) |
+| 实体建模正确性 | 偏心放样壳已通过材料、姿态及外壁命名回归；继续按曲面类别扩充工程验证 | [实体审计](../docs/references/solid-modeling.md)、[工程验收](../docs/validation/solid-modeling-workflows.md) |
 | 实体建模后续范围 | 首批平面分体、分面、加强筋、标准间隙孔和非对称倒角已进入工作台。后续候选包括曲面分割、二维阵列、变半径圆角和更多孔系；按工程样件排期 | [范围与参考](../docs/references/solid-modeling.md)、[工程验收](../docs/validation/solid-modeling-workflows.md) |
 | 工程曲面扩展 | 扩大导向线与支撑面的适用范围，补齐一般曲面编辑及测量、发布和 Product 中的引用 | [当前边界](../docs/architecture/current/wireframe-surfaces.md)、[商业 CAD 对照](../docs/references/surface-modeling.md) |
 | 几何测量交互 | 依据实机反馈完善专用上下文来源、标签排布和选择语义；保持临时计算、保留/更新及标注历史边界 | [几何测量](../docs/architecture/current/geometric-measurement.md) |

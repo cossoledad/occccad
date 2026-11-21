@@ -2290,6 +2290,34 @@ TEST(GeometryExchange, GearboxPlanePartitionKeepsSignedSides) {
     EXPECT_NEAR(volume(stock), 144000., 1e-6);
 }
 
+TEST(GeometryExchange, FaceChamferIncludesInnerAndOuterWires) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "base"; base.body_id = "body"; base.profile_feature_id = "sketch";
+    base.pad_length = 10;
+    auto region = rectangular_region("plate", -10, -10, 10, 10);
+    ProfileCurveSpec bore; bore.entity_id = "bore"; bore.kind = "CIRCLE"; bore.radius = 2; bore.reversed = true;
+    region.holes = {{"bore-loop", {bore}}};
+    base.regions = {region};
+    const auto stock = kernel.evaluateProfilePadsWithHistory({base});
+    ProfilePadSpec chamfer;
+    chamfer.feature_id = "chamfer"; chamfer.body_id = base.body_id;
+    chamfer.input_feature_id = base.feature_id; chamfer.generator = "CHAMFER"; chamfer.pad_length = 1;
+    for (const auto& output : stock.feature_results.back().semantic_outputs) {
+        const auto& r = output.semantic_ref;
+        if (r.output_slot.rfind("END_CAP/", 0) == 0)
+            chamfer.selections.push_back({r.feature_id,r.output_slot,r.source_ids});
+    }
+    ASSERT_EQ(chamfer.selections.size(), 1);
+    for (double depth : {1., 2.}) {
+        if (depth == 2.) { chamfer.chamfer_mode = "TWO_DISTANCES"; chamfer.second_length = depth; }
+        const auto result = kernel.evaluateProfilePadsWithHistory({base,chamfer});
+        // Cross-sections shrink at the exterior and enlarge at the bore mouth.
+        const double removed = depth * (40. - 4./3. + std::acos(-1.)*(2. + 1./3.));
+        EXPECT_NEAR(kernel.getVolume(stock.geometry_id)-kernel.getVolume(result.geometry_id), removed, 1e-5);
+    }
+}
+
 TEST(GeometryExchange, ChamferedTrihedralCornerFillets) {
     const auto readShape = [](const std::vector<uint8_t>& bytes) {
         std::istringstream stream(std::string(bytes.begin(), bytes.end()));

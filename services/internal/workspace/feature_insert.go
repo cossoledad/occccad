@@ -224,7 +224,7 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 	}
 	for _, pick := range p.Feature.Selections {
 		kind := modelcore.PersistentTopologyFace
-		if p.Feature.Type == "FILLET" || p.Feature.Type == "CHAMFER" && (p.Feature.ChamferMode == "" || pick.Selection.ExpectedType != modelcore.PersistentTopologyFace) {
+		if p.Feature.Type == "FILLET" || p.Feature.Type == "CHAMFER" && pick.Selection.ExpectedType != modelcore.PersistentTopologyFace {
 			kind = modelcore.PersistentTopologyEdge
 		}
 		if pick.Selection.ExpectedType != kind {

@@ -11,6 +11,7 @@ add_library(occccad_occt_kernel STATIC
     src/edge_profile.cpp
     src/surface_normals.cpp
     src/shell_junction.cpp
+    src/ruled_shell.cpp
     src/shell_corner.cpp
     src/exchange_graph.cpp
     src/sketch_curve.cpp

@@ -70,7 +70,24 @@ func (s *Service) resolveReferencedPlane(ctx context.Context, requestID string, 
 func (s *Service) resolvedSolidPatternDefinition(ctx context.Context, requestID string, model PartModel, feature Feature) (PatternDefinition, error) {
 	p := feature.Pattern.PatternDefinition
 	if p.Kind != "MIRROR" {
-		return resolvedPatternDefinition(model, p)
+		resolved, err := resolvedPatternDefinition(model, p)
+		if err != nil {
+			return p, err
+		}
+		if input := feature.Pattern.AxisReference; input != nil {
+			frame, err := s.solidAxisFrame(ctx, requestID, model, *input)
+			if err != nil {
+				return p, err
+			}
+			resolved.Direction = frame.direction
+			if p.CenterReference == nil {
+				resolved.Origin = frame.origin
+			}
+		}
+		if input := feature.Pattern.CenterGeometry; input != nil {
+			resolved.Origin, _, err = s.geometryPointPosition(ctx, requestID, model, *input)
+		}
+		return resolved, err
 	}
 	var err error
 	p.Origin, p.Direction, err = s.resolveReferencedPlane(ctx, requestID, model, feature.ID, p.MirrorPlaneID, p.MirrorPlane)

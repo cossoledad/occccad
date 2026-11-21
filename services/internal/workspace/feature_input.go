@@ -327,7 +327,7 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 	}
 	result.Artifacts = []Artifact{a}
 	if feature.Type == "HOLE" {
-		state := holePointState(*view.Part, feature)
+		state := s.holePointState(ctx, request.VersionID, *view.Part, feature)
 		result.PointPick = &state
 	}
 	for _, tool := range feature.Tools {

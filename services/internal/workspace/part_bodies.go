@@ -77,8 +77,10 @@ func bodyModel(m PartModel, id string) PartModel {
 	needed := map[string]bool{}
 	for _, f := range m.Features {
 		if f.BodyID == id {
-			if f.HolePoint != nil {
-				needed[f.HolePoint.SketchID] = true
+			for _, p := range holePositions(f) {
+				if p.SketchID != "" {
+					needed[p.SketchID] = true
+				}
 			}
 			for _, section := range f.Sections {
 				needed[section.SketchID] = true

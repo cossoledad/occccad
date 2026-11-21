@@ -532,6 +532,7 @@ type Feature struct {
 	Sweep              *SweepDefinition        `json:"sweep,omitempty"`
 	ChamferMode        string                  `json:"chamferMode,omitempty"`
 	HoleStandard       string                  `json:"holeStandard,omitempty"`
+	HoleDirection      *GeometricInput         `json:"holeDirection,omitempty"`
 	HolePoints         []PatternPointReference `json:"holePoints,omitempty"`
 	DrillTipAngle      float64                 `json:"drillTipAngle,omitempty"`
 	DepthConvention    string                  `json:"depthConvention,omitempty"`
@@ -581,6 +582,7 @@ type Feature struct {
 	Length             float64                 `json:"length,omitempty"`
 	Angle              float64                 `json:"angle,omitempty"`
 	Operation          string                  `json:"operation,omitempty"`
+	AxisReference      *GeometricInput         `json:"axisReference,omitempty"`
 	AxisEntityID       string                  `json:"axisEntityId,omitempty"`
 	Reversed           bool                    `json:"reversed,omitempty"`
 	GeometryKey        string                  `json:"geometryKey,omitempty"`
@@ -1330,6 +1332,7 @@ type CommandRequest struct {
 	Angle                      float64               `json:"angle,omitempty"`
 	Generator                  string                `json:"generator,omitempty"`
 	Operation                  string                `json:"operation,omitempty"`
+	AxisReference              *GeometricInput       `json:"axisReference,omitempty"`
 	AxisEntityID               string                `json:"axisEntityId,omitempty"`
 	Reversed                   bool                  `json:"reversed,omitempty"`
 	Origin                     [3]float64            `json:"origin,omitempty"`
