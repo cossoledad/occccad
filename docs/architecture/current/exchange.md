@@ -57,3 +57,9 @@ Product 的独立结果通过 ReferenceDisplayScope.results 显示，保留 docu
 - `web/apps/cad/browser/exchange-live.spec.ts`：真实上传、完成通知、消息中心恢复、导出选项/下载和 Product 独立结果显示。
 
 这些入口不等于已经执行。当前运行报告在 build；外部 CAD 阅读器、PostgreSQL、完整 AP242 conformance 和超大装配容量需分别验证。
+
+## 单个零件的恢复与交付
+
+导入遇到缺面网格或离散器失败时，可在精确形体的独立副本上缩小线性和角度偏差，最多各减至初值的四分之一。接纳仍要求面覆盖和共享边界验证通过。消息中心保留跳过零件的名称和内核诊断。「重新处理此零件」从原任务的不可变输入定位定义，仅为目标零件准备和求值几何。成功时在原空 Part 上创建新 Revision，目标已被修改时返回冲突。已固定的装配实例可在结构树中采用新版。
+
+导出报告逐项列出因空 Part 缺失的可见实例，附所属装配路径。勾选包含隐藏对象时也检查隐藏实例。仅含一个独立几何结果的定义使用明确的子形体承载结果与面外观。三份装配样件的导入、编辑、导出和 STEP 回读入口是 `services/cmd/occccad-jobs/assembly_step_integration_test.go`。

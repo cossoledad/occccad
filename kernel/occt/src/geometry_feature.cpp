@@ -1,6 +1,7 @@
 #include "internal/named_boundary_index.hpp"
 #include <internal/solid_material.hpp>
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Check.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Section.hxx>
@@ -337,7 +338,8 @@ void validate_result(const GeometryFeatureBuild& b, const std::string& op) {
             throw std::invalid_argument("GEOMETRY_RESULT_UNBOUNDED");
     const auto solids = members(b.shape, TopAbs_SOLID), faces = members(b.shape, TopAbs_FACE),
                edges = members(b.shape, TopAbs_EDGE), vertices = members(b.shape, TopAbs_VERTEX);
-    if (op == "THICKEN" || op == "CLOSE_SURFACE") {
+    const bool solid_result = op == "THICKEN" || op == "CLOSE_SURFACE" || op == "MOVE_PLANAR_FACE" || op == "RESIZE_BORE";
+    if (solid_result) {
         BRepAlgoAPI_Check check(b.shape, Standard_True, Standard_True);
         if (!check.IsValid()) {
             std::string statuses;
@@ -357,7 +359,7 @@ void validate_result(const GeometryFeatureBuild& b, const std::string& op) {
         throw std::invalid_argument("GEOMETRY_RESULT_DOMAIN_MISMATCH");
     if (faces.empty() && edges.empty() && vertices.empty())
         throw std::invalid_argument("GEOMETRY_RESULT_EMPTY");
-    if (op != "THICKEN" && op != "CLOSE_SURFACE" && (!faces.empty() || !edges.empty())) {
+    if (!solid_result && (!faces.empty() || !edges.empty())) {
         bool regular=false;
         if(!faces.empty()) {
             for(const auto& face:faces)
@@ -517,7 +519,7 @@ void complete_geometry_naming(GeometryFeatureBuild& b, const std::string& id) {
 }
 
 GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
-                                            const std::function<bool()>& cancelled) try {
+                                            const std::function<bool()>& cancelled, const std::string& body_operation) try {
     if (s.feature_id.empty() || (s.result_id != "result" && s.result_id != "wire") ||
         s.inputs.size() > 128 || s.curve.points.size() > 4096)
         throw std::invalid_argument("GEOMETRY_DEFINITION_INVALID");
@@ -819,6 +821,68 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
                 add(sewn, n.ref, mapped, n.sources, n.roles);
             }
             out = std::move(sewn);
+        }
+    } else if (s.operation == "MOVE_PLANAR_FACE" || s.operation == "RESIZE_BORE") {
+        require(1);
+        const auto faces = members(inputs[0].shape, TopAbs_FACE);
+        if (faces.size() != 1 || (body_operation != "ADD" && body_operation != "REMOVE") ||
+            !std::isfinite(p.distance) || p.distance <= tolerance)
+            throw std::invalid_argument("DIRECT_EDIT_SINGLE_BODY_FACE_REQUIRED");
+        const auto face = TopoDS::Face(faces.front());
+        BRepAdaptor_Surface surface(face);
+        if (s.operation == "MOVE_PLANAR_FACE") {
+            if (surface.GetType() != GeomAbs_Plane)
+                throw std::invalid_argument("DIRECT_EDIT_PLANAR_FACE_REQUIRED");
+            gp_Vec normal(surface.Plane().Axis().Direction());
+            if (face.Orientation() == TopAbs_REVERSED)
+                normal.Reverse();
+            if (body_operation == "REMOVE")
+                normal.Reverse();
+            BRepPrimAPI_MakePrism prism(face, normal.Multiplied(p.distance), Standard_True);
+            if (!prism.IsDone())
+                throw std::invalid_argument("DIRECT_EDIT_TOOL_FAILED");
+            out.shape = prism.Shape();
+            history(out, inputs[0], prism, s.feature_id, "face-prism");
+            for (const auto& n : inputs[0].named) {
+                add(out, derived(s.feature_id, "face-prism/start", {n.ref}),
+                    prism.FirstShape(n.shape), {n.ref});
+                add(out, derived(s.feature_id, "face-prism/end", {n.ref}), prism.LastShape(n.shape),
+                    {n.ref});
+            }
+        } else {
+            if (surface.GetType() != GeomAbs_Cylinder ||
+                (face.Orientation() == TopAbs_REVERSED) !=
+                    bool(surface.Cylinder().Position().Direct()))
+                throw std::invalid_argument("DIRECT_EDIT_BORE_WALL_REQUIRED");
+            // A full cylindrical land between two normal circular ends admits
+            // an exact annular tool. Slots and intersecting drillings
+            // require separate support.
+            unsigned rims = 0, seams = 0;
+            for (const auto& member : members(face, TopAbs_EDGE)) {
+                const auto edge = TopoDS::Edge(member);
+                if (BRep_Tool::IsClosed(edge, face)) {
+                    ++seams;
+                    continue;
+                }
+                BRepAdaptor_Curve rim(edge);
+                if (rim.GetType() != GeomAbs_Circle ||
+                    !rim.Circle().Axis().IsParallel(surface.Cylinder().Axis(),
+                                                    Precision::Angular()) ||
+                    !BRep_Tool::IsClosed(edge))
+                    throw std::invalid_argument("DIRECT_EDIT_FULL_BORE_REQUIRED");
+                ++rims;
+            }
+            if (seams != 1 || rims != 2)
+                throw std::invalid_argument("DIRECT_EDIT_FULL_BORE_REQUIRED");
+            const double delta = surface.Cylinder().Radius() - 0.5 * p.distance;
+            if (std::abs(delta) <= tolerance || (delta > 0) != (body_operation == "ADD"))
+                throw std::invalid_argument("DIRECT_EDIT_BORE_DIRECTION");
+            BRepOffsetAPI_MakeThickSolid thick;
+            thick.MakeThickSolidBySimple(face, delta);
+            if (!thick.IsDone())
+                throw std::invalid_argument("DIRECT_EDIT_TOOL_FAILED");
+            out.shape = thick.Shape();
+            history(out, inputs[0], thick, s.feature_id, "bore-wall");
         }
     } else if (s.operation == "THICKEN") {
         require(1);

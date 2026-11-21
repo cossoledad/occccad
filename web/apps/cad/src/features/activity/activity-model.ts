@@ -19,6 +19,7 @@ export type ActivityItem = {
   canceling?: boolean;
   actions: ActivityAction[];
   warnings: string[];
+  recoverableParts: {definitionId: string; detail: string}[];
 };
 
 type JobPresentation = {
@@ -80,11 +81,17 @@ export function projectJobActivity(job: Job): ActivityItem {
   if (job.canRetry) actions.push("RETRY");
   if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_EXPORT" && job.resultObjectId) actions.push("DOWNLOAD");
   if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_IMPORT" && job.documentId) actions.push("OPEN_DOCUMENT");
+  const report = job.payload.exchange;
+  const recoverableParts = job.type === 'EXCHANGE_IMPORT' && job.state === 'SUCCEEDED' &&
+    report && typeof report === 'object' && 'warnings' in report && Array.isArray(report.warnings)
+    ? report.warnings.flatMap(w => w?.code === 'EXCHANGE_COMPONENT_DISPLAY_UNSUPPORTED' &&
+      typeof w.definitionId === 'string' && typeof w.detail === 'string'
+      ? [{definitionId:w.definitionId, detail:w.detail}] : []) : [];
   return { id: `job:${job.id}`, source: "JOB", sourceType: job.type, resourceId: job.id, documentId: job.documentId,
     title: presentation.title,
     description, status, progress: status === "PENDING" || status === "RUNNING" ? job.progress : undefined,
     createdAt: job.createdAt, completedAt: job.completedAt, canceling: Boolean(job.cancelRequestedAt), actions,
-    warnings: exchangeCompletionWarnings(job) };
+    warnings: exchangeCompletionWarnings(job), recoverableParts };
 }
 
 // New durable message sources add their own projector and can be merged here;

@@ -1202,6 +1202,8 @@ message InspectExchangeRequest {
     ArtifactReference source = 3;
     // When set, parse once and materialize one local BREP per unique Part Definition under this opaque key prefix.
     string component_output_prefix = 4;
+    // Optional source-scoped definition to materialize when retrying one Part.
+    string component_definition_id = 5;
 }
 
 // Temporary exchange graph; identities refer to source definitions, not hashes.
@@ -1791,7 +1793,14 @@ message MeasureGeometryResponse {
     repeated QualityGapCandidate gap_candidates = 10;
     bool boundary_complete = 11;
 }
-message QualityBoundaryEdge { uint64 edge_id = 1; repeated Vec3 points = 2; }
+// Transient topology locators in the measured operand. Only a whole result
+// has the same locator map as its frozen source BREP.
+message QualityBoundaryEdge {
+    uint64 edge_id = 1;
+    repeated Vec3 points = 2;
+    uint64 first_vertex = 3;
+    uint64 last_vertex = 4;
+}
 message QualityGapCandidate { uint64 first_edge = 1; uint64 second_edge = 2; Vec3 first = 3; Vec3 second = 4; double distance_mm = 5; }
 message CurvatureSample {
     Vec3 position = 1;

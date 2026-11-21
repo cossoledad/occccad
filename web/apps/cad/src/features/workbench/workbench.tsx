@@ -5,6 +5,7 @@ import {deferredPanel} from "../../components/deferred-panel";
 
 import {objectDeleteTarget,managedPartKinds,organizationalNode,type ObjectDeleteTarget} from './object-operations';
 
+import {PinnedRevisionDialog} from "./pinned-revision-dialog";
 import {defaultGeometricFeature,geometryBodyKind} from './geometric-feature-model';
 import {featureSketchPlane} from "../../cad/sketch/sketch-support-frame";
 import {owningInstanceSelection} from "../../cad/assembly/instance-selection";
@@ -224,6 +225,7 @@ export function Workbench() {
  const motionPanel=useRef<MotionPanelHandle>(null);
  const motionGestures=useRef(new Map<string,{owner:import('../../cad/assembly/mechanism-motion-session').MechanismMotionSession;bodyId:string;initialValues:Record<string,import("../../cad/assembly/motion-study").MotionQuantity>;completed?:boolean}>());
  const [motionDraft,setMotionDraft]=useState<import('../../cad/assembly/motion-study').MotionStudy>();
+ const [pinnedRevision,setPinnedRevision]=useState<{owner:DocumentView;target:import('../../types').InstancePathSegment}>();
  const [shapeQualityOpen,setShapeQualityOpen]=useState(false);
  const [measurementEditor,setMeasurementEditor]=useState<{kind:MeasurementKind;id?:string}>();
  const [spatialEditor,setSpatialEditor]=useState<{kind:"CLASH"|"SECTION"|"DISTANCE";id?:string}>();
@@ -1414,7 +1416,7 @@ export function Workbench() {
     setOffsetEditor(undefined);
     setRepairComparison(undefined);
     if(nextCommand&&!nextCommand.startsWith('sketch.')&&!nextCommand.startsWith('view.')&&nextCommand!=='tool.select'){setSolidSketchWorkflow(undefined);setCreatingSolidSketch(false);}
-    setShapeQualityOpen(false);viewport.current?.showShapeQuality();
+    setPinnedRevision(undefined);setShapeQualityOpen(false);viewport.current?.showShapeQuality();
     setMeasurementEditor(undefined);viewport.current?.showMeasurement();
     sketchCreationScope.current.cancel();
     setStaticInterferenceOpen(false);setSpatialEditor(undefined);viewport.current?.setSectionEdit();viewport.current?.showStaticInterference();
@@ -1572,10 +1574,16 @@ onCreatePart:(node) => {
 			  if (node.documentType !== "PRODUCT") return;
 			  newPartForm.resetFields(); setNewPartTarget(node);
 			},
-onReferenceMode:(node, mode) => {
+onReferenceMode:async(node, mode, operation) => {
 			  const segment = node.instancePath?.segments.at(-1);
 			  if (!segment) return;
-			  command.mutate(() => api.setReferenceMode(segment.ownerDocumentId, segment.instanceId, mode), {
+              if(mode==='ADOPT_PINNED'){
+                const owner=segment.ownerDocumentId===view?.document.id?view:await api.getDocument(segment.ownerDocumentId);
+                if(operation&&!operation.current)return;
+                if(!owner || owner.document.versionId!==segment.ownerVersionId)throw new CommandInputError("所属装配已有新版，请打开所属装配核对版本");
+                closeCommandPanels();setPinnedRevision({owner,target:segment});return;
+              }
+              command.mutate(() => api.setReferenceMode(segment.ownerDocumentId, segment.instanceId, mode), {
 			    onSuccess: async (updated) => {
 			      client.setQueryData(queryKeys.document(updated.document.id), updated);
 			      await client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
@@ -1804,7 +1812,16 @@ onToggleConstruction:(node)=>{
     {deleteTargets&&editingView?.part&&<PartDeleteDialog view={editingView} targets={deleteTargets} onClose={()=>setDeleteTargets(undefined)} onLocate={items=>{
       const ids=new Set(items.map(item=>item.id)),values:SelectionItem[]=[];const visit=(nodes:SpecificationTreeNode[])=>{for(const node of nodes){if(node.entityId&&ids.has(node.entityId)&&node.selection)values.push(node.selection);if(node.children)visit(node.children)}};visit(treeNodes);store.setSelections(values);viewport.current?.focusSelections(values);
     }} onApply={plan=>command.mutateAsync(()=>api.deleteNodes(editingView.document.id,deleteTargets,{versionId:plan.versionId,deleteOptions:plan.options,deletePlanDigest:plan.digest}))}/>}
-    {shapeQualityOpen&&<ShapeQualityPanel onLocatePoints={points=>viewport.current?.focusAnalysisPoints(points)} key={view.document.id} view={view} onClose={()=>{setShapeQualityOpen(false);setFeatureSelection(undefined);viewport.current?.showShapeQuality()}} onSelectionSession={setFeatureSelection} onShow={(r,mode,gain)=>viewport.current?.showShapeQuality(r,mode,gain)}/>}
+    {pinnedRevision&&<PinnedRevisionDialog {...pinnedRevision} onClose={()=>setPinnedRevision(undefined)} onApply={async updated=>{
+      client.setQueryData(queryKeys.document(updated.document.id),updated);
+      await client.invalidateQueries({queryKey:queryKeys.document(documentID)});
+    }}/>}
+    {shapeQualityOpen&&<ShapeQualityPanel onRepair={canEdit&&!activeInstancePath?(kind,inputs)=>{
+      closeCommandPanels();store.setActiveTool("select","once");
+      const feature=defaultGeometricFeature(kind);feature.geometry!.inputs=inputs;
+      if(!geometryBodyKind(kind))feature.geometricalSetId=workingGeometricalSetID;
+      setGeometryEditor({feature});
+    }:undefined} onLocatePoints={points=>viewport.current?.focusAnalysisPoints(points)} key={view.document.id} view={view} onClose={()=>{setShapeQualityOpen(false);setFeatureSelection(undefined);viewport.current?.showShapeQuality()}} onSelectionSession={setFeatureSelection} onShow={(r,mode,gain)=>viewport.current?.showShapeQuality(r,mode,gain)}/>}
     {measurementEditor&&<MeasurementPanel key={`${view.document.id}:${measurementEditor.kind}:${measurementEditor.id??'new'}`} view={view} kind={measurementEditor.kind} initial={measurements(view).find(m=>m.id===measurementEditor.id)} unit={lengthUnit} seed={store.selections} canSave={canEditRoot} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{setMeasurementEditor(undefined);setFeatureSelection(undefined);viewport.current?.showMeasurement();store.setPreselection(null)}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={r=>viewport.current?.showMeasurement(r)} onSave={saveMeasurement}/>}
     {spatialEditor&&spatialEditor.kind!=='CLASH'&&view.product&&<SpatialAnalysisPanel initializeSection={d=>viewport.current?.initializeSection(d)??d} onSectionSession={s=>viewport.current?.setSectionEdit(s)} onCancelSection={()=>viewport.current?.cancelSectionGesture()??false} positionSection={(s,frame,signal)=>viewport.current!.positionSectionOnSelection(s,frame,signal)} key={`${spatialEditor.id??'new'}:${view.document.versionId}:${spatialEditor.kind}`} view={view} kind={spatialEditor.kind} initial={view.product.spatialAnalyses?.find(a=>a.id===spatialEditor.id)?spatialPathsForView(view,view.product.spatialAnalyses.find(a=>a.id===spatialEditor.id)!):undefined} unit={lengthUnit} seed={store.selections} canSave={canEditRoot} onSave={saveSpatial} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||command.isPending||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{viewport.current?.setSectionEdit();setSpatialEditor(undefined);setFeatureSelection(undefined);store.setSelections([]);store.setPreselection(null);viewport.current?.showSpatialAnalysis()}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={(r,id)=>viewport.current?.showSpatialAnalysis(r,id)??false} onPrepare={async()=>{await viewport.current?.settleAssemblyInteraction();viewport.current?.clearCommandPreview()}}/>}
     {staticInterferenceOpen&&view.product&&<StaticInterferencePanel key={`${spatialEditor?.id??"new"}:${view.document.versionId}`} initial={view.product.spatialAnalyses?.find(a=>a.id===spatialEditor?.id)?spatialPathsForView(view,view.product.spatialAnalyses.find(a=>a.id===spatialEditor?.id)!):undefined} canSave={canEditRoot} onSave={saveSpatial} view={view} unit={lengthUnit} seed={store.selections} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||command.isPending||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{setStaticInterferenceOpen(false);setSpatialEditor(undefined);setFeatureSelection(undefined);store.setSelections([]);store.setPreselection(null);viewport.current?.showStaticInterference()}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={(r,i,isolate)=>viewport.current?.showStaticInterference(r,i,isolate)??false} onPrepare={async()=>{await viewport.current?.settleAssemblyInteraction();viewport.current?.clearCommandPreview();}}/>}

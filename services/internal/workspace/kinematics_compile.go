@@ -10,6 +10,7 @@ import (
 
 // Compile joints into the existing solver's hard equations. Never use DragTarget.
 type mechanismEquations struct {
+	EnvironmentPoses      map[string]InstancePose       `json:"environmentPoses,omitempty"`
 	Bodies                []geometry.AssemblyBody       `json:"bodies"`
 	Geometry              []geometry.AssemblyGeometry   `json:"geometry"`
 	Constraints           []geometry.AssemblyConstraint `json:"constraints"`
@@ -30,7 +31,7 @@ func compileMechanism(frozen AssemblySolveManifest, m Mechanism, s MotionStudy) 
 }
 
 func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s MotionStudy, requireDriver bool) (mechanismEquations, error) {
-	out := mechanismEquations{Bodies: append([]geometry.AssemblyBody(nil), frozen.Bodies...), Geometry: append([]geometry.AssemblyGeometry(nil), frozen.Geometry...), RetainedConstraintIDs: []string{}}
+	out := mechanismEquations{EnvironmentPoses: map[string]InstancePose{}, RetainedConstraintIDs: []string{}}
 	if len(frozen.RelativeFixUpdates) > 0 {
 		return out, fmt.Errorf("%w: mechanism cannot edit relative Fix baselines", ErrValidation)
 	}
@@ -56,12 +57,32 @@ func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s Moti
 	for _, id := range m.UnitIDs {
 		members[id] = true
 	}
-	for _, body := range out.Bodies {
+	// Preserve every external body referenced by a retained hard relation,
+	// including an angle's third reference. Other occurrences have exactly
+	// their frozen nominal poses and contribute no unknowns to this solve.
+	required := map[string]bool{}
+	for _, c := range equations {
+		required[c.FirstBodyID], required[c.SecondBodyID], required[c.AngleReferenceBodyID] = true, true, true
+	}
+	for _, support := range frozen.Geometry {
+		if members[support.BodyID] || required[support.BodyID] {
+			out.Geometry = append(out.Geometry, support)
+		}
+	}
+	for _, body := range frozen.Bodies {
+		if !members[body.ID] && !required[body.ID] {
+			out.EnvironmentPoses[body.ID] = InstancePose(body.Pose)
+			continue
+		}
+		out.Bodies = append(out.Bodies, body)
 		poses[body.ID] = body.Pose
 		if !members[body.ID] {
 			p := body.Pose
 			out.Constraints = append(out.Constraints, geometry.AssemblyConstraint{ID: "mechanism/frozen/" + body.ID, Kind: "FIX", FirstBodyID: body.ID, FixedPose: &p})
 		}
+	}
+	if len(out.Bodies) > 64 {
+		return out, fmt.Errorf("%w: mechanism equations exceed 64 participating units", ErrValidation)
 	}
 	for _, j := range m.Joints {
 		if !slices.Contains([]string{"GROUND", "REVOLUTE", "PRISMATIC", "CYLINDRICAL", "PLANAR", "RIGID", "SPHERICAL"}, j.Kind) {

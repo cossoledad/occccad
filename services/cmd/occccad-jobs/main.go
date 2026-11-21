@@ -194,12 +194,13 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		return err
 	}
 	var payload struct {
-		FileName      string `json:"fileName"`
-		FolderID      string `json:"folderId"`
-		Format        string `json:"format"`
-		RequestID     string `json:"requestId"`
-		ExcludeHidden *bool  `json:"excludeHidden"`
-		StepSchema    string `json:"stepSchema"`
+		RecoveryDefinition string `json:"recoveryDefinition,omitempty"`
+		FileName           string `json:"fileName"`
+		FolderID           string `json:"folderId"`
+		Format             string `json:"format"`
+		RequestID          string `json:"requestId"`
+		ExcludeHidden      *bool  `json:"excludeHidden"`
+		StepSchema         string `json:"stepSchema"`
 	}
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return err
@@ -208,7 +209,7 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 	case "MOTION_STUDY":
 		return h.executeMotion(ctx, job)
 	case "EXCHANGE_IMPORT":
-		return h.executeImport(ctx, job, payload.FileName, payload.FolderID, payload.Format, payload.RequestID)
+		return h.executeImport(ctx, job, payload.FileName, payload.FolderID, payload.Format, payload.RequestID, payload.RecoveryDefinition)
 	case "EXCHANGE_EXPORT":
 		if job.DocumentID == nil {
 			return errors.New("exchange export has no document")
@@ -247,10 +248,11 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 			return err
 		}
 		report := &exchange.Report{SchemaVersion: 1, Definitions: len(graph.Definitions)}
-		if strings.EqualFold(payload.Format, "STEP") {
-			for _, warning := range graph.Warnings {
-				report.Warnings = append(report.Warnings, exchange.Warning{Code: warning.Code, Message: exchange.WarningMessage(warning.Code, warning.Message), Count: warning.Count})
+		for _, warning := range graph.Warnings {
+			if warning.Code == "STEP_VISIBILITY_LIMITATION" && !strings.EqualFold(payload.Format, "STEP") {
+				continue
 			}
+			report.Warnings = append(report.Warnings, exchange.Warning{Code: warning.Code, Message: exchange.WarningMessage(warning.Code, warning.Message), DefinitionID: warning.DefinitionId, Count: warning.Count})
 		}
 		return h.queue.SucceedExport(ctx, job.ID, h.workerID, object.ID, report)
 	case "THUMBNAIL_RENDER":

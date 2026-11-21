@@ -11,7 +11,7 @@ import (
 	"github.com/occccad/occccad/internal/geometry"
 )
 
-const motionPolicy = "joint-coordinates-vector-recorded-path-v3"
+const motionPolicy = "joint-coordinates-vector-recorded-path-v4"
 const motionSchema = 2
 
 type MotionRunRequest struct {
@@ -63,9 +63,6 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 	s := MotionSnapshot{Schema: motionSchema, Policy: motionPolicy, DocumentID: documentID, RevisionID: req.BaseRevisionID, View: view, SolverProfile: defaultAssemblySolverProfile()}
 	if (req.DriverID != "" && (req.Trial == nil || req.StudyID != "")) || (req.Trial != nil && (req.CurrentOnly || req.AnalysisID != "")) {
 		return s, fmt.Errorf("%w: ambiguous motion trial request", ErrValidation)
-	}
-	if len(view.Product.Instances) > 64 {
-		return s, fmt.Errorf("%w: study supports at most 64 owning Product units", ErrValidation)
 	}
 	if req.CurrentOnly || req.AnalysisID != "" || len(req.Scope) > 0 || req.IncludeSameUnit || req.Clearance.Value != 0 || req.Trial != nil || req.DriverID != "" {
 		return s, fmt.Errorf("%w: mechanism runs accept only a saved simulation", ErrValidation)

@@ -104,6 +104,10 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 	if len(accepted) > 0 {
 		revisions = accepted[0]
 	}
+	return service.resolveProductReferences(ctx, product, revisions, nil)
+}
+
+func (service *Service) resolveProductReferences(ctx context.Context, product *ProductModel, revisions map[string]string, pinned map[string]bool) error {
 	instances := map[string]*ProductInstance{}
 	for index := range product.Instances {
 		instance := &product.Instances[index]
@@ -111,14 +115,13 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 		if instance.ReferenceMode == "" {
 			instance.ReferenceMode = "FOLLOW_HEAD"
 		}
-		if instance.ReferenceMode == "FOLLOW_HEAD" || instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
+		advance := pinned[instance.ID] || pinned == nil && (instance.ReferenceMode == "FOLLOW_HEAD" || instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT")
+		if advance {
 			if revision := revisions[instance.ReferencedDocumentID]; revision != "" {
 				instance.ReferencedVersionID = revision
 			} else if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&instance.ReferencedVersionID); err != nil {
 				return err
 			}
-		}
-		if instance.ReferenceMode != "PINNED" {
 			if err := service.requireReadyReferencedPart(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID); err != nil {
 				return err
 			}

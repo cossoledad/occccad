@@ -218,6 +218,74 @@ func (server *Server) cancelJob(writer http.ResponseWriter, request *http.Reques
 	writeJSON(writer, http.StatusOK, updated)
 }
 
+// Recovery resolves the target from the original import transaction. A source
+// definition label only has meaning inside that job's immutable input.
+func (server *Server) recoverImportedPart(w http.ResponseWriter, r *http.Request) {
+	job, ok := server.ownedJob(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		DefinitionID string `json:"definitionId"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	var original struct {
+		FileName, Format, RequestID string
+		Exchange                    exchange.Report
+	}
+	if job.Type != "EXCHANGE_IMPORT" || job.State != "SUCCEEDED" || job.InputObjectID == nil || json.Unmarshal(job.Payload, &original) != nil || original.RequestID == "" {
+		writeError(w, http.StatusConflict, "该任务没有可恢复的源零件")
+		return
+	}
+	found := false
+	for _, warning := range original.Exchange.Warnings {
+		if warning.Code == "EXCHANGE_COMPONENT_DISPLAY_UNSUPPORTED" && warning.DefinitionID == input.DefinitionID && input.DefinitionID != "" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeError(w, http.StatusBadRequest, "源零件不在导入失败清单中")
+		return
+	}
+	var documentID, versionID string
+	err := server.database.QueryRow(r.Context(), `SELECT v.document_id::text,v.id::text FROM occccad.commands c JOIN occccad.document_versions v ON v.created_by_command_id=c.id WHERE c.request_id=$1 AND c.command_type='CREATE_DOCUMENT' AND c.status='SUCCEEDED'`, original.RequestID+"/definition/"+input.DefinitionID+"/document").Scan(&documentID, &versionID)
+	if err != nil {
+		writeWorkspaceResult(w, workspace.DocumentView{}, err)
+		return
+	}
+	actor := principal(r).ID
+	if _, err := server.access.RequireDocument(r.Context(), documentID, actor, access.RoleEditor); err != nil {
+		writeAccessError(w, err)
+		return
+	}
+	current, err := server.workspace.ReadModelSnapshot(r.Context(), documentID, "")
+	if err != nil {
+		writeWorkspaceResult(w, workspace.DocumentView{}, err)
+		return
+	}
+	if current.RevisionID != versionID {
+		writeError(w, http.StatusConflict, "零件已修改，请打开当前版本查看")
+		return
+	}
+	key := "recover/" + actor + "/" + job.ID + "/" + documentID + "/" + versionID
+	result, err := server.jobs.Enqueue(r.Context(), jobs.EnqueueRequest{Type: "EXCHANGE_IMPORT", RequestedBy: actor, DocumentID: documentID, VersionID: &versionID, InputObjectID: *job.InputObjectID, IdempotencyKey: key, UserVisible: true, Payload: map[string]any{"fileName": original.FileName, "format": original.Format, "requestId": key, "recoveryDefinition": input.DefinitionID}})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if result.CanRetry {
+		result, err = server.jobs.Retry(r.Context(), result.ID, actor, principal(r).PlatformRole == "ADMIN")
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusAccepted, result)
+}
+
 func (server *Server) retryJob(writer http.ResponseWriter, request *http.Request) {
 	job, ok := server.ownedJob(writer, request)
 	if !ok {

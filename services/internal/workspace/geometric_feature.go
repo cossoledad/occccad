@@ -110,7 +110,7 @@ type GeometricFeatureDefinition struct {
 var geometryKinds = map[string]int{
 	"IMPORTED": 0, "LINE": 0, "CIRCLE": 0, "ARC": 0, "SPLINE": 0,
 	"POINT_ON_CURVE": 1, "EXTRACT": 1, "BOUNDARY": 1, "COMPOSITE": -1,
-	"SURFACE_EXTRUDE": 1, "SURFACE_REVOLVE": 1, "THICKEN": 1,
+	"SURFACE_EXTRUDE": 1, "SURFACE_REVOLVE": 1, "THICKEN": 1, "MOVE_PLANAR_FACE": 1, "RESIZE_BORE": 1,
 	"TRANSLATE": 1, "ROTATE": 1, "MIRROR": 1,
 	"SPLIT": 1, "TRIM": 1, "EXTEND": 1, "G1_CONNECT": 2,
 	"OFFSET": 2, "PROJECT": 2, "INTERSECTION": 2,
@@ -168,7 +168,9 @@ func setGeometryTolerancePolicy(d *GeometricFeatureDefinition) error {
 	return nil
 }
 
-func isGeometryBodyFeature(kind string) bool { return kind == "THICKEN" || kind == "CLOSE_SURFACE" }
+func isGeometryBodyFeature(kind string) bool {
+	return kind == "THICKEN" || kind == "CLOSE_SURFACE" || kind == "MOVE_PLANAR_FACE" || kind == "RESIZE_BORE"
+}
 
 func geometryResultReference(f Feature) *modelcore.GeometryResultReference {
 	if f.Result == nil {
@@ -256,6 +258,12 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 	}
 	if isGeometryBodyFeature(f.Type) && !slices.Contains([]string{"NEW_BODY", "ADD", "REMOVE", "INTERSECT"}, f.Operation) {
 		return fmt.Errorf("%w: THICKEN_OPERATION_INVALID", ErrValidation)
+	}
+	if d.Kind == "MOVE_PLANAR_FACE" || d.Kind == "RESIZE_BORE" {
+		pick := d.Inputs[0].Selection
+		if (f.Operation != "ADD" && f.Operation != "REMOVE") || d.Inputs[0].Kind != "TOPOLOGY" || d.Inputs[0].Reversed || pick == nil || pick.Selection.ExpectedType != "FACE" || pick.Selection.SourceBodyID != f.BodyID || pick.Selection.SourceResult != nil || d.Parameters.Distance <= 0 {
+			return fmt.Errorf("%w: DIRECT_EDIT_SINGLE_BODY_FACE_REQUIRED", ErrValidation)
+		}
 	}
 	for _, input := range d.Inputs {
 		if input.Datum != nil || input.Point != nil {
@@ -426,6 +434,10 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 		}
 	}
 	switch d.Kind {
+	case "MOVE_PLANAR_FACE":
+		add("distance", "Offset", "mm", &d.Parameters.Distance)
+	case "RESIZE_BORE":
+		add("distance", "Diameter", "mm", &d.Parameters.Distance)
 	case "SURFACE_EXTRUDE", "THICKEN", "TRANSLATE", "OFFSET", "EXTEND", "SURFACE_EXTEND", "SURFACE_OFFSET":
 		add("distance", "Distance", "mm", &d.Parameters.Distance)
 	}
@@ -905,7 +917,7 @@ func qualifyGeometryInputs(documentID string, f Feature) error {
 	return nil
 }
 func geometryKindLabel(kind string) string {
-	labels := map[string]string{"LINE": "直线", "CIRCLE": "圆", "ARC": "圆弧", "SPLINE": "样条", "POINT_ON_CURVE": "曲线上点", "EXTRACT": "提取", "BOUNDARY": "边界", "COMPOSITE": "复合曲线", "SURFACE_EXTRUDE": "拉伸曲面", "THICKEN": "加厚", "TRANSLATE": "平移", "ROTATE": "旋转", "MIRROR": "镜像", "SPLIT": "分割", "TRIM": "裁剪", "EXTEND": "延伸", "G1_CONNECT": "连接曲线", "OFFSET": "偏移曲线", "PROJECT": "投影", "INTERSECTION": "交线", "SURFACE_SWEEP": "曲面扫掠", "SURFACE_LOFT": "曲面放样", "SURFACE_FILL": "填充曲面", "SURFACE_TRIM": "裁剪曲面", "SURFACE_EXTEND": "延长曲面", "SURFACE_JOIN": "连接曲面", "SURFACE_SEW": "缝合曲面", "SURFACE_OFFSET": "偏移曲面", "CLOSE_SURFACE": "封闭曲面", "SURFACE_BOUNDARY": "边界曲面", "SURFACE_BLEND": "桥接曲面"}
+	labels := map[string]string{"LINE": "直线", "CIRCLE": "圆", "ARC": "圆弧", "SPLINE": "样条", "POINT_ON_CURVE": "曲线上点", "EXTRACT": "提取", "BOUNDARY": "边界", "COMPOSITE": "复合曲线", "SURFACE_EXTRUDE": "拉伸曲面", "THICKEN": "加厚", "MOVE_PLANAR_FACE": "移动平面", "RESIZE_BORE": "修改孔径", "TRANSLATE": "平移", "ROTATE": "旋转", "MIRROR": "镜像", "SPLIT": "分割", "TRIM": "裁剪", "EXTEND": "延伸", "G1_CONNECT": "连接曲线", "OFFSET": "偏移曲线", "PROJECT": "投影", "INTERSECTION": "交线", "SURFACE_SWEEP": "曲面扫掠", "SURFACE_LOFT": "曲面放样", "SURFACE_FILL": "填充曲面", "SURFACE_TRIM": "裁剪曲面", "SURFACE_EXTEND": "延长曲面", "SURFACE_JOIN": "连接曲面", "SURFACE_SEW": "缝合曲面", "SURFACE_OFFSET": "偏移曲面", "CLOSE_SURFACE": "封闭曲面", "SURFACE_BOUNDARY": "边界曲面", "SURFACE_BLEND": "桥接曲面"}
 	if label := labels[kind]; label != "" {
 		return label
 	}

@@ -19,7 +19,7 @@ struct CurvatureSample {
 };
 struct MeasurementResult {
     struct BoundaryEdge {
-        uint64_t edge_id{};
+        uint64_t edge_id{}, first_vertex{}, last_vertex{};
         std::vector<Vec3> points;
     };
     struct GapCandidate {

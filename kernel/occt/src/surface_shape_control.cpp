@@ -22,6 +22,36 @@
 
 namespace occccad::kernel::detail {
 using namespace geometry_features;
+namespace {
+int boundary_side(const TopoDS_Edge& edge, const TopoDS_Face& face, double u0, double u1,
+                  double v0, double v1, const std::string& prefix, gp_Pnt2d& start, gp_Pnt2d& end) {
+    double first, last;
+    auto curve = BRep_Tool::CurveOnSurface(edge, face, first, last);
+    if (curve.IsNull())
+        throw std::invalid_argument(prefix + "_BOUNDARY_PCURVE_REQUIRED");
+    const auto line = Handle(Geom2d_Line)::DownCast(curve);
+    if (line.IsNull())
+        throw std::invalid_argument(prefix + "_ISOPARAMETRIC_BOUNDARY_REQUIRED");
+    const auto origin = line->Location();
+    const auto dir = line->Direction();
+    const double eps = 1e-8 * std::max({1., std::abs(u1 - u0), std::abs(v1 - v0)});
+    int side = -1;
+    if (std::abs(dir.X()) < 1e-10) {
+        if (std::abs(origin.X() - u0) <= eps)
+            side = 0;
+        else if (std::abs(origin.X() - u1) <= eps)
+            side = 1;
+    } else if (std::abs(dir.Y()) < 1e-10) {
+        if (std::abs(origin.Y() - v0) <= eps)
+            side = 2;
+        else if (std::abs(origin.Y() - v1) <= eps)
+            side = 3;
+    }
+    start = line->Value(first);
+    end = line->Value(last);
+    return side;
+}
+}
 std::map<int, TopoDS_Edge> surface_rectangle_sides(const TopoDS_Face& face,
                                                    const std::string& prefix) {
     double u0, u1, v0, v1;
@@ -32,28 +62,8 @@ std::map<int, TopoDS_Edge> surface_rectangle_sides(const TopoDS_Face& face,
     std::map<int, TopoDS_Edge> sides;
     for (const auto& shape : members(face, TopAbs_EDGE)) {
         const auto edge = TopoDS::Edge(shape);
-        double first, last;
-        auto curve = BRep_Tool::CurveOnSurface(edge, face, first, last);
-        if (curve.IsNull())
-            throw std::invalid_argument(prefix + "_BOUNDARY_PCURVE_REQUIRED");
-        const auto line = Handle(Geom2d_Line)::DownCast(curve);
-        if (line.IsNull())
-            throw std::invalid_argument(prefix + "_ISOPARAMETRIC_BOUNDARY_REQUIRED");
-        const auto origin = line->Location();
-        const auto dir = line->Direction();
-        const double eps = 1e-8 * std::max({1., std::abs(u1 - u0), std::abs(v1 - v0)});
-        int side = -1;
-        if (std::abs(dir.X()) < 1e-10) {
-            if (std::abs(origin.X() - u0) <= eps)
-                side = 0;
-            else if (std::abs(origin.X() - u1) <= eps)
-                side = 1;
-        } else if (std::abs(dir.Y()) < 1e-10) {
-            if (std::abs(origin.Y() - v0) <= eps)
-                side = 2;
-            else if (std::abs(origin.Y() - v1) <= eps)
-                side = 3;
-        }
+        gp_Pnt2d start, end;
+        const int side = boundary_side(edge, face, u0, u1, v0, v1, prefix, start, end);
         if (side < 0 || sides.count(side))
             throw std::invalid_argument(prefix + "_RECTANGULAR_DOMAIN_REQUIRED");
         sides.emplace(side, edge);
@@ -239,18 +249,24 @@ Jet support_jet(const GeometryFeatureSpec& s, const GeometryFeatureBuild& input,
         });
         if (owned == support.named.end() || !contains(f, owned->shape))
             throw std::invalid_argument("SURFACE_SUPPORT_OWNED_EDGE_REQUIRED");
-        const auto sides = surface_rectangle_sides(f, "SURFACE_SUPPORT");
-        int side = -1;
-        for (const auto& [role, e] : sides)
-            if (e.IsSame(owned->shape)) {
-                if (side >= 0)
-                    throw std::invalid_argument("SURFACE_SUPPORT_SEAM_UNSUPPORTED");
-                side = role;
-            }
-        if (side < 0)
-            throw std::invalid_argument("SURFACE_SUPPORT_ISOPARAMETRIC_EDGE_REQUIRED");
+        const auto edge = TopoDS::Edge(owned->shape);
+        if (BRep_Tool::IsClosed(edge, f))
+            throw std::invalid_argument("SURFACE_SUPPORT_SEAM_UNSUPPORTED");
         double u0, u1, v0, v1;
         BRepTools::UVBounds(f, u0, u1, v0, v1);
+        gp_Pnt2d start, end;
+        const int side = boundary_side(edge, f, u0, u1, v0, v1, "SURFACE_SUPPORT", start, end);
+        if (side < 0)
+            throw std::invalid_argument("SURFACE_SUPPORT_ISOPARAMETRIC_EDGE_REQUIRED");
+        // The transverse jet is local to this owned edge. Unrelated trims
+        // and holes do not enter the derivative, even on a split iso side.
+        if (side >= 2) {
+            u0 = std::min(start.X(), end.X());
+            u1 = std::max(start.X(), end.X());
+        } else {
+            v0 = std::min(start.Y(), end.Y());
+            v1 = std::max(start.Y(), end.Y());
+        }
         auto bs = GeomConvert::SurfaceToBSplineSurface(
             new Geom_RectangularTrimmedSurface(BRep_Tool::Surface(f), u0, u1, v0, v1));
         if (bs->IsURational() || bs->IsVRational())

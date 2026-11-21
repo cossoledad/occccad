@@ -88,21 +88,21 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 		return view, err
 	}
 	presentDocumentParameters(model.Parameters)
+	heads := map[string]string{}
 	for index := range model.Instances {
 		instance := &model.Instances[index]
 		if instance.ReferenceMode == "" {
 			instance.ReferenceMode = "FOLLOW_HEAD"
 		}
 		instance.ResolvedVersionID = instance.ReferencedVersionID
-		if instance.ReferenceMode == "FOLLOW_HEAD" || instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
-			var head string
-			if err := service.database.QueryRow(ctx,
-				`SELECT head_version_id::text FROM occccad.documents WHERE id=$1`,
-				instance.ReferencedDocumentID).Scan(&head); err != nil {
+		head, ok := heads[instance.ReferencedDocumentID]
+		if !ok {
+			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&head); err != nil {
 				return view, err
 			}
-			instance.HeadChanged = head != instance.ReferencedVersionID
+			heads[instance.ReferencedDocumentID] = head
 		}
+		instance.HeadChanged = head != instance.ReferencedVersionID
 	}
 	// Availability of a newer Head does not invalidate evidence for the accepted Revision.
 	// Keep currency on instances and UpdatePlan, separate from constraint evaluation.

@@ -128,3 +128,7 @@ Job SUCCEEDED 表示结果保存成功；payload.motion 保存实际运动学 st
 尚未交付多机械装置同步、齿轮／螺旋等耦合接合、可动嵌套 Product、动力学、连续碰撞或机构约束来源导入。路径目前按整份有限输入重算，尚无分段制品复用、曲率／显示误差自适应采样或独立的段质量持久模型；失败时间和合格前缀由 Run 表达。单会话预算与资源上限是保护，不是工业容量、P95 或帧率结论。
 
 主要入口：[会话服务](../../../services/internal/workspace/mechanism_session.go)、[统一求解](../../../services/internal/workspace/mechanism_motion_solver.go)、[录制模型](../../../services/internal/workspace/motion_recording.go)、[冻结路径](../../../services/internal/workspace/motion_snapshot.go)、[精确定位](../../../services/internal/workspace/motion_playhead.go)、[浏览器拥有者](../../../web/apps/cad/src/cad/assembly/mechanism-motion-session.ts)、[双窗口](../../../web/apps/cad/src/features/workbench/mechanism-motion-dialog.tsx)。真实验证分别由邻近数值／SQLite/CAS/历史测试、Web 状态场景及 [浏览器验收](../../../web/apps/cad/browser/motion-live.spec.ts)承担，不能互相冒充。
+
+## 大装配中的局部机构
+
+接合预览、试动和已保存模拟共用数值编译。机构成员及被保留方程引用的外部单元参与求解，外部参与单元仍固定。无关联的装配实例携带冻结位姿返回给显示、记录和回放。64 个单元的求解上限按实际进入方程的单元计数，机构成员数、快照大小、自由度与收敛检查仍各自生效。

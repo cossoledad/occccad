@@ -1327,6 +1327,7 @@ type CommandRequest struct {
 	UDirection                 [3]float64            `json:"uDirection,omitempty"`
 	Direction                  [3]float64            `json:"direction,omitempty"`
 	ReferencedDocumentID       string                `json:"referencedDocumentId,omitempty"`
+	PinnedInstanceIDs          []string              `json:"pinnedInstanceIds,omitempty"`
 	ReferencedDocumentIDs      []string              `json:"referencedDocumentIds,omitempty"`
 	PatternAxis                string                `json:"patternAxis,omitempty"`
 	PatternCount               int                   `json:"patternCount,omitempty"`

@@ -654,7 +654,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, err
 			}
 			feature.ID = commandEntityID(strings.ToLower(feature.Type), request.RequestID)
-			feature.Name = numberedFeatureName(model.Features, feature.Type, map[string]string{"LOFT": "Loft", "HOLE": "Hole", "SWEEP": "Sweep", "THICKEN": "Thicken", "CLOSE_SURFACE": "CloseSurface"}[feature.Type])
+			feature.Name = numberedFeatureName(model.Features, feature.Type, map[string]string{"LOFT": "Loft", "HOLE": "Hole", "SWEEP": "Sweep", "THICKEN": "Thicken", "CLOSE_SURFACE": "CloseSurface", "MOVE_PLANAR_FACE": "MoveFace", "RESIZE_BORE": "BoreDiameter"}[feature.Type])
 			if err := service.qualifyLoftBoundaries(ctx, documentID, &feature); err != nil {
 				return "", nil, err
 			}
@@ -1952,6 +1952,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return kind, assemblyConstraintUpdatePayload{ConstraintIDs: ids}, nil
 	case "UPDATE_REFERENCES":
+		if request.PinnedInstanceIDs != nil && documentType != "PRODUCT" {
+			return "", nil, fmt.Errorf("%w: 仅装配实例可固定源版本", ErrValidation)
+		}
 		if documentType == "PART" {
 			var model PartModel
 			if err := json.Unmarshal(modelJSON, &model); err != nil {
@@ -1987,6 +1990,36 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if !plan.CanAccept {
 				return "", nil, fmt.Errorf("%w: PRODUCT_UPDATE_BLOCKED", ErrValidation)
 			}
+		}
+		if request.PinnedInstanceIDs != nil {
+			source, revision := request.ReferencedDocumentID, request.ReplacementVersionID
+			if source == "" || revision == "" || len(request.PinnedInstanceIDs) == 0 || len(request.PinnedInstanceIDs) > len(model.Instances) {
+				return "", nil, fmt.Errorf("%w: 请选择要采用新版的固定实例", ErrValidation)
+			}
+			selected := map[string]bool{}
+			for _, id := range request.PinnedInstanceIDs {
+				selected[id] = true
+			}
+			matches := 0
+			for _, inst := range model.Instances {
+				if selected[inst.ID] && inst.ReferenceMode == "PINNED" && inst.ReferencedDocumentID == source {
+					matches++
+				}
+			}
+			if matches != len(request.PinnedInstanceIDs) {
+				return "", nil, fmt.Errorf("%w: 实例或来源已变化", ErrValidation)
+			}
+			var head string
+			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, source).Scan(&head); err != nil {
+				return "", nil, err
+			}
+			if head != revision {
+				return "", nil, fmt.Errorf("%w: 源版本已变化，请重新查看", ErrValidation)
+			}
+			if err := service.resolveProductReferences(ctx, &model, map[string]string{source: revision}, selected); err != nil {
+				return "", nil, err
+			}
+			return typeUpdateReferences, updateReferencesPayload{Model: model}, nil
 		}
 		if err := service.updateProductReferences(ctx, &model, request.AcceptedSourceRevisions); err != nil {
 			return "", nil, err

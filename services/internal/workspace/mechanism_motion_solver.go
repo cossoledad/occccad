@@ -142,6 +142,9 @@ func (e *mechanismMotionSolver) poses(r geometry.AssemblySolve) (map[string]Inst
 			return nil, fmt.Errorf("missing solved unit")
 		}
 	}
+	for id, pose := range e.state.Equations.EnvironmentPoses {
+		p[id] = pose
+	}
 	return p, nil
 }
 func (e *mechanismMotionSolver) publish(r geometry.AssemblySolve, f MotionFrame) {
@@ -440,7 +443,7 @@ func (e *mechanismMotionSolver) Drag(ctx context.Context, target geometry.Assemb
 	if !validInteractionTarget(target) {
 		return MotionFrame{}, fmt.Errorf("INPUT_ERROR: invalid spatial target")
 	}
-	if _, ok := e.state.Frame.UnitPoses[target.BodyID]; !ok {
+	if !slices.Contains(e.snapshot.Mechanism.UnitIDs, target.BodyID) {
 		return MotionFrame{}, fmt.Errorf("INPUT_ERROR: spatial target outside mechanism")
 	}
 	r, err := e.solve(ctx, e.state.PhysicalConstraints, &target)

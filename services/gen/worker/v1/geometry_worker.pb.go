@@ -10740,6 +10740,8 @@ type InspectExchangeRequest struct {
 	Source    *ArtifactReference     `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
 	// When set, parse once and materialize one local BREP per unique Part Definition under this opaque key prefix.
 	ComponentOutputPrefix string `protobuf:"bytes,4,opt,name=component_output_prefix,json=componentOutputPrefix,proto3" json:"component_output_prefix,omitempty"`
+	// Optional source-scoped definition to materialize when retrying one Part.
+	ComponentDefinitionId string `protobuf:"bytes,5,opt,name=component_definition_id,json=componentDefinitionId,proto3" json:"component_definition_id,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -10798,6 +10800,13 @@ func (x *InspectExchangeRequest) GetSource() *ArtifactReference {
 func (x *InspectExchangeRequest) GetComponentOutputPrefix() string {
 	if x != nil {
 		return x.ComponentOutputPrefix
+	}
+	return ""
+}
+
+func (x *InspectExchangeRequest) GetComponentDefinitionId() string {
+	if x != nil {
+		return x.ComponentDefinitionId
 	}
 	return ""
 }
@@ -16211,10 +16220,14 @@ func (x *MeasureGeometryResponse) GetBoundaryComplete() bool {
 	return false
 }
 
+// Transient topology locators in the measured operand. Only a whole result
+// has the same locator map as its frozen source BREP.
 type QualityBoundaryEdge struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	EdgeId        uint64                 `protobuf:"varint,1,opt,name=edge_id,json=edgeId,proto3" json:"edge_id,omitempty"`
 	Points        []*Vec3                `protobuf:"bytes,2,rep,name=points,proto3" json:"points,omitempty"`
+	FirstVertex   uint64                 `protobuf:"varint,3,opt,name=first_vertex,json=firstVertex,proto3" json:"first_vertex,omitempty"`
+	LastVertex    uint64                 `protobuf:"varint,4,opt,name=last_vertex,json=lastVertex,proto3" json:"last_vertex,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -16261,6 +16274,20 @@ func (x *QualityBoundaryEdge) GetPoints() []*Vec3 {
 		return x.Points
 	}
 	return nil
+}
+
+func (x *QualityBoundaryEdge) GetFirstVertex() uint64 {
+	if x != nil {
+		return x.FirstVertex
+	}
+	return 0
+}
+
+func (x *QualityBoundaryEdge) GetLastVertex() uint64 {
+	if x != nil {
+		return x.LastVertex
+	}
+	return 0
 }
 
 type QualityGapCandidate struct {
@@ -17472,13 +17499,14 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12\x1d\n" +
 	"\n" +
 	"size_bytes\x18\x04 \x01(\x04R\tsizeBytes\x12!\n" +
-	"\fcontent_type\x18\x05 \x01(\tR\vcontentType\"\xc5\x01\n" +
+	"\fcontent_type\x18\x05 \x01(\tR\vcontentType\"\xfd\x01\n" +
 	"\x16InspectExchangeRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12<\n" +
 	"\x06source\x18\x03 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x06source\x126\n" +
-	"\x17component_output_prefix\x18\x04 \x01(\tR\x15componentOutputPrefix\"\xbf\x02\n" +
+	"\x17component_output_prefix\x18\x04 \x01(\tR\x15componentOutputPrefix\x126\n" +
+	"\x17component_definition_id\x18\x05 \x01(\tR\x15componentDefinitionId\"\xbf\x02\n" +
 	"\x12ExchangeOccurrence\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
 	"\rdefinition_id\x18\x02 \x01(\tR\fdefinitionId\x12\x12\n" +
@@ -18010,10 +18038,13 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\x1aS\n" +
 	"\fAnchorsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.occccad.worker.v1.Vec3R\x05value:\x028\x01\"_\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.occccad.worker.v1.Vec3R\x05value:\x028\x01\"\xa3\x01\n" +
 	"\x13QualityBoundaryEdge\x12\x17\n" +
 	"\aedge_id\x18\x01 \x01(\x04R\x06edgeId\x12/\n" +
-	"\x06points\x18\x02 \x03(\v2\x17.occccad.worker.v1.Vec3R\x06points\"\xd6\x01\n" +
+	"\x06points\x18\x02 \x03(\v2\x17.occccad.worker.v1.Vec3R\x06points\x12!\n" +
+	"\ffirst_vertex\x18\x03 \x01(\x04R\vfirstVertex\x12\x1f\n" +
+	"\vlast_vertex\x18\x04 \x01(\x04R\n" +
+	"lastVertex\"\xd6\x01\n" +
 	"\x13QualityGapCandidate\x12\x1d\n" +
 	"\n" +
 	"first_edge\x18\x01 \x01(\x04R\tfirstEdge\x12\x1f\n" +

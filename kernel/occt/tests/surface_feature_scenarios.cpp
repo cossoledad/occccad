@@ -1,4 +1,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <BRepGProp.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -490,6 +493,57 @@ TEST(SurfaceShapeControl, PolynomialBlendG2UsesEntirePlaneJetsAndColdNames) {
     EXPECT_EQ(names(cold.evaluateGeometryFeature(s)), identity);
     s.surface.boundaries[0].support->plane->origin.z = 1;
     EXPECT_THROW(k.evaluateGeometryFeature(s), std::invalid_argument);
+}
+TEST(SurfaceShapeControl, OwnedSubintervalOnClippedSupportAcceptsG2) {
+    OcctKernel k;
+    // The shared side is split at x=6 and the far corner is clipped.
+    // Its five other edges must not determine the chosen edge's jet.
+    BRepBuilderAPI_MakePolygon polygon;
+    for (auto p : {gp_Pnt(0, 0, 0), gp_Pnt(6, 0, 0), gp_Pnt(10, 0, 0), gp_Pnt(10, -3, 0),
+                   gp_Pnt(8, -5, 0), gp_Pnt(0, -5, 0)})
+        polygon.Add(p);
+    polygon.Close();
+    auto face =
+        BRepBuilderAPI_MakeFace(gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), polygon.Wire()).Face();
+    std::ostringstream stream;
+    BRepTools::Write(face, stream);
+    const auto bytes = stream.str();
+    auto spec = surface_spec("trimmed-source", "IMPORTED", {});
+    spec.import_brep.assign(bytes.begin(), bytes.end());
+    ImportTopologySeed seed;
+    seed.feature_id = spec.feature_id;
+    seed.result_id = "result";
+    seed.brep_sha256 = make_geometry_id(spec.import_brep.data(), spec.import_brep.size()).substr(7);
+    for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
+        TopTools_IndexedMapOfShape indexed;
+        TopExp::MapShapes(face, type, indexed);
+        const auto kind = type == TopAbs_FACE   ? PersistentTopologyType::face
+                          : type == TopAbs_EDGE ? PersistentTopologyType::edge
+                                                : PersistentTopologyType::vertex;
+        for (int i = 1; i <= indexed.Extent(); ++i)
+            seed.identities.push_back(
+                {std::to_string(type) + "/" + std::to_string(i), kind, static_cast<uint64_t>(i)});
+    }
+    spec.import_seed = seed;
+    ProfileEvaluationResult imported;
+    ASSERT_NO_THROW(imported = k.evaluateGeometryFeature(spec));
+    auto support = source_input(k, imported), edge = support;
+    const auto& outputs = imported.feature_results.back().semantic_outputs;
+    const auto selected = std::find_if(outputs.begin(), outputs.end(), [](const auto& o) {
+        return o.topology_type == PersistentTopologyType::edge && o.local_id == 1;
+    });
+    ASSERT_NE(selected, outputs.end());
+    const auto& ref = selected->semantic_ref;
+    edge.members = {{ref.feature_id, ref.output_slot, ref.source_ids}};
+    auto rail = k.evaluateGeometryFeature(source_line("opposite", {0, 6, 1}, {6, 6, 1}));
+    auto blend = surface_spec("transition", "SURFACE_BLEND", {edge, source_input(k, rail)});
+    GeometryFeatureInput plane;
+    plane.plane = GeometryPlane{{0, 0, 1}, {0, 0, 1}, {1, 0, 0}, "far-plane"};
+    blend.surface.boundaries = {{"near", "G2", 0, support, 1}, {"far", "G2", 1, plane, 1}};
+    blend.inputs[0].reversed = true;
+    const auto result = k.evaluateGeometryFeature(blend);
+    EXPECT_GT(surface_area(k, result.geometry_id), 36);
+    names(result);
 }
 TEST(SurfaceShapeControl, OrderedBoundaryPatchAndSupportCornerConflict) {
     OcctKernel k;

@@ -65,7 +65,7 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 	if view.Product == nil || req.BaseRevisionID == "" || view.Document.VersionID != req.BaseRevisionID {
 		return out, fmt.Errorf("%w: Product revision changed", ErrValidation)
 	}
-	if len(view.Product.Instances) > 64 || len(req.Mechanism.Joints) > 128 {
+	if len(req.Mechanism.Joints) > 128 {
 		return out, fmt.Errorf("%w: mechanism preview size limit", ErrValidation)
 	}
 	if len(req.RequestID) > 128 {
@@ -291,7 +291,10 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 		}
 		poses[body.ID] = p
 	}
-	for _, body := range equations.Bodies {
+	for id, p := range equations.EnvironmentPoses {
+		poses[id] = p
+	}
+	for _, body := range input.Instances {
 		p, ok := poses[body.ID]
 		if !ok {
 			return out, fmt.Errorf("%w: incomplete preview frame", ErrValidation)

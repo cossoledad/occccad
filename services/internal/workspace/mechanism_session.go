@@ -149,7 +149,7 @@ func (service *Service) BeginMechanismSession(parent context.Context, document, 
 	if err != nil {
 		return MechanismSessionOpened{}, err
 	}
-	if view.Product == nil || req.BaseRevisionID == "" || req.BaseRevisionID != view.Document.VersionID || len(view.Product.Instances) > 64 {
+	if view.Product == nil || req.BaseRevisionID == "" || req.BaseRevisionID != view.Document.VersionID {
 		return MechanismSessionOpened{}, fmt.Errorf("%w: invalid mechanism session revision or scope", ErrValidation)
 	}
 	if req.OwnerID == "" || len(req.OwnerID) > 128 || req.Generation == 0 {

@@ -720,6 +720,8 @@ public:
             for (const auto& edge : r.boundary_edges) {
                 auto* target = response->add_boundary_edges();
                 target->set_edge_id(edge.edge_id);
+                target->set_first_vertex(edge.first_vertex);
+                target->set_last_vertex(edge.last_vertex);
                 for (const auto& point : edge.points) {
                     auto* v = target->add_points();
                     v->set_x(point.x);
@@ -2242,7 +2244,8 @@ public:
                 }
                 for (const auto& child : def.children)
                     occurrence(child, item->add_children());
-                if (def.kind == "PART" && !request->component_output_prefix().empty()) {
+                if (def.kind == "PART" && !request->component_output_prefix().empty() &&
+                    (request->component_definition_id().empty() || request->component_definition_id() == def.id)) {
                     if (def.empty || def.geometry_id.empty()) {
                         warning("EXCHANGE_EMPTY_PART", "No supported geometry; an empty Part will be created", def.id);
                         continue;
@@ -2576,8 +2579,10 @@ public:
                             item.appearance = item.bodies.front().appearance;
                             item.visible = item.visible && item.bodies.front().visible;
                             item.bodies.clear();
-                        } else if(bodies.size()==1)item.geometry_id=bodies.front().geometry_id;
-                        else item.geometry_id = preparation.combine(bodies);
+                        } else {
+                            // Named independent results live on direct children of the Part label.
+                            item.geometry_id = preparation.combine(bodies);
+                        }
                     } else item.geometry_id = preparation.loadBrepr(read_artifact(def.brep()));
                 }
                 for (const auto& child : def.children())

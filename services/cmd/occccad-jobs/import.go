@@ -84,7 +84,7 @@ func (h handler) importProgress(ctx context.Context, job jobs.Job, phase string,
 	}
 }
 
-func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, folderID, format, requestID string) error {
+func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, folderID, format, requestID, recoveryDefinition string) error {
 	started := time.Now()
 	if job.InputObjectID == nil {
 		return errors.New("exchange import has no source object")
@@ -93,6 +93,20 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 		if _, err := h.access.RequireFolder(ctx, folderID, job.RequestedBy, access.RoleEditor); err != nil {
 			return fmt.Errorf("import destination access changed: %w", err)
 		}
+	}
+	var recovery *workspace.CommandBaseline
+	if recoveryDefinition != "" {
+		if job.DocumentID == nil || job.VersionID == nil {
+			return errors.New("missing recovery target")
+		}
+		if _, err := h.access.RequireDocument(ctx, *job.DocumentID, job.RequestedBy, access.RoleEditor); err != nil {
+			return err
+		}
+		baseline, err := h.workspace.ReadModelSnapshot(ctx, *job.DocumentID, *job.VersionID)
+		if err != nil {
+			return err
+		}
+		recovery = &baseline.CommandBaseline
 	}
 	source, err := h.artifacts.Get(ctx, *job.InputObjectID)
 	if err != nil {
@@ -111,7 +125,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	if err := budget.slots.Acquire(ctx, 1); err != nil {
 		return err
 	}
-	inspection, err := h.geometry.InspectExchange(ctx, requestID+"/prepare", format, ref, artifact.StagingKey(job.ID, "components"))
+	inspection, err := h.geometry.PrepareExchange(ctx, requestID+"/prepare", format, ref, artifact.StagingKey(job.ID, "components"), recoveryDefinition)
 	budget.slots.Release(1)
 	if err != nil {
 		return err
@@ -128,7 +142,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	}
 	components := []*workerv1.ExchangeDefinition{}
 	for _, def := range inspection.Definitions {
-		if def.Kind == "PART" {
+		if def.Kind == "PART" && (recoveryDefinition == "" || def.Id == recoveryDefinition) {
 			components = append(components, def)
 			if def.Empty {
 				report.EmptyParts++
@@ -136,6 +150,18 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 		}
 	}
 	count := len(components)
+	if recovery != nil {
+		if count != 1 || components[0].Empty {
+			return fmt.Errorf("%w: 源零件没有可恢复的精确几何", workspace.ErrValidation)
+		}
+		report.Definitions = 1
+		report.Warnings = nil
+		for _, w := range inspection.Warnings {
+			if w.DefinitionId == recoveryDefinition {
+				report.Warnings = append(report.Warnings, exchange.Warning{Code: w.Code, Message: exchange.WarningMessage(w.Code, w.Message), DefinitionID: w.DefinitionId, Detail: w.Message, Count: w.Count})
+			}
+		}
+	}
 	report.TimingsMS["prepare"] = float64(time.Since(phaseStarted).Microseconds()) / 1000
 	slog.Info("exchange preparation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	phaseStarted = time.Now()
@@ -184,7 +210,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 					return errors.New("prepared component integrity mismatch")
 				}
 				input := geometry.ArtifactReference{Backend: snapshot.Backend, ObjectKey: snapshot.Key, SHA256: snapshot.SHA256, Size: snapshot.Size, ContentType: snapshot.ContentType}
-				digest := sha256.Sum256([]byte("exchange-xde-local-v3-nurbs-boundaries\x00" + inspection.KernelVersion + "\x00" + source.SHA256 + "/" + component.Id + "/" + snapshot.SHA256))
+				digest := sha256.Sum256([]byte("exchange-xde-local-v4-trimmed-face-refinement\x00" + inspection.KernelVersion + "\x00" + source.SHA256 + "/" + component.Id + "/" + snapshot.SHA256))
 				key := "sha256:" + hex.EncodeToString(digest[:])
 				available, err := h.workspace.ReusableImportGeometry(groupContext, key, snapshot.SHA256)
 				if err != nil {
@@ -198,6 +224,9 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 				evaluation, err := h.geometry.ImportExchange(groupContext, requestID+fmt.Sprintf("/component/%d", index+1), key, "BREP", input, "", artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
 				if err != nil {
 					if detail := unsupportedImportDisplay(err); detail != "" {
+						if recovery != nil {
+							return fmt.Errorf("%w: 零件仍未通过显示检查：%s", workspace.ErrValidation, detail)
+						}
 						results[index].skipped = detail
 						return evaluated()
 					}
@@ -247,10 +276,13 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 				}
 				var view workspace.DocumentView
 				var err error
-				if components[index].Empty || result.skipped != "" {
+				sourceDefinition := &workspace.ImportSource{Visible: components[index].Visible, ObjectID: source.ID, SHA256: source.SHA256, Format: format, DefinitionID: components[index].Id, Appearance: components[index].Appearance, AppearanceBRepSHA256: components[index].GetBrep().GetSha256()}
+				if recovery != nil {
+					view, err = h.workspace.RecoverImportedPart(groupContext, job.RequestedBy, *job.DocumentID, requestID, fileName, format, result.key, result.evaluation, sourceDefinition, recovery)
+				} else if components[index].Empty || result.skipped != "" {
 					view, err = h.workspace.CommitImportedEmptyPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName)
 				} else {
-					view, err = h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{Visible: components[index].Visible, ObjectID: source.ID, SHA256: source.SHA256, Format: format, DefinitionID: components[index].Id, Appearance: components[index].Appearance, AppearanceBRepSHA256: components[index].GetBrep().GetSha256()})
+					view, err = h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName, format, result.key, result.evaluation, sourceDefinition)
 				}
 				if err != nil {
 					return err
@@ -271,6 +303,10 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	slog.Info("exchange Part creation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	report.TimingsMS["createParts"] = float64(time.Since(phaseStarted).Microseconds()) / 1000
 	phaseStarted = time.Now()
+	if recovery != nil {
+		report.TimingsMS["total"] = float64(time.Since(started).Microseconds()) / 1000
+		return h.queue.SucceedImport(ctx, job.ID, h.workerID, *job.DocumentID, report)
+	}
 	documents := map[string]workspace.DocumentView{}
 	for i, def := range components {
 		documents[def.Id] = parts[i]

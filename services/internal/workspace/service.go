@@ -32,7 +32,7 @@ import (
 
 const geometryValidationPolicy = "occccad.geometry.brep-valid.v1"
 
-const evaluatorVersion = "part-solid-generators-v87-occt-fb4a17b508257b7fd375ead67d019146"
+const evaluatorVersion = "part-solid-generators-v88-occt-fb4a17b508257b7fd375ead67d019146"
 
 // Representation changes qualify newly evaluated artifacts independently of
 // the semantic Naming policy, exact shape identity and dependency manifest.
@@ -896,15 +896,8 @@ func (service *Service) ReusableImportGeometry(ctx context.Context, key, brepSHA
 
 func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID, reqID, name,
 	fileName, format, geometryKey string, evaluation *workerv1.EvaluatePartResponse, sources ...*ImportSource) (DocumentView, error) {
-	// Adopt consumes staging objects. A retry must reuse the adopted snapshot.
-	var exists bool
-	if err := service.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, geometryKey).Scan(&exists); err != nil {
+	if err := service.storeImportEvaluation(ctx, geometryKey, evaluation); err != nil {
 		return DocumentView{}, err
-	}
-	if !exists {
-		if err := service.storeEvaluationDomain(ctx, geometryKey, evaluation, visualizationManifest(newPartModel()), false, true); err != nil {
-			return DocumentView{}, err
-		}
 	}
 	var folder *string
 	if strings.TrimSpace(folderID) != "" {
@@ -922,6 +915,30 @@ func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID,
 	return service.ApplyCommand(ctx, view.Document.ID, CommandRequest{RequestID: reqID + "/import",
 		Type: "IMPORT_EXCHANGE", GeometryKey: geometryKey, FileName: strings.TrimSpace(fileName),
 		SourceFormat: strings.ToUpper(format), ActorID: actor, ImportSource: source})
+}
+
+func (service *Service) storeImportEvaluation(ctx context.Context, geometryKey string, evaluation *workerv1.EvaluatePartResponse) error {
+	// Adopt consumes staging objects. A retry must reuse the adopted snapshot.
+	var exists bool
+	if err := service.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, geometryKey).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if err := service.storeEvaluationDomain(ctx, geometryKey, evaluation, visualizationManifest(newPartModel()), false, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (service *Service) RecoverImportedPart(ctx context.Context, actor, documentID, requestID, fileName, format, key string, evaluation *workerv1.EvaluatePartResponse, source *ImportSource, baseline *CommandBaseline) (DocumentView, error) {
+	if baseline == nil {
+		return DocumentView{}, ErrValidation
+	}
+	if err := service.storeImportEvaluation(ctx, key, evaluation); err != nil {
+		return DocumentView{}, err
+	}
+	return service.ApplyCommand(ctx, documentID, CommandRequest{ActorID: actor, RequestID: requestID + "/import", Type: "IMPORT_EXCHANGE", GeometryKey: key, FileName: fileName, SourceFormat: format, ImportSource: source, ExpectedHead: baseline})
 }
 
 // CommitImportedProduct uses the same typed instance command, CAS and history
@@ -1824,7 +1841,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			continue
 		}
 		switch strings.ToUpper(feature.Type) {
-		case "THICKEN", "CLOSE_SURFACE":
+		case "THICKEN", "CLOSE_SURFACE", "MOVE_PLANAR_FACE", "RESIZE_BORE":
 			sourceModel := fullModel
 			for i, f := range fullModel.Features {
 				if f.ID == feature.ID {

@@ -89,7 +89,7 @@ export function SpecificationTree(props: {
   onInsertAfter?: (node:SpecificationTreeNode,type:HistoricalCreationType)=>void;
   onProperties?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
-  onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
+  onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD" | "ADOPT_PINNED") => void;
   onDetach?: (node: SpecificationTreeNode) => void;
   onReconnect?: (node: SpecificationTreeNode) => void;
   onUpdate?: (node: SpecificationTreeNode) => void;
@@ -311,6 +311,8 @@ export function SpecificationTree(props: {
               onClick: () => { setContextMenu(undefined); onCreatePart?.(node); } } : null,
             node.capabilities?.includes("PIN_VERSION") ? { key: "pin-version", icon: menuIcon('tree.reference-mode'), label: menuLabel('tree.reference-mode','pinned'),
               onClick: () => { setContextMenu(undefined); onReferenceMode?.(node, "PINNED"); } } : null,
+            node.capabilities?.includes("FOLLOW_HEAD") ? { key: "adopt-pinned", icon: menuIcon('tree.reference-mode'), label: "查看并采用新版…",
+              onClick: () => { setContextMenu(undefined); onReferenceMode?.(node,"ADOPT_PINNED"); } } : null,
             node.capabilities?.includes("FOLLOW_HEAD") ? { key: "follow-head", icon: menuIcon('tree.reference-mode'), label: menuLabel('tree.reference-mode','follow'),
               onClick: () => { setContextMenu(undefined); onReferenceMode?.(node, "FOLLOW_HEAD"); } } : null,
             node.capabilities?.includes("DETACH") ? { key: "detach", icon: menuIcon('tree.detach'), label: menuLabel('tree.detach'),

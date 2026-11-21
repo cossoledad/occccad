@@ -508,6 +508,7 @@ export const restApi = {
   listJobs: async (): Promise<Job[]> => (await request<{ jobs: Job[] }>("/api/jobs")).jobs,
   deleteMotionResult: (id:string):Promise<Job>=>request<Job>(`/api/jobs/${id}/motion-run`,{method:"DELETE"}),
   cancelJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}/cancel`, { method: "POST" }),
+  recoverImportPart: (jobId: string, definitionId: string): Promise<Job> => request<Job>(`/api/jobs/${jobId}/recover-part`, { method: "POST", body: JSON.stringify({definitionId}) }),
   retryJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}/retry`, { method: "POST" }),
   downloadJob: async (id: string): Promise<void> => {
     const link = document.createElement("a");

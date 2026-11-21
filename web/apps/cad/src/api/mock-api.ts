@@ -1252,6 +1252,7 @@ export const mockApi: CadApi = {
       cancelRequestedAt: now(), completedAt: now() };
     jobs.set(jobID, updated); return pause(updated);
   },
+  recoverImportPart: async () => { throw new Error("模拟数据中没有可恢复的源几何"); },
   retryJob: async (jobID) => {
     const job = jobs.get(jobID)!;
     const updated = { ...job, state: "QUEUED" as const, progress: 0, canCancel: true, canRetry: false,

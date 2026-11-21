@@ -154,7 +154,7 @@ void write_colors(const TopoDS_Shape& shape, const TDF_Label& label, const Excha
     std::set<uint64_t> seen;
     for (const auto& face : appearance.faces) {
         if (face.local_id == 0 || face.local_id > static_cast<uint64_t>(faces.Extent()) || !seen.insert(face.local_id).second)
-            throw std::invalid_argument("EXCHANGE_INVALID_COLOR_LOCATOR");
+            throw std::invalid_argument("EXCHANGE_INVALID_COLOR_LOCATOR:face=" + std::to_string(face.local_id) + ":faces=" + std::to_string(faces.Extent()));
         const auto target = shapes->AddSubShape(owner.IsNull() ? label : owner, faces(static_cast<int>(face.local_id)));
         if (target.IsNull()) throw std::invalid_argument("EXCHANGE_COLOR_SUBSHAPE_FAILED");
         colors->SetColor(target, color_rgba(face.color.empty() ? appearance.color : face.color, face.opacity.has_value() ? face.opacity : appearance.opacity), XCAFDoc_ColorSurf);

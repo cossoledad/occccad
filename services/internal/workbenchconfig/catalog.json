@@ -5641,6 +5641,94 @@
       }
     },
     {
+      "id": "geometry.move-planar-face",
+      "name": "移动平面",
+      "helpText": "沿所选实体平面的法向添加或切除材料",
+      "iconKey": "thicken",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.resize-bore",
+      "name": "修改孔径",
+      "helpText": "修改完整圆柱孔段的直径",
+      "iconKey": "hole",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
       "id": "geometry.thicken",
       "name": "加厚",
       "helpText": "加厚",
@@ -7871,6 +7959,16 @@
           "commandId": "geometry.close-surface",
           "groupKey": "primary",
           "order": 10
+        },
+        {
+          "commandId": "geometry.move-planar-face",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "geometry.resize-bore",
+          "groupKey": "primary",
+          "order": 30
         }
       ]
     },

@@ -173,7 +173,7 @@ export type LoftBoundaryDefinition={condition:"NORMAL"|"DIRECTION"|"G1"|"G2";mag
 export type GeometryResultReference={featureId:string;resultId:string};
 export type GeometricInput={kind:"RESULT"|"TOPOLOGY"|"SKETCH"|"PLANE"|"DATUM"|"POINT";datum?:DatumReference;point?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef};featureId?:string;resultId?:string;entityIds?:string[];selection?:NonNullable<Feature["selections"]>[number];planeId?:string;reversed?:boolean};
 export type GeometryControlPoint={id:string;position:Vec3;pointId?:string;reference?:GeometricInput};
-export type GeometryKind="IMPORTED"|"LINE"|"CIRCLE"|"ARC"|"SPLINE"|"POINT_ON_CURVE"|"EXTRACT"|"BOUNDARY"|"COMPOSITE"|"SURFACE_EXTRUDE"|"SURFACE_REVOLVE"|"SURFACE_MUTUAL_TRIM"|"THICKEN"|"TRANSLATE"|"ROTATE"|"MIRROR"|"SPLIT"|"TRIM"|"EXTEND"|"G1_CONNECT"|"OFFSET"|"PROJECT"|"INTERSECTION"|"SURFACE_SWEEP"|"SURFACE_LOFT"|"SURFACE_FILL"|"SURFACE_TRIM"|"SURFACE_EXTEND"|"SURFACE_JOIN"|"SURFACE_SEW"|"SURFACE_OFFSET"|"CLOSE_SURFACE"|"SURFACE_BOUNDARY"|"SURFACE_BLEND";
+export type GeometryKind="IMPORTED"|"LINE"|"CIRCLE"|"ARC"|"SPLINE"|"POINT_ON_CURVE"|"EXTRACT"|"BOUNDARY"|"COMPOSITE"|"SURFACE_EXTRUDE"|"SURFACE_REVOLVE"|"SURFACE_MUTUAL_TRIM"|"THICKEN"|"MOVE_PLANAR_FACE"|"RESIZE_BORE"|"TRANSLATE"|"ROTATE"|"MIRROR"|"SPLIT"|"TRIM"|"EXTEND"|"G1_CONNECT"|"OFFSET"|"PROJECT"|"INTERSECTION"|"SURFACE_SWEEP"|"SURFACE_LOFT"|"SURFACE_FILL"|"SURFACE_TRIM"|"SURFACE_EXTEND"|"SURFACE_JOIN"|"SURFACE_SEW"|"SURFACE_OFFSET"|"CLOSE_SURFACE"|"SURFACE_BOUNDARY"|"SURFACE_BLEND";
 export type GeometrySectionControl={id:string;section:GeometricInput;closingPoint?:GeometricInput;stationPoint?:GeometricInput;couplings?:{id:string;point?:GeometricInput}[]};
 export type GeometryBoundaryControl={id:string;boundary:GeometricInput;support?:GeometricInput;continuity:"G0"|"G1"|"G2";tension:number};
 export type GeometrySurfaceDefinition={ruled:boolean;frameMode?:"FRENET"|"CORRECTED_FRENET"|"GUIDE_FRAME"|"GUIDE_BORDER";tolerance:number;spine?:GeometricInput;guide?:GeometricInput;sections?:GeometrySectionControl[];boundaries?:GeometryBoundaryControl[]};
@@ -209,7 +209,7 @@ export type Feature = {
   visible?: boolean;
   importDefinitionId?: string;
   id: string;
-  type: "GEOMETRY" | "THICKEN" | "CLOSE_SURFACE" | "SWEEP" | "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
+  type: "GEOMETRY" | "THICKEN" | "MOVE_PLANAR_FACE" | "RESIZE_BORE" | "CLOSE_SURFACE" | "SWEEP" | "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
   name?: string;
   plane?: PlaneName | "CUSTOM";
   sketch?: SketchFeature;

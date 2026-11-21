@@ -176,8 +176,8 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 	products := map[string]ProductModel{}
 	built := map[string]bool{}
 	visiting := map[string]bool{}
-	var build func(string, string, string, int) (string, error)
-	build = func(docID, rev, path string, depth int) (string, error) {
+	var build func(string, string, string, string, int) (string, error)
+	build = func(docID, rev, path, displayPath string, depth int) (string, error) {
 		identity := docID + "@" + rev
 		if depth > 128 || visiting[identity] {
 			return "", fmt.Errorf("%w: cyclic/deep exchange graph", ErrValidation)
@@ -328,6 +328,12 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 					def.Geometries = append(def.Geometries, &workerv1.ExchangeGeometry{Name: feature.Name, Visible: &visible, Appearance: exchangeAppearance(appearance), Result: &workerv1.GeometryResultReference{FeatureId: feature.ID, ResultId: feature.Result.ID}, Brep: &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}})
 				}
 				if len(def.Bodies)+len(def.Geometries) == 0 {
+					if path != "" && len(part.Features) == 0 {
+						graph.Warnings = append(graph.Warnings, &workerv1.ExchangeWarning{
+							Code: "EXCHANGE_EMPTY_OCCURRENCE_OMITTED", DefinitionId: identity,
+							Message: fmt.Sprintf("空零件未导出：%s（%s）", displayPath, value.name), Count: 1,
+						})
+					}
 					return "", nil
 				}
 			}
@@ -347,7 +353,11 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 				if visibleOnly && !visibility.instanceVisible(childPath) {
 					continue
 				}
-				target, err := build(instance.ReferencedDocumentID, instance.ReferencedVersionID, childPath, depth+1)
+				instanceName := exchangeInstanceName(instance)
+				if alias, ok := aliasNames[childPath]; ok {
+					instanceName = alias
+				}
+				target, err := build(instance.ReferencedDocumentID, instance.ReferencedVersionID, childPath, displayPath+" / "+instanceName, depth+1)
 				if err != nil {
 					return "", err
 				}
@@ -355,10 +365,6 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 					continue
 				}
 				q := normalizedInstanceRotation(instance.Rotation)
-				instanceName := exchangeInstanceName(instance)
-				if alias, ok := aliasNames[childPath]; ok {
-					instanceName = alias
-				}
 				color, opacity := instance.Color, instance.Opacity
 				if bakeAppearances {
 					color = ""
@@ -382,7 +388,7 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 		}
 		return def.Id, nil
 	}
-	root, err := build(documentID, revision, "", 0)
+	root, err := build(documentID, revision, "", view.Document.Name, 0)
 	if err != nil {
 		return nil, err
 	}

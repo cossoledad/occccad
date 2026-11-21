@@ -5092,10 +5092,10 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         tool.shape = combine.Shape();
                     }
                 }
-            } else if ((spec.generator == "THICKEN" || spec.generator == "CLOSE_SURFACE")) {
+            } else if ((spec.generator == "THICKEN" || spec.generator == "CLOSE_SURFACE" || spec.generator == "MOVE_PLANAR_FACE" || spec.generator == "RESIZE_BORE")) {
                 if(!spec.geometry_generator || spec.geometry_generator->operation!=spec.generator || spec.geometry_generator->feature_id!=spec.feature_id)
                     throw std::invalid_argument("THICKEN_DEFINITION_REQUIRED");
-                auto built=detail::build_geometry_feature(*spec.geometry_generator,runtime.cancelled);
+                auto built=detail::build_geometry_feature(*spec.geometry_generator,runtime.cancelled,spec.body_operation);
                 tool.shape=built.shape;tool.feature_id=spec.feature_id;
                 for(const auto& n:built.named) {
                     tool.named.push_back({n.ref,n.shape});
@@ -5666,7 +5666,7 @@ ProfileEvaluationResult OcctKernel::evaluateGeometryFeature(const GeometryFeatur
     const PartRuntimeOptions& runtime) {
     const auto began=std::chrono::steady_clock::now();
     auto built=detail::build_geometry_feature(spec,runtime.cancelled);
-    if(spec.operation=="THICKEN"||spec.operation=="CLOSE_SURFACE")throw std::invalid_argument("THICKEN_REQUIRES_BODY_FEATURE_PIPELINE");
+    if(spec.operation=="THICKEN"||spec.operation=="CLOSE_SURFACE"||spec.operation=="MOVE_PLANAR_FACE"||spec.operation=="RESIZE_BORE")throw std::invalid_argument("THICKEN_REQUIRES_BODY_FEATURE_PIPELINE");
     ProfileEvaluationResult result;
     result.geometry_id=impl_->store(built.shape);
     FeatureResult f;f.feature_id=spec.feature_id;f.result_id=spec.result_id;
@@ -5928,7 +5928,7 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
     try {
         impl_->mesh_reuse.policy(linear_deflection,angular_deflection);
         bool attempted_reuse=false;
-        const auto produce = [&](bool preserveBoundary, bool reuse) {
+        const auto produce = [&](bool preserveBoundary, bool reuse, double refinement = 1.0) {
             const auto start = std::chrono::steady_clock::now();
             auto elapsed = [](auto from) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-from).count(); };
             // A TopoDS value copy aliases the same TShapes. Copy geometry as well, omit
@@ -5944,10 +5944,10 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             if(reuse && !preserveBoundary)attempted_reuse=impl_->mesh_reuse.seed(geometry_id,face_map,edge_map,copy,seeded)>0;
             const auto seed_done = std::chrono::steady_clock::now();
             IMeshTools_Parameters parameters;
-            parameters.Deflection = linear_deflection;
-            parameters.Angle = angular_deflection;
-            parameters.AngleInterior = angular_deflection;
-            parameters.InParallel = preserveBoundary ? Standard_False : parallel;
+            parameters.Deflection = linear_deflection * refinement;
+            parameters.Angle = angular_deflection * refinement;
+            parameters.AngleInterior = angular_deflection * refinement;
+            parameters.InParallel = !preserveBoundary && refinement == 1.0 && parallel;
             parameters.EnableControlSurfaceDeflectionAllSurfaces = Standard_True;
             BRepMesh_IncrementalMesh mesher;
             mesher.SetShape(shape); mesher.ChangeParameters()=parameters;
@@ -6088,29 +6088,40 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
             result.timings.computed_faces=face_map.Extent()-result.timings.reused_faces;
             const auto& admission=fresh_cancelled?fresh_cancelled:cancelled;
             if(admission&&admission())throw std::runtime_error("EVALUATION_CANCELLED");
-            if (!preserveBoundary) {
+            if (!preserveBoundary && refinement == 1.0) {
                 impl_->mesh_reuse.admit(geometry_id, face_map, edge_map, [&](const auto& original) { return copy.ModifiedShape(original); }, std::move(profiles), seeded);
                 if (capture_mesh_seed && result.triangles.size() >= 50'000)
                     result.mesh_seed = capture_mesh_packet(geometry_id, linear_deflection, angular_deflection, source, copy);
             }
             return result;
         };
-        try {
-            try {return produce(false,true);}
-            catch(const std::runtime_error& e){
-                if(!attempted_reuse||std::string(e.what()).rfind("VISUAL_",0)!=0)throw;
-                // Reused face packets may disagree with a newly refined shared
-                // edge. Discard reuse and run the authoritative cold mesher.
-                std::clog << "mesh stage=packet_reuse_retry cause=" << e.what() << '\n';
-                impl_->mesh_reuse.clear();return produce(false,false);
+        const auto checked_mesh = [&](bool reuse, double refinement) {
+            try {
+                try { return produce(false, reuse, refinement); }
+                catch (const std::runtime_error& error) {
+                    if (!reuse || !attempted_reuse || std::string(error.what()).rfind("VISUAL_", 0) != 0) throw;
+                    impl_->mesh_reuse.clear();
+                    return produce(false, false, refinement);
+                }
+            } catch (const std::runtime_error& error) {
+                const std::string cause = error.what();
+                if (cause.rfind("VISUAL_ADJACENT_BOUNDARY_MISMATCH:", 0) != 0 &&
+                    cause != "VISUAL_MESH_FAILED:status=" + std::to_string(IMeshData_UnorientedWire)) throw;
+                std::clog << "mesh stage=boundary_preserving_retry refinement=" << refinement << " cause=" << cause << '\n';
+                return produce(true, false, refinement);
             }
-        }
-        catch(const std::runtime_error& error) {
-            const std::string cause=error.what();
-            if (cause.rfind("VISUAL_ADJACENT_BOUNDARY_MISMATCH:", 0) != 0 &&
-                cause != "VISUAL_MESH_FAILED:status=" + std::to_string(IMeshData_UnorientedWire)) throw;
-            std::clog << "mesh stage=boundary_preserving_retry cause=" << error.what() << '\n';
-            return produce(true,false);
+        };
+        // Narrow trimmed faces can collapse between samples. Each bounded
+        // retry uses a fresh copy and the same face and edge coverage checks.
+        for (double refinement = 1.0; ; refinement *= 0.5) {
+            check_cancel();
+            try { return checked_mesh(refinement == 1.0, refinement); }
+            catch (const std::runtime_error& error) {
+                const std::string cause = error.what();
+                if (refinement == 0.25 || (cause.rfind("VISUAL_MISSING_FACE:", 0) != 0 &&
+                    cause != "VISUAL_MESH_FAILED:status=" + std::to_string(IMeshData_Failure))) throw;
+                std::clog << "mesh stage=refinement_retry factor=" << refinement * 0.5 << " cause=" << cause << '\n';
+            }
         }
     } catch (const Standard_Failure& error) {
         throw std::runtime_error(std::string("VISUAL_OCCT_FAILURE:") + (error.GetMessageString() ? error.GetMessageString() : "unknown"));

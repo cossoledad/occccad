@@ -195,6 +195,13 @@ func TestDirectSTEPImportRetainsSelectedDefinitionBeyondCacheCapacity(t *testing
 	if target == "" {
 		t.Fatal("source definition missing")
 	}
+	if actual := singleSTEPDefinitionVolume(t, f, source, target); math.Abs(actual-6) > 1e-7 {
+		t.Fatal("wrong selected definition volume", actual)
+	}
+}
+
+func singleSTEPDefinitionVolume(t *testing.T, f exchangeFixture, source geometry.ArtifactReference, target string) float64 {
+	t.Helper()
 	id := uuid.NewString()
 	evaluated, err := f.h.geometry.ImportExchange(t.Context(), id, id, "STEP", source, target, artifact.StagingKey(id, "import.brep"), artifact.StagingKey(id, "import.glb"))
 	if err != nil {
@@ -203,7 +210,8 @@ func TestDirectSTEPImportRetainsSelectedDefinitionBeyondCacheCapacity(t *testing
 	ref := evaluated.GetBrepArtifact()
 	input := geometry.AnalysisGeometry{ID: "part", GeometryID: evaluated.GetGeometryId(), BRep: geometry.ArtifactReference{Backend: ref.GetBackend(), ObjectKey: ref.GetObjectKey(), SHA256: ref.GetSha256(), Size: int64(ref.GetSizeBytes()), ContentType: ref.GetContentType()}, Pose: geometry.AssemblyPose{Rotation: [4]float64{0, 0, 0, 1}}}
 	measurement, err := f.h.geometry.MeasureGeometry(t.Context(), id+"/volume", "ITEM", []geometry.AnalysisGeometry{input}, [][]geometry.MeasurementElement{{{InputID: "part", Kind: "BODY", Mode: "GEOMETRY"}}})
-	if err != nil || !measurement.Complete || evaluated.GetTopology().GetSolidCount() != 1 || math.Abs(measurement.Values["volumeMm3"]-6) > 1e-7 {
+	if err != nil || !measurement.Complete || evaluated.GetTopology().GetSolidCount() != 1 {
 		t.Fatal("wrong selected definition", evaluated.GetTopology(), measurement, err)
 	}
+	return measurement.Values["volumeMm3"]
 }

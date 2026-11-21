@@ -252,11 +252,13 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  await page.goto('/');const seed=await seedProduct(page,false,true);
  await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible({timeout:60_000});
  await command(page,'运动机构');await expect(page.getByRole('button',{name:'固定件',exact:true})).toBeEnabled();
- await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
- await command(page,'旋转接合');const joint=page.getByRole('dialog',{name:'旋转.1',exact:true});
+ await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);await page.getByRole('dialog').filter({has:page.getByRole('textbox',{name:'接合名称'})}).getByRole('button',{name:/^确\s*定$/}).click();
+ await command(page,'旋转接合');const joint=page.getByRole('dialog').filter({has:page.getByRole('textbox',{name:'接合名称'})});
  const revealTree=treeNavigator(page),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  for(const [label,index] of [['旋转圆柱面',0],['旋转圆柱面',1],['旋转定位面',0],['旋转定位面',1]] as const){
   await revealTree(label);const supports=tree.getByText(label,{exact:true});await expect(supports).toHaveCount(2);await supports.nth(index).click();
+  const slot=(index===0?'第一':'第二')+(label==='旋转圆柱面'?'轴线':'定位平面');
+  await expect(joint.locator('.feature-pick-field').filter({hasText:slot})).toContainText(label);
  }
  await expect(joint.locator('.feature-pick-field').filter({hasText:'第一轴线'})).toContainText('圆柱面轴线');
  await expect(joint.locator('.feature-pick-field').filter({hasText:'第二轴线'})).toContainText('圆柱面轴线');
@@ -321,7 +323,7 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  expect(recorded.product.instances).toEqual(baseline.product.instances);expect(recorded.product.kinematics).not.toHaveProperty('laws');
  await command(page,'撤销');v=await current(page,seed.id);expect(v.product.kinematics.studies).toHaveLength(0);expect(v.product.kinematics.mechanisms[0].poses).toEqual(baseline.product.kinematics.mechanisms[0].poses);
  await command(page,'重做');v=await current(page,seed.id);expect(v.product.kinematics.studies[0].keyframes).toEqual(recorded.product.kinematics.studies[0].keyframes);
- await revealTree('模拟.1');await tree.getByText('模拟.1',{exact:true}).dblclick();await expect(page.getByRole('dialog')).toHaveCount(2);
+ const studyName=recorded.product.kinematics.studies[0].name;await revealTree(studyName);await tree.getByText(studyName,{exact:true}).dblclick();await expect(page.getByRole('dialog')).toHaveCount(2);
  await expect.poll(async()=>Number(await trial.getByRole('spinbutton',{name:'命令角度'}).inputValue())).toBeCloseTo(0,2);
  await recorder.getByRole('button',{name:/^取\s*消$/}).click();await expect(page.getByRole('dialog')).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(v.document.versionId);
  await revealTree('结果.');await expect(tree.getByText('结果.1 · 完成',{exact:true})).toBeVisible({timeout:120_000});
@@ -333,7 +335,7 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  await expect(simulation.getByRole('spinbutton',{name:'定位时间 s'})).toHaveValue('0.37');await page.keyboard.press('Escape');
  const beforeDelete=await current(page,seed.id);await tree.getByText('结果.1 · 完成',{exact:true}).click({button:'right'});await page.getByRole('menuitem',{name:'删除',exact:true}).click();await expect(tree.getByText('结果.1 · 完成',{exact:true})).toHaveCount(0);
  expect((await current(page,seed.id)).document.versionId).toBe(beforeDelete.document.versionId);await revealTree('');
- await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:'旋转.2',exact:true})).toBeVisible();await page.keyboard.press('Escape');expect(errors).toEqual([]);
+ await command(page,'旋转接合');await expect(page.getByRole('dialog').getByRole('textbox',{name:'接合名称'})).toBeVisible();await page.keyboard.press('Escape');expect(errors).toEqual([]);
 });
 
 test('viewport instance picks and mechanism manipulation preserve Product constraints and poses',async({page})=>{

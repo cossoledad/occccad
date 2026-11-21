@@ -74,3 +74,32 @@ test('exchange: Product displays independent geometry results at each occurrence
  const bindings=await page.evaluate(feature=>[...(window as any).__cameraEngine.solidBindings.values()].filter((b:any)=>b.context.result?.featureId===feature).map((b:any)=>({path:b.context.instancePath.canonical,revision:b.context.versionId,body:b.context.bodyId,result:b.context.result})),seed.feature);expect(new Set(bindings.map(b=>b.path)).size).toBe(2);expect(bindings.every(b=>b.revision&&b.result.resultId&&!b.body)).toBe(true);expect(errors).toEqual([]);
  await page.screenshot({path:info.outputPath('product-independent-curves.png')});await page.request.delete(`/api/documents/${seed.id}`);await page.request.delete(`/api/documents/${seed.part}`);
 });
+
+test('adopting a pinned revision advances just the selected shared occurrence',async({page})=>{
+ await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');
+  let part=await api.createDocument('PART','Pinned source');
+  let owner=await api.createDocument('PRODUCT','Pinned adoption');
+  for(let n=0;n<2;n++){
+   owner=await api.command(owner.document.id,{type:'INSERT_INSTANCE',referencedDocumentId:part.document.id});
+   owner=await api.command(owner.document.id,{type:'SET_REFERENCE_MODE',instanceId:owner.product!.instances[n].id,referenceMode:'PINNED'});
+  }
+  const old=part.document.versionId;
+  part=await api.command(part.document.id,{type:'RENAME_BODY',bodyId:part.part!.activeBodyId,name:'Adopted body'});
+  return {owner:owner.document.id,source:part.document.id,first:owner.product!.instances[0].id,old,head:part.document.versionId};
+ });
+ await page.goto('/documents/'+seed.owner);
+ const node=page.locator(`[role=treeitem][data-tree-key$="instance:${seed.first}"]`);
+ await node.click({button:'right'});
+ await page.getByRole('menuitem',{name:'对象',exact:true}).hover();
+ await page.getByRole('menuitem',{name:'查看并采用新版…'}).click();
+ const dialog=page.getByRole('dialog',{name:'采用零件新版'});
+ await expect(dialog.getByRole('checkbox')).not.toBeChecked();
+ await dialog.getByRole('button',{name:'采用并固定'}).click();
+ await expect(dialog).toHaveCount(0);
+ const view=await (await page.request.get('/api/documents/'+seed.owner)).json();
+ expect(view.product.instances.map((i:any)=>[i.referenceMode,i.versionId])).toEqual([['PINNED',seed.head],['PINNED',seed.old]]);
+ await page.request.delete('/api/documents/'+seed.owner);
+ await page.request.delete('/api/documents/'+seed.source);
+});

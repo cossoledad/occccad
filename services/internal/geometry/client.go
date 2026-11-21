@@ -1074,14 +1074,18 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 }
 
 func (client *Client) InspectExchange(ctx context.Context, requestID, format string, source ArtifactReference, outputPrefix ...string) (*ExchangeGraph, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
-	defer cancel()
 	prefix := ""
 	if len(outputPrefix) > 0 {
 		prefix = outputPrefix[0]
 	}
+	return client.PrepareExchange(ctx, requestID, format, source, prefix, "")
+}
+
+func (client *Client) PrepareExchange(ctx context.Context, requestID, format string, source ArtifactReference, prefix, definition string) (*ExchangeGraph, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
+	defer cancel()
 	response, err := client.worker.InspectExchange(ctx, &workerv1.InspectExchangeRequest{
-		RequestId: requestID, Format: format, Source: artifactProto(source), ComponentOutputPrefix: prefix,
+		RequestId: requestID, Format: format, Source: artifactProto(source), ComponentOutputPrefix: prefix, ComponentDefinitionId: definition,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("inspect %s exchange: %w", format, err)

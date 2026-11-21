@@ -17,8 +17,10 @@ type CurvatureSample struct {
 	Surface  bool       `json:"surface"`
 }
 type QualityBoundaryEdge struct {
-	EdgeID uint64       `json:"edgeId"`
-	Points [][3]float64 `json:"points"`
+	FirstVertex uint64       `json:"firstVertex"`
+	LastVertex  uint64       `json:"lastVertex"`
+	EdgeID      uint64       `json:"edgeId"`
+	Points      [][3]float64 `json:"points"`
 }
 type QualityGapCandidate struct {
 	FirstEdge  uint64     `json:"firstEdge"`
@@ -91,7 +93,7 @@ func validateCurvatureResult(reply *workerv1.MeasureGeometryResponse) (Curvature
 			return bad()
 		}
 		seen[edge.EdgeId] = true
-		v := QualityBoundaryEdge{EdgeID: edge.EdgeId, Points: [][3]float64{}}
+		v := QualityBoundaryEdge{EdgeID: edge.EdgeId, FirstVertex: edge.FirstVertex, LastVertex: edge.LastVertex, Points: [][3]float64{}}
 		for _, point := range edge.Points {
 			if point == nil || !finite(point.X) || !finite(point.Y) || !finite(point.Z) {
 				return bad()

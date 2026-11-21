@@ -46,6 +46,9 @@ void boundary_quality(const std::vector<TopoDS_Shape>& shapes, MeasurementResult
         builder.Add(compound, shape);
     TopTools_IndexedDataMapOfShapeListOfShape adjacent;
     TopExp::MapShapesAndAncestors(compound, TopAbs_EDGE, TopAbs_FACE, adjacent);
+    TopTools_IndexedMapOfShape edges, vertices;
+    TopExp::MapShapes(compound, TopAbs_EDGE, edges);
+    TopExp::MapShapes(compound, TopAbs_VERTEX, vertices);
     std::vector<TopoDS_Edge> free;
     result.boundary_complete = true;
     for (int i = 1; i <= adjacent.Extent(); ++i) {
@@ -67,7 +70,11 @@ void boundary_quality(const std::vector<TopoDS_Shape>& shapes, MeasurementResult
         check();
         BRepAdaptor_Curve c(free[i]);
         MeasurementResult::BoundaryEdge edge;
-        edge.edge_id = i + 1;
+        edge.edge_id = edges.FindIndex(free[i]);
+        TopoDS_Vertex first, last;
+        TopExp::Vertices(free[i], first, last);
+        edge.first_vertex = vertices.FindIndex(first);
+        edge.last_vertex = vertices.FindIndex(last);
         GCPnts_UniformAbscissa samples(c, 17);
         if (!samples.IsDone()) {
             result.boundary_complete = false;
@@ -103,7 +110,7 @@ void boundary_quality(const std::vector<TopoDS_Shape>& shapes, MeasurementResult
                 result.boundary_complete = false;
                 return;
             }
-            result.gap_candidates.push_back({i + 1, j + 1, vec(distance.PointOnShape1(1)),
+            result.gap_candidates.push_back({static_cast<uint64_t>(edges.FindIndex(free[i])), static_cast<uint64_t>(edges.FindIndex(free[j])), vec(distance.PointOnShape1(1)),
                                              vec(distance.PointOnShape2(1)), gap});
         }
 }

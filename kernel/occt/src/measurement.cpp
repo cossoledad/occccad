@@ -60,7 +60,10 @@ Support prepare(const TopoDS_Shape& root,const MeasurementElement& e){
     if(!std::isfinite(n)||std::abs(n-1)>1e-8||!std::isfinite(t.x)||!std::isfinite(t.y)||!std::isfinite(t.z))
         throw std::invalid_argument("MEASUREMENT_PLACEMENT_INVALID");
     gp_Trsf tr;tr.SetRotation(gp_Quaternion(q.x,q.y,q.z,q.w));tr.SetTranslationPart(gp_Vec(t.x,t.y,t.z));
-    Support s;s.shape=BRepBuilderAPI_Transform(select_shape(root,e),tr,true).Shape();
+    // A local operand already uses the frozen BREP's topology index.
+    const bool identity=t.x==0 && t.y==0 && t.z==0 && q.x==0 && q.y==0 && q.z==0 && q.w==1;
+    const auto local=select_shape(root,e);
+    Support s;s.shape=identity ? local : BRepBuilderAPI_Transform(local,tr,true).Shape();
     if(e.kind=="VERTEX"){s.type="POINT";s.center=BRep_Tool::Pnt(TopoDS::Vertex(s.shape));}
     if(e.kind=="EDGE"){
         BRepAdaptor_Curve c(TopoDS::Edge(s.shape));

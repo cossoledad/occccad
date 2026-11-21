@@ -502,3 +502,54 @@ test('Fill locates a measured deviation and accepts a corrected five-edge loop a
  expect(v.artifacts[f.result.geometryKey].topology).toMatchObject({faces:1,edges:5,vertices:5});
  await expect.poll(markers).toEqual([]);
 });
+
+test('A measured free boundary opens Fill with bound edges and exact preview',async({page})=>{
+ await login(page);
+ const sheet=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');
+  let v=await api.createDocument('PART','Repair from inspected boundary');
+  const id=v.document.id;
+  v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name:'Bottom edge',geometry:{kind:'LINE',curve:{points:[{id:'a',position:[0,0,0]},{id:'b',position:[10,0,0]}]}}}});
+  const line=v.part!.features.at(-1)!;
+  v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name:'Trimmed sheet',geometry:{kind:'SURFACE_EXTRUDE',inputs:[{kind:'RESULT',featureId:line.id,resultId:line.result!.id}],parameters:{direction:[0,1,0],distance:5}}}});
+  return {id,feature:v.part!.features.at(-1)!};
+ });
+ await page.goto(`/documents/${sheet.id}`);await geometryTab(page);await command(page,'曲率分析');
+ const quality=page.getByRole('dialog',{name:'曲率分析',exact:true});
+ await selectTree(page,sheet.feature.id,sheet.feature.name!);await quality.getByText('自由边',{exact:true}).click();
+ await expect(quality).toContainText('定位边界环 1（4 条边）');await quality.getByRole('button',{name:'填充此环'}).click();
+ const fill=page.getByRole('dialog',{name:'填充',exact:true});await ready(page,fill);
+ await fill.getByRole('button',{name:confirmCommandName}).click();await expect(fill).toHaveCount(0);
+ const v=await document(page,sheet.id);const f=v.part.features.at(-1);
+ expect(f.geometry.kind).toBe('SURFACE_FILL');expect(f.geometry.inputs).toHaveLength(4);
+ for(const input of f.geometry.inputs)expect(input.selection.sourceFeatureId).toBe(sheet.feature.id);
+});
+
+test('Move planar face picks the owning Body and previews committed numeric input',async({page})=>{
+ let previews=0;
+ page.on('websocket', ws=>ws.on('framesent',({payload})=>{if(String(payload).includes('workspace.preview.request.v1'))previews++}));
+ await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');
+  let view=await api.createDocument('PART','Planar edit');const id=view.document.id;
+  view=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=view.part!.features.at(-1)!.id;
+  await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_RECTANGLE',first:{x:-10,y:-8},second:{x:10,y:8}}]});
+  await api.command(id,{type:'CREATE_SOLID_FEATURE',generator:'LINEAR_EXTRUDE',sketchId,operation:'ADD',length:8});
+  return id;
+ });
+ await page.goto('/documents/'+seed);await observeViewport(page);await geometryTab(page);
+ await command(page,'移动平面');
+ const dialog=page.getByRole('dialog',{name:'移动平面',exact:true});
+ await expect(dialog).toBeVisible();
+ const point=await worldScreen(page,[0,0,8]);
+ await expect.poll(()=>page.evaluate(({x,y})=>{const engine=(window as any).__cameraEngine,rect=engine.renderer.domElement.getBoundingClientRect(),hit=engine.hitTest(x-rect.x,y-rect.y);return {kind:hit?.kind,body:hit?.bodyId,stage:hit?.displayStageFeatureId,result:hit?.result}},point)).toMatchObject({kind:'face',body:expect.any(String)});
+ await page.mouse.click(point.x,point.y);await ready(page,dialog);
+ const distance=dialog.getByRole('combobox',{name:/移动距离/});
+ const initial=previews;await distance.fill('0');await distance.fill('0.0');await distance.fill('0.01');
+ await expect(distance).toBeFocused();expect(previews).toBe(initial);
+ await distance.blur();await expect.poll(()=>previews).toBeGreaterThan(initial);await ready(page,dialog);
+ await dialog.getByRole('button',{name:confirmCommandName}).click();await expect(dialog).toHaveCount(0);
+ const updated=await document(page,seed);
+ expect(updated.part.features.at(-1)).toMatchObject({type:'MOVE_PLANAR_FACE',bodyId:updated.part.activeBodyId,geometry:{parameters:{distance:.01}}});
+ await page.request.delete('/api/documents/'+seed);
+});

@@ -20,7 +20,7 @@ struct GeometryFeatureBuild {
     std::vector<GeometryNamedShape> named;
 };
 GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& spec,
-                                            const std::function<bool()>& cancelled = {});
+                                            const std::function<bool()>& cancelled = {}, const std::string& body_operation = {});
 GeometryFeatureBuild read_geometry_input(const GeometryFeatureInput& input);
 // Complete only topologically unique construction roles; never number branches
 // by traversal order, coordinates or distance to old geometry.
