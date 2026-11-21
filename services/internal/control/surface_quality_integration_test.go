@@ -26,9 +26,27 @@ func TestSurfaceShapeQualityThroughRouter(t *testing.T) {
 	}
 	apply := func(feature workspace.Feature) {
 		t.Helper()
-		v, err = f.service.ApplyCommand(ctx, v.Document.ID, workspace.CommandRequest{ActorID: f.actor, RequestID: uuid.NewString(), VersionID: v.Document.VersionID, Type: "CREATE_GEOMETRY_FEATURE", Feature: &feature})
+		request := workspace.CommandRequest{ActorID: f.actor, RequestID: uuid.NewString(), VersionID: v.Document.VersionID, Type: "CREATE_GEOMETRY_FEATURE", Feature: &feature}
+		var preview workspace.CommandPreview
+		if feature.Geometry.Kind == "SURFACE_BLEND" {
+			preview = engineeringFeaturePreview(t, f.service, v.Document.ID, request, "g2-blend")
+			if preview.BaseVersionID != v.Document.VersionID {
+				t.Fatal("wrong preview revision")
+			}
+			request.PreviewID = preview.PreviewID
+		}
+		v, err = f.service.ApplyCommand(ctx, v.Document.ID, request)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if preview.Artifact != nil {
+			committed := v.Artifacts[preview.Artifact.GeometryKey]
+			for _, role := range []string{"BREP", "NAMING", "VISUAL"} {
+				want := preview.Artifact.Representations[role].Digest
+				if want == "" || committed.Representations[role].Digest != want {
+					t.Fatalf("promoted Blend differs in %s", role)
+				}
+			}
 		}
 	}
 	ids := []string{}

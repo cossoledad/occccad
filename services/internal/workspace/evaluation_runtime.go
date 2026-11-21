@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -10,6 +11,7 @@ import (
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 )
 
 // Runtime records use the existing graph's node keys, never a second graph.
@@ -27,7 +29,11 @@ type evaluationRuntime struct {
 	coldPrepared preparedCache
 	mu           sync.Mutex
 	records      EvaluationRuntime
-	bodies       map[string]string
+	bodies       map[bodyEvaluationKey]bool
+}
+type bodyEvaluationKey struct {
+	geometry string
+	cold     bool
 }
 type evaluationRuntimeKey struct{}
 
@@ -35,7 +41,7 @@ func withEvaluationRuntime(ctx context.Context) context.Context {
 	if _, ok := ctx.Value(evaluationRuntimeKey{}).(*evaluationRuntime); ok {
 		return ctx
 	}
-	return context.WithValue(ctx, evaluationRuntimeKey{}, &evaluationRuntime{records: EvaluationRuntime{Nodes: map[modelcore.DependencyKey]EvaluationExecution{}}, bodies: map[string]string{}})
+	return context.WithValue(ctx, evaluationRuntimeKey{}, &evaluationRuntime{records: EvaluationRuntime{Nodes: map[modelcore.DependencyKey]EvaluationExecution{}}, bodies: map[bodyEvaluationKey]bool{}})
 }
 
 // WithColdEvaluation is a recovery/test path: bypasses preparation, stage,
@@ -217,12 +223,28 @@ func (s *Service) projectExternalGeometry(ctx context.Context, requestID, sketch
 }
 
 func resolveRuntimeParameters(ctx context.Context, m *PartModel) error {
+	defer perf.Start(ctx, "part-parameters")()
 	started := time.Now()
 	err := validateAndResolvePartParameters(m)
 	if err == nil {
+		type quantityKey struct {
+			bits      uint64
+			dimension modelcore.Dimension
+		}
+		digests := make(map[quantityKey]string)
+		nilDigest := modelcore.ValueDigest(json.RawMessage("null"))
 		for _, p := range m.Parameters {
-			b, _ := json.Marshal(p.EvaluatedValue)
-			recordEvaluation(ctx, "parameter:"+p.ParameterID, false, modelcore.ValueDigest(b), time.Since(started))
+			digest := nilDigest
+			if q := p.EvaluatedValue; q != nil {
+				key := quantityKey{math.Float64bits(q.SIValue), q.Dimension}
+				var ok bool
+				if digest, ok = digests[key]; !ok {
+					b, _ := json.Marshal(q)
+					digest = modelcore.ValueDigest(b)
+					digests[key] = digest
+				}
+			}
+			recordEvaluation(ctx, "parameter:"+p.ParameterID, false, digest, time.Since(started))
 		}
 	}
 	return err

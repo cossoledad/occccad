@@ -2373,6 +2373,7 @@ func applyUpdateReferences(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 }
 
 type preparedDomainMutation struct {
+	basePart                                                                   *PartModel
 	contextBindings                                                            []ContextBinding
 	contextRootID, contextRootRevision, contextKey                             string
 	workspaceID, headRevision, documentType, requestDigest, requestID, actorID string
@@ -2449,7 +2450,7 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if err != nil {
 		return prepared, err
 	}
-	if err := adapter.ValidateCommandModel(prepared.modelJSON); err != nil {
+	if err := adapter.PrepareCommandModel(&prepared); err != nil {
 		return prepared, err
 	}
 	if prepared.documentType == "PART" && request.AfterFeatureID != "" && request.RootProductDocumentID != "" && request.ContextVariantID == "" {
@@ -2867,6 +2868,7 @@ func assemblyConstraintSolveIntent(command modelcore.DomainCommand, model Produc
 // Workspace or appending history. Geometry artifacts remain content-addressed
 // rebuildable cache entries and may therefore be reused by the later commit.
 func (service *Service) PreviewCommand(ctx context.Context, documentID string, request CommandRequest) (result CommandPreview, failure error) {
+	defer perf.Start(ctx, "preview-total")()
 	ctx = withEvaluationRuntime(ctx)
 	diagnostic := service.newOperationDiagnostic(ctx, documentID, request, "PREVIEW")
 	var diagnosticJSON json.RawMessage
@@ -2890,6 +2892,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	diagnostic.stage("DEFINITION")
+	finishDefinition := perf.Start(ctx, "preview-definition")
 	nextJSON, previewChanges, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
 	if err != nil {
 		return CommandPreview{}, err
@@ -2897,6 +2900,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if err := validateContextInputWrites(prepared.modelJSON, nextJSON, prepared.contextBindings); err != nil {
 		return CommandPreview{}, err
 	}
+	finishDefinition()
 	diagnosticJSON = nextJSON
 	adapter, err := documentAdapters.Lookup(prepared.documentType)
 	if err != nil {

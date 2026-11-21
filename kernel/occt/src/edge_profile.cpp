@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <optional>
 
 namespace occccad::kernel::detail {
 namespace {
@@ -160,6 +159,10 @@ void append_edge_profile(TessellationResult& mesh, uint32_t edge_id, const TopoD
         if (limited)
             ++mesh.timings.edge_sampling_limits;
     };
+    // The high-resolution grid is sparse for most chords. Only the samples
+    // touched by this chord are live; their indices and evaluation order stay fixed.
+    std::array<Sample, grid + 1> samples;
+    std::array<size_t, grid + 1> generations{};
     for (size_t segment = 0; segment + 1 < canonical.size(); ++segment) {
         if (checkpoint)
             checkpoint();
@@ -188,15 +191,14 @@ void append_edge_profile(TessellationResult& mesh, uint32_t edge_id, const TopoD
             emit(start, end, false, false);
             continue;
         }
-        std::array<std::optional<Sample>, grid + 1> cache;
         auto sample = [&](int index) -> const Sample& {
-            auto& value = cache[index];
-            if (!value) {
+            if (generations[index] != segment + 1) {
+                generations[index] = segment + 1;
                 auto point = evaluate(double(index) / grid);
-                value = Sample{point, !valid(point.normal_a) || !valid(point.normal_b),
-                               sharpness(point.normal_a, point.normal_b)};
+                samples[index] = Sample{point, !valid(point.normal_a) || !valid(point.normal_b),
+                                        sharpness(point.normal_a, point.normal_b)};
             }
-            return *value;
+            return samples[index];
         };
         auto refine = [&](auto&& self, int lo, int hi, int depth) -> void {
             const auto& a = sample(lo);

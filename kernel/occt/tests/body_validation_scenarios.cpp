@@ -4,6 +4,7 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
 #include <BRep_Builder.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -15,6 +16,7 @@
 #include <internal/planar_boundary.hpp>
 
 #include <gtest/gtest.h>
+#include <cmath>
 
 namespace {
 using namespace occccad::kernel::detail;
@@ -26,6 +28,31 @@ TopoDS_Wire rectangle(double x, double y, double dx, double dy) {
 }
 
 enum class HoleCase { separate, crossing, nested, reversed, repeated, touching, outside };
+
+TEST(BodyValidation, BooleanOrientationRequiresLargeValidatedInputAndOneOutwardTool) {
+    BRepBuilderAPI_MakePolygon polygon;
+    for (int i = 0; i < 132; ++i) {
+        const double angle = i * (2 * std::acos(-1.) / 132);
+        polygon.Add(gp_Pnt(10 * std::cos(angle), 10 * std::sin(angle), 0));
+    }
+    polygon.Close();
+    const auto body = BRepPrimAPI_MakePrism(BRepBuilderAPI_MakeFace(polygon.Wire()).Face(),
+                                            gp_Vec(0, 0, 10)).Shape();
+    const auto tool = BRepPrimAPI_MakeBox(2, 2, 2).Solid();
+    ASSERT_TRUE(BRepCheck_Analyzer(body).IsValid());
+    EXPECT_TRUE(reuse_boolean_orientation(body, tool));
+    EXPECT_FALSE(reuse_boolean_orientation(tool, body));
+    EXPECT_FALSE(reuse_boolean_orientation(body, tool.Reversed()));
+    BRep_Builder builder;
+    TopoDS_Compound tools;
+    builder.MakeCompound(tools);
+    builder.Add(tools, tool);
+    EXPECT_TRUE(reuse_boolean_orientation(body, tools));
+    EXPECT_FALSE(reuse_boolean_orientation(body, tools.Reversed()));
+    builder.Add(tools, BRepPrimAPI_MakeBox(gp_Pnt(5, 0, 0), 2, 2, 2).Solid());
+    EXPECT_FALSE(reuse_boolean_orientation(body, tools));
+    EXPECT_FALSE(reuse_boolean_orientation(tools, body));
+}
 
 TopoDS_Face perforated(HoleCase mode) {
     auto outer = rectangle(0, 0, 20, 220);

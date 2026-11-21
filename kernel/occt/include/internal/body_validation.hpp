@@ -11,6 +11,10 @@ namespace occccad::kernel::detail {
 bool valid_body_boundary(const TopoDS_Shape& result, const TopoDS_Shape& predecessor,
                          const std::function<bool()>& cancelled, bool& parallel);
 
+// The caller already proved finite, outward material for the input. Qualify
+// the other operand before reusing this fact in OCCT's Boolean builder.
+bool reuse_boolean_orientation(const TopoDS_Shape& validated_input, const TopoDS_Shape& tool);
+
 // A positive result proves membership changed across an ADD or REMOVE.
 // Inconclusive probes leave the Boolean partition as the authority.
 bool proves_material_change(const TopoDS_Shape& input, const TopoDS_Shape& tool,

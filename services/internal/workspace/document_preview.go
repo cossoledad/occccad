@@ -30,11 +30,9 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 	result, failure := func() (CommandPreview, error) {
 
 		var model PartModel
-		var beforeModel PartModel
+		finish := perf.Start(ctx, "preview-model-inputs")
+		beforeModel := *prepared.basePart
 		if err = json.Unmarshal(nextJSON, &model); err != nil {
-			return CommandPreview{}, err
-		}
-		if err = json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
 			return CommandPreview{}, err
 		}
 		for _, binding := range prepared.contextBindings {
@@ -54,6 +52,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		diagnostic.stage("PARAMETERS")
 		normalizePartModel(&model)
 		normalizePartModel(&beforeModel)
+		finish()
 		if err = resolveRuntimeParameters(ctx, &model); err != nil {
 			return CommandPreview{}, err
 		}
@@ -91,12 +90,14 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 				return CommandPreview{}, err
 			}
 		}
+		finish = perf.Start(ctx, "preview-changes")
 		previewChanges = appendEvaluatedDatumChanges(appendEvaluatedSketchChanges(previewChanges, beforeModel, model), beforeModel, model)
-		nextJSON, _ = json.Marshal(model)
-		previewChanges, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, previewChanges)
-		if err != nil {
+		// Candidates carry the write set and impact seeds. Promotion reconciles
+		// values against the final evaluated Revision, including evaluator changes.
+		if err := previewChanges.Finalize(); err != nil {
 			return CommandPreview{}, err
 		}
+		finish()
 		// Sketch drawing needs a solved sketch candidate, not a new Body mesh.
 		// Real consumers of an edited profile remain dirty and use normal preview.
 		if prepared.command.TypeURI == typeEditSketch && executionPlan(ctx) != nil {
@@ -110,6 +111,10 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 				}
 			}
 			if !geometryDirty {
+				nextJSON, err = json.Marshal(model)
+				if err != nil {
+					return CommandPreview{}, err
+				}
 				previewID := newID("preview")
 				service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
 					headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
@@ -120,6 +125,10 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			}
 		}
 		if _, broken := firstUnresolvedExternal(model); broken {
+			nextJSON, err = json.Marshal(model)
+			if err != nil {
+				return CommandPreview{}, err
+			}
 			previewID := newID("preview")
 			service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
 				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
@@ -216,13 +225,18 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 				bodyAssignment = "EXPLICIT_NEW_BODY"
 			}
 		}
-		nextJSON, _ = json.Marshal(model)
+		finish = perf.Start(ctx, "preview-freeze")
+		nextJSON, err = json.Marshal(model)
+		if err != nil {
+			return CommandPreview{}, err
+		}
 		modelHash := canonicalModelHash(nextJSON)
 		previewID := newID("preview")
 		service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
 			headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 			payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, geometryKey: geometryKey, visualObjectID: artifact.Representations["VISUAL"].ObjectID,
 			changes: previewChanges, expiresAt: time.Now().Add(interactionCandidateTTL)})
+		finish()
 		artifact.RepresentationKind = "TRANSIENT_PREVIEW"
 		var loftSections []LoftSection
 		var loftConnections [][][3]float64

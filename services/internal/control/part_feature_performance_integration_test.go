@@ -27,6 +27,21 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Time the command boundary separately from fixture setup, measurement queries and
+// response assertions. A preview used in these scenarios must be promotable.
+func engineeringFeaturePreview(t *testing.T, service *workspace.Service, documentID string, req workspace.CommandRequest, operation string) workspace.CommandPreview {
+	t.Helper()
+	ctx, rec := perf.WithRecorder(t.Context())
+	started := time.Now()
+	preview, err := service.PreviewCommand(ctx, documentID, req)
+	elapsed := time.Since(started)
+	if err != nil || preview.PreviewID == "" || preview.Artifact == nil {
+		t.Fatalf("%s preview: %v", operation, err)
+	}
+	t.Logf("engineering_preview=%s elapsed_ms=%.3f stages=%v", operation, float64(elapsed)/float64(time.Millisecond), rec.SnapshotMilliseconds())
+	return preview
+}
+
 // Generated mechanical STEP, not the unavailable user's B-pillar. Controls
 // source complexity independently of the number of subsequent Feature steps.
 func TestDenseSTEPFaceSketchAndFirstCutThroughRouter(t *testing.T) {
@@ -46,9 +61,11 @@ func TestDenseSTEPFaceSketchAndFirstCutThroughRouter(t *testing.T) {
 			r.RequestID = fmt.Sprintf("%s-dense-%d", view.Document.ID, seq)
 		}
 		r.VersionID = view.Document.VersionID
+		timed, rec := perf.WithRecorder(ctx)
 		started := time.Now()
-		view, err = service.ApplyCommand(ctx, view.Document.ID, r)
+		view, err = service.ApplyCommand(timed, view.Document.ID, r)
 		lastElapsed = time.Since(started)
+		t.Logf("step_command=%s elapsed_ms=%.3f stages=%v", r.Type, float64(lastElapsed)/float64(time.Millisecond), rec.SnapshotMilliseconds())
 		if err != nil {
 			t.Fatal(r.Type, err)
 		}
@@ -125,11 +142,8 @@ func TestDenseSTEPFaceSketchAndFirstCutThroughRouter(t *testing.T) {
 	}
 	r := workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", ActorID: p6Actor, RequestID: prefix + "-first-cut", VersionID: view.Document.VersionID, SketchID: sketch.ID, Generator: "LINEAR_EXTRUDE", Operation: "REMOVE", Length: 10, Reversed: true}
 	start := time.Now()
-	preview, e := service.PreviewCommand(ctx, view.Document.ID, r)
+	preview := engineeringFeaturePreview(t, service, view.Document.ID, r, "step-cut")
 	firstElapsed := time.Since(start)
-	if e != nil {
-		t.Fatal(e)
-	}
 	if preview.Artifact == nil || preview.Runtime == nil || math.Abs(measuredArtifactVolume(t, preview.Artifact)-(measuredArtifactVolume(t, base)-40)) > 1e-4 {
 		t.Fatalf("first STEP cut invalid: %v", preview.Artifact)
 	}

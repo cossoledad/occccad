@@ -44,19 +44,16 @@ func (store *LocalStore) Put(ctx context.Context, kind Kind, contentType string,
 		return StoredObject{}, err
 	}
 	temporaryName := temporary.Name()
-	defer func() { _ = os.Remove(temporaryName) }()
+	defer func() {
+		if temporary != nil {
+			_ = temporary.Close()
+		}
+		_ = os.Remove(temporaryName)
+	}()
 
 	hash := sha256.New()
 	size, err := io.Copy(io.MultiWriter(temporary, hash), contextReader{ctx, source})
 	if err != nil {
-		_ = temporary.Close()
-		return StoredObject{}, err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return StoredObject{}, err
-	}
-	if err := temporary.Close(); err != nil {
 		return StoredObject{}, err
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
@@ -68,25 +65,38 @@ func (store *LocalStore) Put(ctx context.Context, kind Kind, contentType string,
 	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return StoredObject{}, err
 	}
+	object := StoredObject{Key: key, SHA256: digest, Size: size, ContentType: contentType}
+	if kind != KindTopologyManifest {
+		if info, err := os.Stat(target); err == nil {
+			if info.Size() != size {
+				return StoredObject{}, fmt.Errorf("artifact collision for %s", digest)
+			}
+			// The installed object was synced by its publisher. No reader
+			// observes this duplicate spool, which can be discarded.
+			return object, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return StoredObject{}, err
+		}
+	}
+	if err := temporary.Sync(); err != nil {
+		return StoredObject{}, err
+	}
+	if err := temporary.Close(); err != nil {
+		return StoredObject{}, err
+	}
+	temporary = nil
 	if kind == KindTopologyManifest {
 		// Admission decodes the verified input bytes. Atomically install that
 		// exact payload even if a same-size file already exists at its digest.
 		if err := os.Rename(temporaryName, target); err != nil {
 			return StoredObject{}, err
 		}
-	} else if info, err := os.Stat(target); err == nil {
-		if info.Size() != size {
-			return StoredObject{}, fmt.Errorf("artifact collision for %s", digest)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return StoredObject{}, err
 	} else if err := os.Link(temporaryName, target); err != nil {
-		// Another process may have completed the same content-addressed write.
 		if info, statErr := os.Stat(target); statErr != nil || info.Size() != size {
 			return StoredObject{}, err
 		}
 	}
-	return StoredObject{Key: key, SHA256: digest, Size: size, ContentType: contentType}, nil
+	return object, nil
 }
 
 func (store *LocalStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {

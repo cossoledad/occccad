@@ -28,14 +28,18 @@ func preparePartExecution(ctx context.Context, before, model PartModel, prior *m
 	if geometry.PartRuntime(ctx).ForceCold || prior == nil || prior.EvaluatorDigest != evaluatorVersion {
 		return ctx, nil
 	}
+	finish := perf.Start(ctx, "part-graph")
 	graph, err := buildPartGraph(model)
+	finish()
 	if err != nil {
 		return ctx, err
 	}
+	finish = perf.Start(ctx, "part-graph-inputs")
 	changed, err := graph.ChangedInputs(prior, evaluatorVersion, "units-mm-v1", partNodeOutput)
 	if err != nil {
 		return ctx, err
 	}
+	finish()
 	changed = append(changed, seeds...)
 	for _, f := range model.Features {
 		if f.Sketch != nil {

@@ -259,9 +259,11 @@ func quantityInDisplayUnit(value modelcore.Quantity, unit string) (float64, erro
 func resolveParameterDefinitions(parameters []modelcore.ParameterDefinition) (map[string]modelcore.Quantity, error) {
 	nodes := make([]modelcore.DependencyNode, 0, len(parameters)*2)
 	edges := []modelcore.DependencyEdge{}
-	definitions := map[string]modelcore.ParameterDefinition{}
+	definitions := make(map[string]*modelcore.ParameterDefinition, len(parameters))
+	order := make([]modelcore.DependencyKey, 0, len(parameters))
 	keys := map[string]string{}
-	for _, parameter := range parameters {
+	for i := range parameters {
+		parameter := &parameters[i]
 		if parameter.ParameterID == "" {
 			return nil, fmt.Errorf("%w: parameter id is required", ErrValidation)
 		}
@@ -317,24 +319,13 @@ func resolveParameterDefinitions(parameters []modelcore.ParameterDefinition) (ma
 		}
 		keys[parameter.Key] = parameter.ParameterID
 		definitions[parameter.ParameterID] = parameter
-		source, _ := json.Marshal(parameter.Source)
-		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Phase: 1, Type: "PARAMETER", CanonicalInput: source})
+		key := modelcore.DependencyKey("parameter:" + parameter.ParameterID)
+		order = append(order, key)
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 1})
 		if parameter.Source.External != nil {
-			externalKey := modelcore.DependencyKey("external-parameter:" + parameter.ParameterID)
-			nodes = append(nodes, modelcore.DependencyNode{Key: externalKey, Phase: 0, Type: "EXTERNAL_PARAMETER_SNAPSHOT", CanonicalInput: source})
-			edges = append(edges, modelcore.DependencyEdge{Source: externalKey,
-				Target: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Kind: modelcore.ReadValue})
-		}
-		if parameter.Source.Expression != nil {
-			for _, read := range parameter.Source.Expression.Reads {
-				readID := strings.TrimPrefix(string(read), "parameter:")
-				if _, exists := definitions[readID]; !exists {
-					// Definitions may appear later in canonical order; the complete check
-					// below distinguishes that from a deleted parameter.
-					continue
-				}
-				edges = append(edges, modelcore.DependencyEdge{Source: read, Target: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Kind: modelcore.ReadValue})
-			}
+			external := modelcore.DependencyKey("external-parameter:" + parameter.ParameterID)
+			nodes = append(nodes, modelcore.DependencyNode{Key: external})
+			edges = append(edges, modelcore.DependencyEdge{Source: external, Target: key, Kind: modelcore.ReadValue})
 		}
 	}
 	for _, parameter := range parameters {
@@ -346,36 +337,30 @@ func resolveParameterDefinitions(parameters []modelcore.ParameterDefinition) (ma
 			if _, exists := definitions[readID]; !exists {
 				return nil, fmt.Errorf("%w: %w: %s", ErrValidation, modelcore.ErrParameterMissing, readID)
 			}
-			// The earlier pass only emitted edges to definitions already seen.
-			found := false
-			for _, edge := range edges {
-				if edge.Source == read && edge.Target == modelcore.DependencyKey("parameter:"+parameter.ParameterID) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				edges = append(edges, modelcore.DependencyEdge{Source: read, Target: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Kind: modelcore.ReadValue})
-			}
+			edges = append(edges, modelcore.DependencyEdge{Source: read, Target: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Kind: modelcore.ReadValue})
 		}
 	}
-	graph, err := modelcore.NewDependencyGraph(nodes, edges)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+	// Independent definitions have no scheduling edges. Keep the same lexical
+	// order and diagnostics as the ready queue in the dependency graph.
+	var err error
+	if len(edges) == 0 {
+		slices.Sort(order)
+	} else {
+		graph, graphErr := modelcore.NewDependencyGraph(nodes, edges)
+		if graphErr != nil {
+			return nil, fmt.Errorf("%w: %w", ErrValidation, graphErr)
+		}
+		order = graph.TopologicalOrder()
 	}
-	values := map[string]modelcore.Quantity{}
-	for _, key := range graph.TopologicalOrder() {
+	values := make(map[string]modelcore.Quantity, len(parameters))
+	for _, key := range order {
 		if strings.HasPrefix(string(key), "external-parameter:") {
 			continue
 		}
 		id := strings.TrimPrefix(string(key), "parameter:")
 		parameter := definitions[id]
 		if parameter.Role == "MEASURED" {
-			for i := range parameters {
-				if parameters[i].ParameterID == id {
-					parameters[i].EvaluatedValue = nil
-				}
-			}
+			parameter.EvaluatedValue = nil
 			continue
 		}
 		var value modelcore.Quantity
@@ -399,12 +384,8 @@ func resolveParameterDefinitions(parameters []modelcore.ParameterDefinition) (ma
 					}
 				}
 				if unavailable {
-					for i := range parameters {
-						if parameters[i].ParameterID == id {
-							parameters[i].EvaluatedValue = nil
-							parameters[i].CurrencyStatus = "BLOCKED"
-						}
-					}
+					parameter.EvaluatedValue = nil
+					parameter.CurrencyStatus = "BLOCKED"
 					continue
 				}
 				return nil, fmt.Errorf("%w: %w", ErrValidation, err)
@@ -418,15 +399,9 @@ func resolveParameterDefinitions(parameters []modelcore.ParameterDefinition) (ma
 			return nil, fmt.Errorf("%w: %w: parameter %s dimension mismatch", ErrValidation, modelcore.ErrUnitMismatch, id)
 		}
 		values[id] = value
-		for index := range parameters {
-			if parameters[index].ParameterID == id {
-				resolved := value
-				parameters[index].EvaluatedValue = &resolved
-				if parameters[index].Source.Produced == nil {
-					parameters[index].CurrencyStatus = ""
-				}
-				break
-			}
+		parameter.EvaluatedValue = &value
+		if parameter.Source.Produced == nil {
+			parameter.CurrencyStatus = ""
 		}
 	}
 	return values, nil

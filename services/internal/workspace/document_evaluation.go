@@ -34,18 +34,15 @@ type documentEvaluationResult struct {
 
 func evaluatePartDocument(ctx context.Context, service *Service, input documentEvaluationInput) (result documentEvaluationResult, err error) {
 	documentID, revisionID, prepared, promoted, nextJSON, changes, diagnostic := input.documentID, input.revisionID, input.prepared, input.promoted, input.nextJSON, input.changes, input.diagnostic
-	modelHash := canonicalModelHash(nextJSON)
+	var modelHash string
 	var graph *modelcore.DependencyGraph
 	var manifest modelcore.EvaluationManifest
 	var diagnosticModel *PartModel
 	revisionState, evaluationStatus := "READY", "SUCCEEDED"
 	err = func() error {
 		var model PartModel
-		var beforeModel PartModel
+		beforeModel := *prepared.basePart
 		if err := json.Unmarshal(nextJSON, &model); err != nil {
-			return err
-		}
-		if err := json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
 			return err
 		}
 		// A single-Body preview cannot certify downstream consumers of a

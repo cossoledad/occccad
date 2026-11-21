@@ -331,12 +331,14 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 	}
 	next, err := json.Marshal(model)
 	changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change}, []modelcore.DependencyKey{modelcore.DependencyKey("feature:" + current.ID)}, beforeParameters, model.Parameters)
+	currentSources := make(map[string]modelcore.ValueSource, len(model.Parameters))
+	for _, parameter := range model.Parameters {
+		currentSources[parameter.ParameterID] = parameter.Source
+	}
 	for _, old := range beforeParameters {
-		for _, parameter := range model.Parameters {
-			if old.ParameterID == parameter.ParameterID && !reflect.DeepEqual(old.Source, parameter.Source) {
-				c, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: "parameter.source"}, old.Source, parameter.Source)
-				changes = append(changes, c)
-			}
+		if source, ok := currentSources[old.ParameterID]; ok && !reflect.DeepEqual(old.Source, source) {
+			c, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: old.ParameterID, SlotID: "parameter.source"}, old.Source, source)
+			changes = append(changes, c)
 		}
 	}
 	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, err

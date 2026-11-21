@@ -2612,6 +2612,9 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     const auto build_boolean = [&](auto& algorithm) {
         const auto start = std::chrono::steady_clock::now();
         algorithm.SetNonDestructive(Standard_True);
+        if (facts && facts->allow_incremental_checks && facts->validated.count(input) &&
+            detail::reuse_boolean_orientation(input, tool.shape))
+            algorithm.SetCheckInverted(Standard_False);
         TopTools_ListOfShape arguments, tools;
         arguments.Append(input);
         tools.Append(tool.shape);

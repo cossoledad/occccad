@@ -309,7 +309,7 @@ func (s *Service) evaluateBodyPrefix(ctx context.Context, requestID string, m Pa
 	}
 	options := geometry.PartRuntime(ctx)
 	options.ExactOnly = len(display) == 0 || !display[0]
-	return s.evaluateBody(geometry.WithPartRuntime(ctx, options), requestID, bodyModel(m, bodyID), m)
+	return s.buildBody(geometry.WithPartRuntime(withEvaluationRuntime(ctx), options), requestID, bodyModel(m, bodyID), m)
 }
 func (s *Service) bodyArtifacts(ctx context.Context, m PartModel) (map[string]Artifact, error) {
 	result := map[string]Artifact{}

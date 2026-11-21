@@ -1796,36 +1796,6 @@ func partGeometryKeyForPolicy(policyDigest, baseKey string, solidFeatures []geom
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
-func (service *Service) evaluateBody(ctx context.Context, reqID string, model PartModel, fullModels ...PartModel) (string, error) {
-	ctx = withEvaluationRuntime(ctx)
-	frozen := []PartModel{model}
-	frozen = append(frozen, fullModels...)
-	for i := range frozen {
-		frozen[i].Features = append([]Feature(nil), frozen[i].Features...)
-		for j := range frozen[i].Features {
-			frozen[i].Features[j] = geometryFeatureDefinition(frozen[i].Features[j])
-		}
-	}
-	raw, _ := json.Marshal(struct {
-		Models []PartModel
-		Exact  bool
-	}{frozen, geometry.PartRuntime(ctx).ExactOnly})
-	key := modelcore.ValueDigest(raw)
-	runtime := ctx.Value(evaluationRuntimeKey{}).(*evaluationRuntime)
-	runtime.mu.Lock()
-	previous := runtime.bodies[key]
-	runtime.mu.Unlock()
-	if previous != "" {
-		return previous, nil
-	}
-	result, err := service.buildBody(ctx, reqID, model, fullModels...)
-	if err == nil {
-		runtime.mu.Lock()
-		runtime.bodies[key] = result
-		runtime.mu.Unlock()
-	}
-	return result, err
-}
 func (service *Service) buildBody(ctx context.Context, reqID string, model PartModel, fullModels ...PartModel) (string, error) {
 	compiled := perf.Start(ctx, "part-compile")
 	normalizePartModel(&model)
@@ -2068,6 +2038,18 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 		return "", err
 	}
 	compiled()
+	// The compiled key includes the Body inputs, frozen dependencies and display
+	// policy. Reuse it within this operation without hashing the full Part again.
+	runtime, _ := ctx.Value(evaluationRuntimeKey{}).(*evaluationRuntime)
+	memoKey := bodyEvaluationKey{key, geometry.PartRuntime(ctx).ForceCold}
+	if runtime != nil {
+		runtime.mu.Lock()
+		done := runtime.bodies[memoKey]
+		runtime.mu.Unlock()
+		if done {
+			return key, ctx.Err()
+		}
+	}
 	var exists bool
 	if err := service.database.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).
@@ -2139,6 +2121,11 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 	}
 	if err := service.storeEvaluation(ctx, key, evaluation, visualization); err != nil {
 		return "", err
+	}
+	if runtime != nil {
+		runtime.mu.Lock()
+		runtime.bodies[memoKey] = true
+		runtime.mu.Unlock()
 	}
 	return key, nil
 }

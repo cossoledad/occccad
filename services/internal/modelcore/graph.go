@@ -1,6 +1,7 @@
 package modelcore
 
 import (
+	"bytes"
 	"container/heap"
 	"crypto/sha256"
 	"encoding/hex"
@@ -320,12 +321,40 @@ type EvaluationManifest struct {
 type NodeEvaluator func(node DependencyNode, dependencyResults map[DependencyKey]NodeResult) (string, error)
 
 func dependencyInputDigest(node DependencyNode, deps map[DependencyKey]NodeResult, evaluator, units string) string {
-	data, _ := json.Marshal(struct {
-		Node             DependencyNode
-		Deps             map[DependencyKey]NodeResult
-		Evaluator, Units string
-	}{node, deps, evaluator, units})
-	return ValueDigest(data)
+	// Encode fixed schema fields in the lexical order of ValueDigest. Only
+	// canonicalInput has caller-defined object keys; maps of dependencies are
+	// already ordered by encoding/json and NodeResult fields are lexical.
+	var input any
+	if node.CanonicalInput != nil {
+		decoder := json.NewDecoder(bytes.NewReader(node.CanonicalInput))
+		decoder.UseNumber()
+		if !json.Valid(node.CanonicalInput) || decoder.Decode(&input) != nil {
+			return ""
+		}
+	}
+	type canonicalNode struct {
+		Input   any           `json:"canonicalInput"`
+		Derived bool          `json:"derived,omitempty"`
+		Key     DependencyKey `json:"key"`
+		Phase   uint16        `json:"phase"`
+		Type    string        `json:"type"`
+	}
+	data, err := json.Marshal(struct {
+		Deps      map[DependencyKey]NodeResult
+		Evaluator string
+		Node      canonicalNode
+		Units     string
+	}{deps, evaluator, canonicalNode{input, node.Derived, node.Key, node.Phase, node.Type}, units})
+	if err != nil {
+		return ""
+	}
+	// An invalid UTF-8 byte in a Go string is escaped by its first marshal.
+	// Preserve the normal decoder's replacement and duplicate-key semantics.
+	if bytes.Contains(data, []byte(`\ufffd`)) {
+		return ValueDigest(data)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func (graph *DependencyGraph) Evaluate(revisionID, modelHash, evaluatorDigest, unitDigest string, seeds []DependencyKey, prior *EvaluationManifest, evaluator NodeEvaluator) (EvaluationManifest, error) {

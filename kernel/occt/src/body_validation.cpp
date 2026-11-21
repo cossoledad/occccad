@@ -118,6 +118,24 @@ bool valid_body_boundary(const TopoDS_Shape& result, const TopoDS_Shape& predece
     return true;
 }
 
+bool reuse_boolean_orientation(const TopoDS_Shape& validated_input, const TopoDS_Shape& tool) {
+    const auto input_solid = single_solid(validated_input), tool_solid = single_solid(tool);
+    if (input_solid.IsNull() || tool_solid.IsNull())
+        return false;
+    TopExp_Explorer faces(input_solid, TopAbs_FACE);
+    for (int i = 0; i < 128 && faces.More(); ++i)
+        faces.Next();
+    if (!faces.More())
+        return false;
+    try {
+        BRepClass3d_SolidClassifier classifier(tool_solid);
+        classifier.PerformInfinitePoint(Precision::Confusion());
+        return classifier.State() == TopAbs_OUT;
+    } catch (const Standard_Failure&) {
+        return false;
+    }
+}
+
 bool proves_material_change(const TopoDS_Shape& input, const TopoDS_Shape& tool,
                             const TopoDS_Shape& result, bool addition,
                             const std::function<bool()>& cancelled) {

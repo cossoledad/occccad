@@ -12,6 +12,7 @@ import (
 	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 )
 
 // Ownership is exclusive: BodyID for material history, GeometricalSetID for
@@ -472,6 +473,7 @@ func (s *Service) evaluateGeometrySpec(ctx context.Context, requestID string, sp
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	defer perf.Start(ctx, "part-adopt")()
 	if err := s.storeGeometryEvaluation(ctx, key, evaluation); err != nil {
 		return "", err
 	}

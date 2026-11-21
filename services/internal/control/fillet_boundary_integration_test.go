@@ -67,10 +67,7 @@ func TestBoundaryFilletLifecycleThroughRouter(t *testing.T) {
 		request.RequestID = fmt.Sprintf("%s-fillet-%d", view.Document.ID, seq)
 		if request.Type == "CREATE_MODIFY_FEATURE" {
 			head := view.Document.VersionID
-			preview, e := service.PreviewCommand(t.Context(), view.Document.ID, request)
-			if e != nil || preview.Artifact == nil {
-				t.Fatalf("preview: %v", e)
-			}
+			preview := engineeringFeaturePreview(t, service, view.Document.ID, request, "boundary-fillet")
 			current, e := service.GetDocument(t.Context(), view.Document.ID, p6Actor)
 			if e != nil || current.Document.VersionID != head {
 				t.Fatal("preview changed head", e)

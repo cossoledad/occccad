@@ -188,3 +188,20 @@ func TestIncrementalEvaluationEqualsColdEvaluation(t *testing.T) {
 		t.Fatalf("incremental differs from cold\nincremental=%s\ncold=%s", incJSON, coldJSON)
 	}
 }
+
+func TestDependencyInputDigestMatchesCanonicalJSON(t *testing.T) {
+	for _, raw := range []json.RawMessage{nil, {}, []byte("null"), []byte(`[1.00,3e+9,-0,"世界"]`), []byte(`{"b":[1.00, {"a":-0,"x":"<>&"}],"a":"世界","b":3e+9}`), []byte("false true")} {
+		for _, name := range []string{"sketch", "bad\xff", "中文"} {
+			node := DependencyNode{Key: "feature:" + DependencyKey(name), Phase: 2, Type: name, Derived: true, CanonicalInput: raw}
+			deps := map[DependencyKey]NodeResult{"b": {InputDigest: "previous", Status: "SUCCEEDED"}, "a": {OutputDigest: "result"}}
+			encoded, _ := json.Marshal(struct {
+				Node             DependencyNode
+				Deps             map[DependencyKey]NodeResult
+				Evaluator, Units string
+			}{node, deps, "v1", "mm"})
+			if got, want := dependencyInputDigest(node, deps, "v1", "mm"), ValueDigest(encoded); got != want {
+				t.Fatalf("node %q input %q: got %q want %q", name, raw, got, want)
+			}
+		}
+	}
+}
