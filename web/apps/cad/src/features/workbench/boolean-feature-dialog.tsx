@@ -134,7 +134,7 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, occurrence
         setError(cause);
         setCommitting(false);
     } };
-    return <CommandDialog id="boolean-feature" title={initial ? "编辑布尔" : "布尔运算"} open size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={loading||analysisPending||preview.pending}/>} onConfirm={apply} confirmDisabled={!input || !preview.ready || committing} confirmLoading={committing}>
+    return <CommandDialog setPreviewField={preview.setPreviewField} id="boolean-feature" title={initial ? "编辑布尔" : "布尔运算"} open size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={loading||analysisPending||preview.pending}/>} onConfirm={apply} confirmDisabled={!input || !preview.ready || committing} confirmLoading={committing}>
   <fieldset disabled={committing} onBlurCapture={feedback.onBlurCapture} className="instance-pattern-fields feature-input-fields">
    <FeaturePickField label="目标实体" value={target?roleName(view.part?.bodies.find(b => b.id === target)?.name??"实体已丢失",'target'):undefined} selected={!!target} active={role === "target"} onActivate={() => {setReplacingRegion(undefined);setReplacing(undefined);setRole("target")}} onClear={target?()=>setTarget(undefined):undefined}/>
    <CommandField  label={<>运算</>} width="content"><Segmented value={operation} options={[{ value: "ADD", label: "并集" }, { value: "REMOVE", label: "差集" }, { value: "INTERSECT", label: "交集" }]} onChange={value => { setOperation(value as Feature["operation"]); if (value === "INTERSECT")

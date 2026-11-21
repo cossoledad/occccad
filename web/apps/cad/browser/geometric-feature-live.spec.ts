@@ -341,3 +341,54 @@ test('Shape control D: cancelling a pending topology pick drops its late result'
   await d.getByRole('button',{name:/完\s*成/}).click();
  }finally{release();await page.unroute('**/persistent-selections/bind')}
 });
+
+test('Fill reports free ends in the viewport and feature quantity previews wait for blur',async({page})=>{
+ await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');
+  let v=await api.createDocument('PART','Fill boundary and preview timing');const id=v.document.id;
+  v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=v.part!.features.at(-1)!.id;
+  await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_RECTANGLE',first:{x:-10,y:-6},second:{x:10,y:6}}]});
+  v=await api.command(id,{type:'CREATE_SOLID_FEATURE',generator:'LINEAR_EXTRUDE',sketchId,operation:'ADD',length:8});
+  return {id,pad:v.part!.features.at(-1)!};
+ });
+ await page.goto(`/documents/${seed.id}`);await observeViewport(page);await geometryTab(page);
+ await command(page,'填充');const fill=page.getByRole('dialog',{name:'填充',exact:true});
+ const notice=page.locator('.cad-fill-boundary-notice');
+ await expect(notice).toContainText('请选择填充边界');
+ // Hold the first persistent bind to distinguish immediate display diagnostics
+ // from a Worker response. Only the bound reference may enter a preview.
+ let release!:()=>void;
+ const bound=new Promise<void>(resolve=>{release=resolve});
+ await page.route('**/persistent-selections/bind',async route=>{await bound;await route.continue()},{times:1});
+ for(const [point,free] of [[[0,-6,8],2],[[0,6,8],4],[[10,0,8],2],[[-10,0,8],0]] as const){
+  const hit=await worldScreen(page,[...point]),box=await fill.boundingBox();
+  if(box && hit.x>=box.x && hit.x<=box.x+box.width && hit.y>=box.y && hit.y<=box.y+box.height){
+   const header=(await fill.locator('header').boundingBox())!;
+   await page.mouse.move(header.x+50,header.y+12);await page.mouse.down();
+   await page.mouse.move(hit.x>720?70:1400,header.y+12,{steps:6});await page.mouse.up();
+  }
+  await page.mouse.click(hit.x,hit.y);
+  await expect(notice).toContainText(free?`${free} 个自由端点`:'已闭合');
+  const markers=await page.evaluate(()=>(window as any).__cameraEngine.fillMarkers?.children[0].geometry.getAttribute('position').count??0);
+  expect(markers).toBe(free);release();
+ }
+ await ready(page,fill);await fill.getByRole('button',{name:/取\s*消/}).click();await expect(notice).toHaveCount(0);
+ await treeNavigator(page)(seed.pad.name!);await page.locator(`[role=treeitem][data-tree-key$="pad:${seed.pad.id}"]`).dblclick();
+ const edit=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,edit);
+ await page.evaluate(async()=>{
+  const {api}=await import('/src/api/client.ts');const send=api.previewCommand;
+  (window as any).__previewLengths=[];
+  api.previewCommand=(id,input,signal)=>{(window as any).__previewLengths.push((input.feature as {length?:number}|undefined)?.length??input.length);return send(id,input,signal)};
+ });
+ const lengths=()=>page.evaluate(()=>(window as any).__previewLengths);
+ const field=edit.getByRole('combobox',{name:/^长度.*mm/});
+ for(const draft of ['0','0.0','0.1','0.01']){
+  await field.fill(draft);await page.waitForTimeout(400);expect(await lengths()).toEqual([]);
+ }
+ await field.blur();await expect.poll(lengths).toEqual([0.01]);await ready(page,edit);
+ await field.fill('0.02');
+ await edit.getByRole('button',{name:/取\s*消/}).click();
+ await page.waitForTimeout(400);expect(await lengths()).toEqual([0.01]);
+ expect((await document(page,seed.id)).part.features.at(-1).length).toBe(8);
+});

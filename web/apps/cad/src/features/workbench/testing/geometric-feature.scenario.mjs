@@ -8,6 +8,16 @@ try{
  const {CommandSelectionSeed}=await server.ssrLoadModule('/src/cad/interaction/command-selection-seed.ts');
  const {sameDisplayContext}=await server.ssrLoadModule('/src/cad/interaction/feature-association.ts');
  const {contextTabs,builtinCatalog}=await server.ssrLoadModule('/src/cad/command/workbench-catalog.ts');
+ const {inspectFillEndpoints}=await server.ssrLoadModule('/src/cad/interaction/fill-boundary.ts');
+ {
+  const a=[0,0,0],b=[1,0,0],c=[1,1,0],q=[0,1,0];
+  const loop=[[a,b],[q,c],[a,q],[b,c]];
+  assert.equal(inspectFillEndpoints(loop).kind,'closed');
+  assert.deepEqual(inspectFillEndpoints([loop[0]]),{kind:'open',markers:[a,b]});
+  assert.equal(inspectFillEndpoints([...loop,[a,[-1,0,0]]]).kind,'branch');
+  assert.equal(inspectFillEndpoints([[a,a],[b,b]]).kind,'multiple');
+  assert.equal(inspectFillEndpoints([[a,a]]).kind,'closed');
+ }
  const facts={isMock:false,hostType:'PART',targetType:'PART',sketchActive:false,canEdit:true,rootCanEdit:true,busy:false,selectionKind:'',selectionCount:0,hasWorkingBody:false,moveReceiptPending:false};
  const tabs=contextTabs(builtinCatalog,facts);
  assert.deepEqual(tabs.slice(0,2).map(t=>[t.id,t.name]),[['PART_DESIGN.model','实体'],['PART_DESIGN.wireframe-surface','线框与曲面']]);

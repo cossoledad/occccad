@@ -157,6 +157,8 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
     SURFACE_LOFT_SECTION_COUNT_INVALID:"请选择 2 至 32 个截面。",
     SURFACE_LOFT_SECTION_BUDGET:"截面的边数过多，请简化截面。",
     SURFACE_LOFT_FAILED:"曲面放样失败，请检查截面顺序与方向。",
+    SURFACE_FILL_SINGLE_LOOP_REQUIRED:"请选择一个连续闭环，移除独立轮廓。",
+    SURFACE_FILL_BOUNDARY_BRANCH:"边界存在分叉或重复边，请检查交汇端点。",
     SURFACE_FILL_CLOSED_BOUNDARY_REQUIRED:"请选择一条闭合边界。",
     SURFACE_FILL_FAILED:"填充曲面失败，请检查边界。",
     SURFACE_FILL_G0_TOLERANCE_EXCEEDED:"填充边界误差超过容差，请调整边界或容差。",

@@ -61,7 +61,7 @@ export function SketchSupportEditor({view,feature,insertion,creation,occurrenceP
  const plane=preview.referenceGeometry?.datumPlanes.find(p=>p.id==="sketch-support-preview");
  useEffect(()=>{callbacks.current.onFrame(plane?{plane,showFrame:true}:undefined)},[JSON.stringify(plane)]);
  const commit=async()=>{if(!input||!preview.ready||busy)return;setBusy(true);try{await onApply({...input,previewId:(await preview.ensure()).previewId});onClose()}catch(e){setError(engineeringProblem(e));setBusy(false)}};
- return <CommandDialog id="sketch-support-editor" open title={creating?"创建草图":"更换草图支撑"} size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={preview.pending||loading} error={error??preview.error} onRetry={error?()=>setAttempt(n=>n+1):preview.retry}/>} onConfirm={commit} confirmLoading={busy} confirmDisabled={!current||!input||!preview.ready||busy}>
+ return <CommandDialog setPreviewField={preview.setPreviewField} id="sketch-support-editor" open title={creating?"创建草图":"更换草图支撑"} size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={preview.pending||loading} error={error??preview.error} onRetry={error?()=>setAttempt(n=>n+1):preview.retry}/>} onConfirm={commit} confirmLoading={busy} confirmDisabled={!current||!input||!preview.ready||busy}>
   <fieldset disabled={busy} className="feature-input-fields">
    {insertion?<p>{insertion.label} 之后</p>:creating?<p>选择输入草图的支撑，结束草图后返回特征定义。</p>:<p>草图随新支撑移动，保留尺寸和约束；关联几何按新位置更新。</p>}
    {feature.sketch?.support.status==="FAILED_SUPPORT"&&<Alert type="warning" title="原草图支撑已失效" description="请在视图区选择新的支撑面。"/>}

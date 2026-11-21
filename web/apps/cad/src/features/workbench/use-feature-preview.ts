@@ -7,7 +7,7 @@ import {randomUUID} from "../../utils/random-uuid";
 import { useEffect, useRef, useState } from "react";
 import type { Artifact, Feature,ReferenceGeometry,ParameterDefinition } from "../../types";
 import { api } from "../../api/client";
-export function useFeaturePreview(documentId: string, versionId: string, input: Record<string, unknown> | undefined, operation: Feature["operation"], onPreview: (artifact?: Artifact, operation?: Feature["operation"]) => void) {
+export function useFeaturePreview(documentId: string, versionId: string, input: Record<string, unknown> | undefined, operation: Feature["operation"], onPreview: (artifact?: Artifact, operation?: Feature["operation"]) => void, automatic = true) {
     input=input?contextCommand(documentId,input):undefined;
     const [state, setState] = useState<{
         repairRequired?:{featureId:string;name:string;diagnostic:string}[];referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
@@ -15,11 +15,18 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
         key?: string;
         id?: string;
         pending: boolean;
+        waitingForBlur?: boolean;
         error?: string;
  failure?:unknown;
         loftSections?: Feature["sections"];
         loftConnections?: [number,number,number][][];
     }>({ pending: false });
+    const editingField = useRef<HTMLElement | null>(null);
+    const deferred = useRef<(() => void) | undefined>(undefined);
+    const setPreviewField = (field: HTMLElement | null) => {
+        editingField.current = field;
+        if (!field) deferred.current?.();
+    };
     const [retry, setRetry] = useState(0);
     const queue=useRef(new LatestPreviewQueue<Awaited<ReturnType<typeof api.previewCommand>>>());
     const scope=JSON.stringify([documentId,versionId,input?.type,input?.targetId]);
@@ -60,7 +67,9 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
     };
     useEffect(() => {
         callback.current();
-        setState({key,pending:!!key});
+        const focusedDraft = () => !!editingField.current?.matches(":focus");
+        const waitingForBlur = !!key && automatic && focusedDraft();
+        setState({key,pending:!!key && automatic && !waitingForBlur,waitingForBlur});
         if(!key)return;
         const candidate=acquire();
         let alive=true;
@@ -73,9 +82,32 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
                 callback.current(result.artifact,latest.current.operation);
             }catch(error){if(alive&&!candidate.controller.signal.aborted){recordDeveloperEvidence("特征预览",error);setState({key,pending:false,error:engineeringProblem(error),failure:error});}}
         };
-        const delayed=setTimeout(()=>void observe(),250);
-        return ()=>{alive=false;clearTimeout(delayed);candidate.cancel();callback.current();};
-    },[key,retry]);
-    return {ensure,ready:!!key&&(state.key!==key||state.pending||!!state.id)&&!((state.key===key)&&state.error),result:state.key===key?state.result:undefined,repairRequired:state.key===key?state.repairRequired:undefined,referenceGeometry:state.key===key?state.referenceGeometry:undefined,parameterCandidates:state.key===key?state.parameterCandidates:undefined, loftSections:state.key===key?state.loftSections:undefined,loftConnections:state.key===key?state.loftConnections:undefined, pending: !!key && (state.key !== key || state.pending), previewId: state.key === key ? state.id : undefined,
+        let delayed: ReturnType<typeof setTimeout> | undefined;
+        const schedule = () => {
+            if (focusedDraft()) {
+                deferred.current = schedule;
+                return;
+            }
+            deferred.current = undefined;
+            delayed = setTimeout(() => {
+                if (focusedDraft()) {
+                    deferred.current = schedule;
+                    setState({key,pending:false,waitingForBlur:true});
+                } else {
+                    setState({key,pending:true});
+                    void observe();
+                }
+            }, 250);
+        };
+        if (automatic) schedule();
+        return () => {
+            alive = false;
+            deferred.current = undefined;
+            clearTimeout(delayed);
+            candidate.cancel();
+            callback.current();
+        };
+    },[key,retry,automatic]);
+    return {setPreviewField,ensure,ready:!!key&&(!automatic||state.key!==key||state.pending||state.waitingForBlur||!!state.id)&&!((state.key===key)&&state.error),result:state.key===key?state.result:undefined,repairRequired:state.key===key?state.repairRequired:undefined,referenceGeometry:state.key===key?state.referenceGeometry:undefined,parameterCandidates:state.key===key?state.parameterCandidates:undefined, loftSections:state.key===key?state.loftSections:undefined,loftConnections:state.key===key?state.loftConnections:undefined, pending: automatic && !!key && (state.key !== key || state.pending), previewId: state.key === key ? state.id : undefined,
         failure:state.key===key?state.failure:undefined, error: state.key === key ? state.error : undefined, retry: () => setRetry(value => value + 1) };
 }

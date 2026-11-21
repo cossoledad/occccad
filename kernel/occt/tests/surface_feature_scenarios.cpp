@@ -150,6 +150,23 @@ TEST(SurfaceFeature, G0FillMeasuresBoundaryErrorAndRejectsOpenLoop) {
     s.inputs = {source_input(k, open)};
     EXPECT_THROW(k.evaluateGeometryFeature(s), std::invalid_argument);
 }
+TEST(SurfaceFeature, G0FillConnectsUnorderedAndReversedEdgesWithHistory) {
+    OcctKernel k;
+    auto edge = [&](const char* id, Vec3 a, Vec3 b) {
+        return source_input(k, k.evaluateGeometryFeature(source_line(id, a, b)));
+    };
+    auto s = surface_spec("fill", "SURFACE_FILL", {
+        edge("bottom", {0,0,0}, {10,0,0}), edge("top", {0,10,0}, {10,10,0}),
+        edge("left", {0,0,0}, {0,10,0}), edge("right", {10,10,0}, {10,0,0})});
+    const auto result = k.evaluateGeometryFeature(s);
+    EXPECT_NEAR(surface_area(k, result.geometry_id), 100, 1e-4);
+    names(result);
+    s.inputs.push_back(edge("branch", {0,0,0}, {-2,0,0}));
+    EXPECT_THROW(k.evaluateGeometryFeature(s), std::invalid_argument);
+    s.inputs.pop_back();
+    s.inputs.push_back(source_input(k, k.evaluateGeometryFeature(rectangle("second", 20))));
+    EXPECT_THROW(k.evaluateGeometryFeature(s), std::invalid_argument);
+}
 TEST(SurfaceFeature, TrimUsesRetainedDesignPointAndRejectsBoundaryAmbiguity) {
     OcctKernel k;
     const auto source = sheet(k);

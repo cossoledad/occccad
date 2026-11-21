@@ -21,6 +21,7 @@ export type FeatureSelectionSession = {
     // an unqualified candidate or require the user to click it again.
     pendingCandidate?: (selection:SelectionItem)=>boolean;
     resolvePick?: (selection:SelectionItem)=>void;
+    fillBoundary?: {members: SelectionItem[][]; report: (kind: import("./fill-boundary").FillBoundaryCheck["kind"]) => void};
     connectionLines?: [number,number,number][][];
     localSketchId?: string;
     documentId: string;

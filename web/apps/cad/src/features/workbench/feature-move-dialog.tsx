@@ -22,7 +22,7 @@ export function FeatureMoveDialog({view,features,digests,orderDigest,onClose,onA
   setBusy(true);setError(undefined);
   try{await onApply({...input,previewId:(await preview.ensure()).previewId});onClose();}catch(cause){setError(cause);setBusy(false);}
  };
- return <CommandDialog id="feature-move" open title="调整特征顺序" size="S" onClose={onClose} onConfirm={apply} confirmLoading={busy} confirmDisabled={!input||!preview.ready||busy}>
+ return <CommandDialog setPreviewField={preview.setPreviewField} id="feature-move" open title="调整特征顺序" size="S" onClose={onClose} onConfirm={apply} confirmLoading={busy} confirmDisabled={!input||!preview.ready||busy}>
   <fieldset disabled={busy} style={{display:"grid",gap:12,margin:0,border:0,padding:0}}>
    <CommandField label="移动" width="selection">{features.length===1?<span>{feature.name}</span>:<details><summary>{feature.name} → {features.at(-1)!.name} · {features.length} 项</summary><ol>{features.map(f=><li key={f.id}>{f.name}{f.suppressed?'（已抑制）':''}</li>)}</ol></details>}</CommandField>
    <CommandField label="实体" width="selection"><span>{view.part!.bodies.find(b=>b.id===feature.bodyId)?.name}</span></CommandField>

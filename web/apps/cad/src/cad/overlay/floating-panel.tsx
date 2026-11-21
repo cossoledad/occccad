@@ -98,8 +98,8 @@ export function ToolbarGroup({ children }: PropsWithChildren) {
 
 export function ToolbarSeparator() { return <span className="cad-toolbar-separator" aria-hidden />; }
 
-export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText="确定",cancelText="取消", confirmLoading = false, confirmDisabled = false, size = "M",width:preferredWidth,footer=true,placement,onCancelPick,secondaryActions,commandStatus,bodyClassName="",scrollBody=true }: PropsWithChildren<{
-  bodyClassName?:string;scrollBody?:boolean;id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
+export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText="确定",cancelText="取消", confirmLoading = false, confirmDisabled = false, size = "M",width:preferredWidth,footer=true,placement,onCancelPick,secondaryActions,commandStatus,setPreviewField,bodyClassName="",scrollBody=true }: PropsWithChildren<{
+  setPreviewField?:(field:HTMLElement|null)=>void;bodyClassName?:string;scrollBody?:boolean;id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
   confirmText?:string;cancelText?:string;confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;width?:number;footer?:boolean;placement?:'left'|'right';onCancelPick?:()=>boolean;secondaryActions?:ReactNode;commandStatus?:ReactNode;
 }>) {
   const feedback=useOperationFeedback(),parentForm=useCommandForm();
@@ -186,6 +186,12 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
   };
   confirmRef.current=confirm;
   const content=<section ref={dialog} className="cad-command-dialog" role="dialog" aria-modal="false" aria-label={String(title)} data-panel-size={size}
+    onInputCapture={event=>{
+      const field=event.target;
+      if(field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement &&
+        ["text","number","search","email","url","tel","password"].includes(field.type)) setPreviewField?.(field);
+    }}
+    onBlurCapture={()=>setPreviewField?.(null)}
     onCompositionStart={()=>{composing.current=true;if(compositionFrame.current!==undefined)cancelAnimationFrame(compositionFrame.current);}} onCompositionEnd={()=>{compositionFrame.current=requestAnimationFrame(()=>{composing.current=false;});}}
     onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onWheel={event=>event.stopPropagation()} onContextMenu={event=>event.stopPropagation()}
     onPointerMove={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onKeyDown={event=>{
@@ -194,6 +200,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
       if(footer&&event.key==="Enter"&&!composing.current&&!event.repeat&&!event.defaultPrevented&&!event.nativeEvent.isComposing&&event.nativeEvent.keyCode!==229
         &&target?.tagName==="INPUT"&&!target.isContentEditable&&!target.closest("[role='combobox'], textarea, [contenteditable='true']")){
         event.preventDefault();
+        if(setPreviewField)target.blur();
         if(enterFrame.current===undefined)enterFrame.current=requestAnimationFrame(()=>{enterFrame.current=undefined;if(openRef.current)void confirmRef.current();});
       }
     }}

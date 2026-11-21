@@ -661,6 +661,48 @@ GeometryFeatureBuild loft(const GeometryFeatureSpec& s,
     named_boundary(out, op.LastShape(), s.feature_id, "loft/end");
     return out;
 }
+// Follow the unique mate of each endpoint. Preserve the original edge TShapes
+// for MakeFilling history, including when a traversal orientation is reversed.
+std::vector<TopoDS_Edge> fill_loop(const std::vector<TopoDS_Shape>& edges) {
+    std::vector<TopoDS_Vertex> ends;
+    for (const auto& shape : edges) {
+        TopoDS_Vertex a, b;
+        TopExp::Vertices(TopoDS::Edge(shape), a, b, Standard_True);
+        if (a.IsNull() || b.IsNull())
+            throw std::invalid_argument("SURFACE_FILL_CLOSED_BOUNDARY_REQUIRED");
+        ends.push_back(a);
+        ends.push_back(b);
+    }
+    const auto missing = ends.size();
+    std::vector<size_t> mate(ends.size(), missing);
+    for (size_t i = 0; i < ends.size(); ++i) {
+        for (size_t j = i + 1; j < ends.size(); ++j) {
+            const auto& a = ends[i];
+            const auto& b = ends[j];
+            if (!a.IsSame(b) && BRep_Tool::Pnt(a).Distance(BRep_Tool::Pnt(b)) >
+                                    std::max(BRep_Tool::Tolerance(a), BRep_Tool::Tolerance(b)))
+                continue;
+            if (mate[i] != missing || mate[j] != missing)
+                throw std::invalid_argument("SURFACE_FILL_BOUNDARY_BRANCH");
+            mate[i] = j;
+            mate[j] = i;
+        }
+    }
+    if (edges.empty() || std::find(mate.begin(), mate.end(), missing) != mate.end())
+        throw std::invalid_argument("SURFACE_FILL_CLOSED_BOUNDARY_REQUIRED");
+    std::vector<TopoDS_Edge> ordered;
+    size_t start = 0;
+    do {
+        auto edge = TopoDS::Edge(edges[start / 2]);
+        if (start % 2)
+            edge.Reverse();
+        ordered.push_back(edge);
+        start = mate[start ^ 1];
+    } while (start != 0);
+    if (ordered.size() != edges.size())
+        throw std::invalid_argument("SURFACE_FILL_SINGLE_LOOP_REQUIRED");
+    return ordered;
+}
 GeometryFeatureBuild fill(const GeometryFeatureSpec& s,
                           const std::vector<GeometryFeatureBuild>& inputs,
                           const std::function<void()>& check) {
@@ -676,26 +718,37 @@ GeometryFeatureBuild fill(const GeometryFeatureSpec& s,
     }
     if (edges.size() > 256)
         throw std::invalid_argument("SURFACE_FILL_BOUNDARY_BUDGET");
-    const auto boundary = wire(compound(edges));
-    if (!boundary.Closed())
-        throw std::invalid_argument("SURFACE_FILL_CLOSED_BOUNDARY_REQUIRED");
-    BRepOffsetAPI_MakeFilling op(3, 15, 3, Standard_False, 1e-8, s.surface.tolerance, 1e-3, 1e-3, 8,
-                                 16);
-    for (const auto& edge : edges) {
+    const auto boundary = fill_loop(edges);
+    // A loose fitting target can produce an invalid face on short boundaries.
+    // Retry once at higher precision; both candidates have the same acceptance
+    // criteria and use the original edges and their actual construction history.
+    const double refined = std::max(Precision::Confusion(), s.surface.tolerance * 0.01);
+    const char* failure = "SURFACE_FILL_FAILED";
+    for (const double target : {s.surface.tolerance, refined}) {
+        BRepOffsetAPI_MakeFilling op(3, 15, 3, Standard_False, 1e-8, target, 1e-3, 1e-3, 8, 16);
+        for (const auto& edge : boundary) {
+            check();
+            op.Add(edge, GeomAbs_C0, Standard_True);
+        }
+        op.Build();
         check();
-        op.Add(TopoDS::Edge(edge), GeomAbs_C0, Standard_True);
+        if (!op.IsDone() || op.Shape().IsNull())
+            failure = "SURFACE_FILL_FAILED";
+        else if (!std::isfinite(op.G0Error()) || op.G0Error() > s.surface.tolerance)
+            failure = "SURFACE_FILL_G0_TOLERANCE_EXCEEDED";
+        else if (!BRepAlgoAPI_Check(op.Shape(), Standard_False, Standard_True).IsValid())
+            failure = "SURFACE_SELF_INTERSECTION_OR_INVALID_RESULT:SURFACE_FILL";
+        else {
+            GeometryFeatureBuild out;
+            out.shape = op.Shape();
+            add(out, derived(s.feature_id, "fill/surface", sources), out.shape, sources);
+            joint_history(out, inputs, op, s.feature_id, "fill");
+            return out;
+        }
+        if (target == refined)
+            break;
     }
-    op.Build();
-    check();
-    if (!op.IsDone())
-        throw std::invalid_argument("SURFACE_FILL_FAILED");
-    if (!std::isfinite(op.G0Error()) || op.G0Error() > s.surface.tolerance)
-        throw std::invalid_argument("SURFACE_FILL_G0_TOLERANCE_EXCEEDED");
-    GeometryFeatureBuild out;
-    out.shape = op.Shape();
-    add(out, derived(s.feature_id, "fill/surface", sources), out.shape, sources);
-    joint_history(out, inputs, op, s.feature_id, "fill");
-    return out;
+    throw std::invalid_argument(failure);
 }
 GeometryFeatureBuild trim(const GeometryFeatureSpec& s,
                           const std::vector<GeometryFeatureBuild>& inputs,
@@ -978,7 +1031,7 @@ GeometryFeatureBuild build_surface_feature(const GeometryFeatureSpec& s,
     }
     check();
     if (out.shape.IsNull() ||
-        (s.operation != "SURFACE_JOIN" &&
+        (s.operation != "SURFACE_JOIN" && s.operation != "SURFACE_FILL" &&
          !BRepAlgoAPI_Check(out.shape, Standard_False, Standard_True).IsValid()))
         throw std::invalid_argument("SURFACE_SELF_INTERSECTION_OR_INVALID_RESULT:" + s.operation);
     manifold(out.shape);

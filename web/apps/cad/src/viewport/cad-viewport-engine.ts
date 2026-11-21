@@ -38,6 +38,7 @@ import {isExternalProjectionSource,projectionScopeForView} from "../cad/interact
 import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
 import { patternEntityStatus } from "../features/workbench/pattern-selection";
 import { DATUM_AXIS_PIXELS,DATUM_PLANE_PIXELS,STANDARD_REFERENCE_RANGE,makeDatumPlaneReference, makeDatumAxisReference, type DatumPreview } from "../cad/rendering/datum-reference";
+import {displayFillBoundary,fillBoundaryText} from "../cad/interaction/fill-boundary";
 import { featureSelectionHit, pickFeatureSelection, type FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import { makeSplineControlFeedback } from "../cad/rendering/spline-control-feedback";
 import { useUIPreferences, sketchLabelPositionKey } from "../state/ui-preferences";
@@ -153,6 +154,7 @@ type Callbacks = {
   operationFailed?:(error:unknown)=>void;
   inspectAssemblySupports?:(documentId:string,references:AssemblyGeometryRef[],signal:AbortSignal)=>Promise<SupportInspection>;
   assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[],members?:import("../types").AssemblyGroupMember[]) => void;
+  fillBoundaryChanged?: (message?:string) => void;
   documentViewReady?: (documentId: string, restoredCamera: boolean) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -631,6 +633,7 @@ export class CadViewportEngine {
   private activeToolID = "select";
   private reconnectExternalID?: string;
   private featureSelection?: FeatureSelectionSession;
+  private fillMarkers?: THREE.Group;
   private loftConnections?: THREE.Group;
   private profileRegionOverlay?: THREE.Group;
   private profileRegionBindings: {selection:SelectionItem;mesh:THREE.Mesh}[]=[];
@@ -1150,6 +1153,7 @@ export class CadViewportEngine {
     if(this.motionDisplay)this.setMotionDisplay(this.motionDisplay);
     this.showMechanism(this.mechanismDefinition,this.mechanismSelection);
     this.commitApplicationDisplay();
+    if(this.featureSelection?.fillBoundary)this.showFillBoundary(this.featureSelection);
     this.showProfileRegions(this.featureSelection);
     this.showBooleanRegions(this.featureSelection);
     this.refreshInteractionHighlights();
@@ -3669,11 +3673,36 @@ export class CadViewportEngine {
     this.helpers.add(group);this.profileRegionOverlay=group;group.updateMatrixWorld(true);
   }
 
+  private showFillBoundary(session?: FeatureSelectionSession): void {
+    if (this.fillMarkers) {
+      this.fillMarkers.removeFromParent();
+      this.disposeGroup(this.fillMarkers);
+      this.fillMarkers = undefined;
+    }
+    const view = this.view;
+    if (!session?.fillBoundary || !view || view.document.id !== session.documentId || view.document.versionId !== session.versionId) {
+      this.callbacks.fillBoundaryChanged?.(undefined);
+      return;
+    }
+    const check = displayFillBoundary(view, session.fillBoundary.members);
+    this.callbacks.fillBoundaryChanged?.(fillBoundaryText(check));
+    session.fillBoundary.report(check.kind);
+    if (!check.markers.length) return;
+    const group = new THREE.Group();
+    const points = new THREE.Points(new THREE.BufferGeometry().setFromPoints(check.markers.map(p => new THREE.Vector3(...p))),
+      new THREE.PointsMaterial({color:0xf09a25,size:9,sizeAttenuation:false,depthTest:false,depthWrite:false,toneMapped:false}));
+    points.renderOrder = 110;
+    group.add(points);
+    this.helpers.add(group);
+    this.fillMarkers = group;
+  }
+
   setFeatureSelection(session?: FeatureSelectionSession): void {
     if(this.releaseFeatureSketchPick){this.releaseFeatureSketchPick();this.releaseFeatureSketchPick=undefined;this.sketchModal.setOpen(false);}
 
     if(this.featureSelection?.localSketchId&&!session?.localSketchId)this.clearReferenceHover();
     const previousTopologyPick=this.featureSelection?.topologyPick;
+    if(session?.fillBoundary || this.featureSelection?.fillBoundary)this.showFillBoundary(session);
     this.featureSelection = session;
     if(previousTopologyPick!==session?.topologyPick)for(const {group} of this.solidBindings.values())applySolidDisplaySettings(group,this.solidDisplay,session?.topologyPick);
     this.showProfileRegions(session);

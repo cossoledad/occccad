@@ -2147,7 +2147,7 @@ onToggleConstruction:(node)=>{
     <CommandField label="名称" width="name"><Input aria-label="上下文输入名称" value={editingContextInput?.name??""} onChange={event=>setEditingContextInput(current=>current?{...current,name:event.target.value}:current)}/></CommandField>
     <Checkbox checked={editingContextInput?.required??false} onChange={event=>setEditingContextInput(current=>current?{...current,required:event.target.checked}:current)}>必需输入</Checkbox>
   </CommandDialog>
-	<CommandDialog size="S" id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
+	<CommandDialog size="S" setPreviewField={parameterInputPreview.setPreviewField} id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
 		confirmLoading={command.isPending} confirmDisabled={!canEdit||!parameterSourceReadonly&&parameterInputPreview.pending||Boolean(parameterInputPreview.error)} onConfirm={commitParameterEdit}>
 		<Form form={parameterForm} layout="vertical">
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,

@@ -23,6 +23,7 @@ async function pickHolePoint(page:Page,dialog:ReturnType<Page["getByRole"]>,poin
 }
 async function current(page:Page,id:string){return (await page.request.get(`/api/documents/${id}`)).json();}
 async function ready(page:Page,dialog:ReturnType<Page["getByRole"]>){
+ const field=dialog.locator("input:focus,textarea:focus");if(await field.count())await field.blur();
  await expect(dialog.getByRole("button",{name:confirmCommandName})).toBeEnabled();
  await expect(page.locator("[data-feature-preview]")).toHaveCount(1);
 }
