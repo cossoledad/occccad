@@ -40,5 +40,5 @@ export function acceptedContextView(input:DocumentView,root:DocumentView,path:st
  if(variant.status!=='READY'||!variant.part)return {...common,part:undefined,datumPlanes:[],datumAxes:[],axisSystems:[],sketchAnalyses:{},artifacts:{},artifact:undefined,replicationSources:undefined,sketchDerivedEntities:undefined};
  const artifacts={...base.artifacts,...root.artifacts};
  const activeBody=variant.part.bodies?.find(b=>b.id===variant.part!.activeBodyId);
- return {...common,artifact:activeBody?.geometryKey?artifacts[activeBody.geometryKey]:undefined,replicationSources:variant.replicationSources,sketchDerivedEntities:variant.sketchDerivedEntities,part:variant.part,datumPlanes:variant.part.datumPlanes,datumAxes:variant.part.datumAxes,axisSystems:variant.part.axisSystems,sketchAnalyses:variant.sketchAnalyses,artifacts};
+ return {...common,artifact:activeBody?.geometryKey?artifacts[activeBody.geometryKey]:undefined,holeStandards:variant.holeStandards,replicationSources:variant.replicationSources,sketchDerivedEntities:variant.sketchDerivedEntities,part:variant.part,datumPlanes:variant.part.datumPlanes,datumAxes:variant.part.datumAxes,axisSystems:variant.part.axisSystems,sketchAnalyses:variant.sketchAnalyses,artifacts};
 }

@@ -3,6 +3,7 @@ find_package(OpenCASCADE REQUIRED)
 add_library(occccad_occt_kernel STATIC
     src/occt_kernel.cpp
     src/body_validation.cpp
+    src/plane_partition.cpp
     src/planar_boundary.cpp
     src/mass_properties.cpp
     src/fillet_boundary.cpp

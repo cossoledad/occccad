@@ -82,7 +82,7 @@ try {
  const movedFailure=normalizeOperationFailure(new Error('MOVE_FEATURE_BLOCKED[private-id] Boolean.1: geometry evaluation failed'));
  assert.match(movedFailure.message,/Boolean\.1/);assert.doesNotMatch(movedFailure.message,/private-id/);
  assert.match(normalizeOperationFailure(new Error('FEATURE_EDIT_STALE')).message,/模型已发生变化/);
- assert.deepEqual(modifierTypes,["FILLET","CHAMFER","DRAFT","SHELL"]);
+ assert.deepEqual(modifierTypes,["FILLET","CHAMFER","DRAFT","SHELL","SPLIT_FACE","SPLIT_BODY"]);
  assert.equal(defaultModifierFeature("FILLET","body").length,1);
  assert.equal(defaultModifierFeature("DRAFT","body").angle,5);
  const historicalPlane={...session,role:"plane",bodyId:"target",geometryKey:"target-stage",planeGeometryKeys:["reference-prefix"]};
@@ -172,7 +172,7 @@ try {
  assert.equal(isExternalProjectionSource({...upstreamEdge,kind:"axis",entityId:"late-plane"},scope),false);
  assert.deepEqual(historicalCreationTypes(true,true),["EXTRUDE_ADD","EXTRUDE_REMOVE","REVOLVE","HOLE","LOFT","SWEEP"]);
  assert.deepEqual(historicalCreationTypes(true,false),[],"Product sketches have no historical generator entry");
- assert.deepEqual(historicalCreationTypes(false,false),["FILLET","CHAMFER","DRAFT","SHELL"],"existing context modifier insertion remains available");
+ assert.deepEqual(historicalCreationTypes(false,false),["FILLET","CHAMFER","DRAFT","SHELL","SPLIT_FACE","SPLIT_BODY"],"existing context modifier insertion remains available");
  assert(historicalCreationTypes(false,true).includes("SKETCH"));
  assert.equal(createdSketchFeature(original,{...returned,document:{id:"other-part",versionId:"v"}}),undefined,"a late response from another owner cannot begin sketch editing");
  const newRevision={...returned,document:{id:"part",versionId:"new"}};

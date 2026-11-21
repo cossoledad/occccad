@@ -1,7 +1,7 @@
 import {CommandInputError} from "../../cad/command/operation-failure";
-import type { Feature } from "../../types";
+import type { Feature, SketchEntity, SketchGeometryRef } from "../../types";
 import { linearExtrudeLengthInput, parseParameterSource } from "./parameter-editor";
-const bodyFeatureTypes = new Set(["MOVE_PLANAR_FACE","RESIZE_BORE","THICKEN","CLOSE_SURFACE","SWEEP", "HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
+const bodyFeatureTypes = new Set(["MOVE_PLANAR_FACE","RESIZE_BORE","THICKEN","CLOSE_SURFACE","SWEEP", "HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "SPLIT_FACE", "SPLIT_BODY", "SPLIT_RESULT", "LOFT"]);
 export function isSolidStage(feature:Feature):boolean {return bodyFeatureTypes.has(feature.type.toUpperCase());}
 export function consecutiveSolidFeatures(features:Feature[],ids:string[]):Feature[]|undefined {
     if(!ids.length||new Set(ids).size!==ids.length)return;
@@ -11,11 +11,13 @@ export function consecutiveSolidFeatures(features:Feature[],ids:string[]):Featur
     const start=history.findIndex(f=>f.id===members[0].id);
     return history.slice(start,start+members.length).every(f=>selected.has(f.id))?members:undefined;
 }
-export const solidFeatureNames: Record<string, string> = { MOVE_PLANAR_FACE:"移动平面",RESIZE_BORE:"修改孔径",THICKEN:"加厚",CLOSE_SURFACE:"封闭曲面",SWEEP:"扫掠", HOLE:"孔", FILLET: "圆角", CHAMFER: "倒角", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
-export const modifierTypes = ["FILLET", "CHAMFER", "DRAFT", "SHELL"] as const;
+export const solidFeatureNames: Record<string, string> = { MOVE_PLANAR_FACE:"移动平面",RESIZE_BORE:"修改孔径",THICKEN:"加厚",CLOSE_SURFACE:"封闭曲面",SWEEP:"扫掠", HOLE:"孔", FILLET: "圆角", CHAMFER: "倒角", SPLIT_BODY:"分割实体", SPLIT_RESULT:"分割结果", SPLIT_FACE: "分割面", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
+export const modifierTypes = ["FILLET", "CHAMFER", "DRAFT", "SHELL", "SPLIT_FACE","SPLIT_BODY"] as const;
 export type ModifierType = typeof modifierTypes[number];
 export function defaultModifierFeature(type: ModifierType, bodyId?: string): Feature {
-    return {id:"", type, bodyId, length:1, angle:5, neutralPlaneId:"datum-xy", selections:[]};
+    if (type === "SPLIT_BODY") return {id:"",type,bodyId,splitKeepSide:"POSITIVE"};
+    if (type === "SPLIT_FACE") return {id:"", type, bodyId, selections:[]};
+    return {id:"", type, bodyId, length:1, angle:type === "CHAMFER" ? 45 : 5, neutralPlaneId:type === "DRAFT" ? "datum-xy" : undefined, selections:[]};
 }
 export function booleanInputStages(features: Feature[], editedId?: string): Feature[] {
     const boundary = editedId ? features.findIndex(feature => feature.id === editedId) : features.length;
@@ -87,4 +89,14 @@ export function pickLoftSection(sections: NonNullable<Feature["sections"]>, sour
   const used=new Set(sections.filter(s=>!s.point&&s.sketchId===source.id).map(s=>s.memberSlot));
   for(let slot=0;slot<pattern.count;slot++)if(!used.has(slot)&&!pattern.skippedSlots?.includes(slot))return [...sections,{sketchId:source.id,memberSlot:slot}];
   return sections;
+}
+
+export function holePointReference(entity: SketchEntity, hit?: SketchGeometryRef): SketchGeometryRef | undefined {
+    if (entity.suppressed || entity.sourceEntityId || hit && (hit.target !== "ENTITY" || hit.entityId !== entity.id)) return;
+    const subElement = hit?.subElement ?? (entity.kind === "POINT" ? "POINT" : undefined);
+    const pointId = subElement === "START" ? entity.startPointId : subElement === "END" ? entity.endPointId : undefined;
+    if (subElement === "POINT" && entity.kind === "POINT" || subElement === "CENTER" && entity.center)
+        return {target: "ENTITY", entityId: entity.id, subElement};
+    if (pointId && (!hit?.pointId || pointId === hit.pointId) && (subElement === "START" || subElement === "END"))
+        return {target: "ENTITY", entityId: entity.id, subElement, pointId};
 }

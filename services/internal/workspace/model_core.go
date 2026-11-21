@@ -1325,6 +1325,12 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	if !geometricOwner && bodyIndex(model, payload.Feature.BodyID) < 0 {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: target Body does not exist", ErrValidation)
 	}
+	if payload.Feature.Type == "SPLIT_RESULT" {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: split result is owned by its parent", ErrValidation)
+	}
+	if payload.Feature.Type == "SPLIT_BODY" {
+		payload.Feature.SplitBodyID = splitResultBodyID(payload.Feature.ID)
+	}
 	if payload.AfterFeatureID != "" {
 		if err := insertFeatureCandidate(&model, payload); err != nil {
 			return nil, modelcore.ChangeSet{}, err
@@ -1336,6 +1342,13 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		}
 	} else {
 		model.Features = append(model.Features, payload.Feature)
+	}
+	if payload.Feature.Type == "SPLIT_BODY" {
+		changes, err := appendSplitResult(&model, payload.Feature)
+		if err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		bodyChanges = append(bodyChanges, changes...)
 	}
 	if payload.BodyAppearance != nil || payload.BodyVisible != nil {
 		if payload.Feature.Type != "IMPORT_BODY" {
@@ -1664,6 +1677,9 @@ func applyParameterSource(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		if model.Parameters[index].ParameterID != payload.ParameterID {
 			continue
 		}
+		if model.Parameters[index].Role == "OUTPUT" && model.Parameters[index].Source.Produced == nil {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: change the hole standard to edit its catalog diameter", ErrValidation)
+		}
 		if model.Parameters[index].Source.Produced != nil || model.Parameters[index].Role == "MEASURED" {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: reference dimension is measured; switch its driving mode explicitly before editing its preserved source", ErrValidation)
 		}
@@ -1717,7 +1733,7 @@ func applyEditParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	if index < 0 {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter does not exist", ErrValidation)
 	}
-	if (model.Parameters[index].Source.Produced != nil || model.Parameters[index].Role == "MEASURED") && !reflect.DeepEqual(model.Parameters[index].Source, payload.Source) {
+	if (model.Parameters[index].Role == "OUTPUT" || model.Parameters[index].Source.Produced != nil || model.Parameters[index].Role == "MEASURED") && !reflect.DeepEqual(model.Parameters[index].Source, payload.Source) {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: reference dimension preserves its driving source; use its dimension definition editor to switch mode", ErrValidation)
 	}
 	if model.Parameters[index].Source.External != nil && payload.Source.External == nil {

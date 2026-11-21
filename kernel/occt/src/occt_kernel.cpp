@@ -1,5 +1,6 @@
 #include "internal/named_boundary_index.hpp"
 #include "internal/body_validation.hpp"
+#include "internal/plane_partition.hpp"
 #include <BinTools.hxx>
 #include <Standard_Version.hxx>
 #include "internal/immutable_prefix.hpp"
@@ -27,6 +28,8 @@
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BOPAlgo_CellsBuilder.hxx>
 #include <BOPAlgo_Splitter.hxx>
+#include <BRepAlgoAPI_Section.hxx>
+#include <BRepFeat_SplitShape.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBndLib.hxx>
@@ -840,6 +843,34 @@ AssociatedTrim trim_associated_prism(const TopoDS_Shape& prism,
     return {chosen,std::move(original),std::move(caps)};
 }
 
+// The centerline may run beyond the walls. Keep the unique void cell that
+// touches the profile plane and is stopped by target material before the
+// far cap. Exterior overhangs reach the far cap and are discarded.
+AssociatedTrim trim_rib_to_material(const TopoDS_Shape& prism, const TopoDS_Shape& start,
+        const TopoDS_Shape& far, const std::vector<NamedShape>& names,
+        const TopoDS_Shape& body, const std::vector<NamedShape>& faces) {
+    BRepAlgoAPI_Cut cut;
+    TopTools_ListOfShape args, tools;
+    args.Append(prism); tools.Append(body);
+    cut.SetArguments(args); cut.SetTools(tools); cut.SetNonDestructive(true); cut.Build();
+    if (!cut.IsDone() || cut.HasErrors() || cut.HasWarnings())
+        throw std::runtime_error("RIB_MATERIAL_PARTITION_FAILED");
+    TopoDS_Shape chosen;
+    const SemanticTopologyRef marker{"", "cap", {}};
+    const std::vector<NamedShape> start_cap{{marker,start}}, far_cap{{marker,far}};
+    for (TopExp_Explorer solids(cut.Shape(), TopAbs_SOLID); solids.More(); solids.Next()) {
+        const auto& cell = solids.Current();
+        if (map_named_shapes(start_cap, cut, cell).empty() ||
+            !map_named_shapes(far_cap, cut, cell).empty()) continue;
+        if (!chosen.IsNull()) throw std::invalid_argument("RIB_AMBIGUOUS_MATERIAL_STOP");
+        chosen = cell;
+    }
+    if (chosen.IsNull()) throw std::invalid_argument("RIB_MATERIAL_STOP_MISSING");
+    auto caps = map_named_shapes(faces, cut, chosen);
+    if (caps.empty()) throw std::runtime_error("RIB_CONTACT_HISTORY_MISSING");
+    return {chosen, map_named_shapes(names, cut, chosen), std::move(caps)};
+}
+
 ToolBuild make_profile_tool(const ProfilePadSpec& spec,
         const TopoDS_Shape& termination_shape={}, const std::vector<NamedShape>& termination_names={}) {
     if (spec.regions.empty())
@@ -1075,7 +1106,9 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec,
             name_sweep(prism);
             if(associated) {
                 const std::vector<NamedShape> region_names(result.named.begin()+first_named,result.named.end());
-                auto trimmed=trim_associated_prism(generated,prism.FirstShape(),prism.LastShape(),region_names,stop,stop_names);
+                auto trimmed = spec.rib
+                    ? trim_rib_to_material(generated, prism.FirstShape(), prism.LastShape(), region_names, stop, stop_names)
+                    : trim_associated_prism(generated, prism.FirstShape(), prism.LastShape(), region_names, stop, stop_names);
                 if(spec.end_offset!=0) {
                     gp_Trsf move;move.SetTranslation(direction.Normalized().Multiplied(spec.end_offset));
                     BRep_Builder builder;TopoDS_Compound shifted;builder.MakeCompound(shifted);std::vector<NamedShape> shifted_names;
@@ -3802,6 +3835,29 @@ ToolBuild rebuild_through_hole(const ThroughHoleTool& recipe, const TopoDS_Shape
     return tool;
 }
 
+// Assign the cut face from the common boundary of the two exact cells.
+BodyOperationResult split_body_stage(const TopoDS_Shape& stock,
+                                     const std::vector<NamedShape>& names,
+                                     const ProfilePadSpec& spec) {
+    const auto& o = spec.neutral_origin;
+    const auto& n = spec.neutral_normal;
+    const auto cells = detail::partition_solid(stock, gp_Pln(gp_Pnt(o.x,o.y,o.z),gp_Dir(n.x,n.y,n.z)));
+    const auto& kept = spec.reversed ? cells.negative : cells.positive;
+    const auto& other = spec.reversed ? cells.positive : cells.negative;
+    auto mapped = map_named_history(names,cells.history,kept);
+    TopTools_IndexedMapOfShape other_faces;
+    TopExp::MapShapes(other,TopAbs_FACE,other_faces);
+    std::size_t count = 0;
+    for (TopExp_Explorer face(kept,TopAbs_FACE); face.More(); face.Next()) {
+        if (!other_faces.Contains(face.Current())) continue;
+        ++count;
+        mapped.push_back({{spec.feature_id,"SPLIT_SECTION",{}},face.Current()});
+    }
+    if (count != 1) throw std::invalid_argument("SPLIT_SECTION_AMBIGUOUS");
+    auto derived = complete_boolean_topology_naming(kept,mapped,spec.feature_id);
+    return {kept,std::move(mapped),std::move(derived),{},{},true};
+}
+
 // Local modifiers use the exact upstream shape and semantic references. No
 // saved local topology index, geometry search, or nearest-element recovery.
 BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
@@ -3825,7 +3881,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
             throw std::invalid_argument("MODIFIER_SELECTION_MISSING_OR_AMBIGUOUS");
         const auto expected =
             (spec.generator == "FILLET" || spec.generator == "CHAMFER") ? TopAbs_EDGE : TopAbs_FACE;
-        if (matches.front().ShapeType() != expected)
+        if (matches.front().ShapeType() != expected && !(spec.generator=="CHAMFER" && !spec.chamfer_mode.empty() && matches.front().ShapeType()==TopAbs_FACE))
             throw std::invalid_argument("MODIFIER_SELECTION_TYPE_MISMATCH");
         if (std::none_of(selected.begin(), selected.end(),
                          [&](const auto& shape) { return shape.IsSame(matches.front()); }))
@@ -3875,6 +3931,39 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                     {source.ref.feature_id, source.ref.output_slot}};
                 mapped.push_back({ref, shape});
                 derived.push_back({{source.ref}, ref, TopologyLineageKind::generated, {}});
+            }
+        }
+        if (spec.generator == "SPLIT_FACE") {
+            const gp_Ax3 plane(gp_Pnt(spec.neutral_origin.x, spec.neutral_origin.y, spec.neutral_origin.z),
+                               gp_Dir(spec.neutral_normal.x, spec.neutral_normal.y, spec.neutral_normal.z));
+            gp_Trsf local;
+            local.SetTransformation(plane);
+            // Distinguish descendants by the chosen plane's semantic side. A
+            // second region on the same side needs another stable discriminator.
+            std::vector<NamedShape> unique;
+            for (const auto& item : mapped)
+                if (std::none_of(unique.begin(), unique.end(), [&](const auto& seen) {
+                    return same_ref(item.ref, seen.ref) && item.shape.IsSame(seen.shape);
+                })) unique.push_back(item);
+            mapped = std::move(unique);
+            for (const auto& source : named) {
+                std::vector<NamedShape*> images;
+                for (auto& item : mapped)
+                    if (same_ref(item.ref, source.ref)) images.push_back(&item);
+                if (images.size() < 2) continue;
+                std::set<std::string> sides;
+                for (auto* item : images) {
+                    Bnd_Box box;
+                    BRepBndLib::AddOptimal(item->shape.Moved(TopLoc_Location(local)), box, false, false);
+                    const auto tolerance = Precision::Confusion() * 4;
+                    const auto side = box.CornerMin().Z() >= -tolerance ? "POSITIVE"
+                                    : box.CornerMax().Z() <= tolerance ? "NEGATIVE" : "";
+                    if (!*side || !sides.insert(side).second)
+                        throw std::invalid_argument("SPLIT_FACE_AMBIGUOUS_REGIONS:" + source.ref.output_slot);
+                    item->ref = {spec.feature_id, "PLANE_SPLIT/" + make_geometry_id(ref_key(source.ref)).substr(7)
+                                 + "/" + side, {source.ref.feature_id, source.ref.output_slot}};
+                    derived.push_back({{source.ref}, item->ref, TopologyLineageKind::split, {}});
+                }
             }
         }
         std::vector<TopologyLineage> closure;
@@ -4014,11 +4103,57 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
     if (spec.generator == "CHAMFER") {
         validate_positive(spec.pad_length, "chamfer distance");
         BRepFilletAPI_MakeChamfer algorithm(input);
-        for (const auto& shape : selected) {
-            algorithm.Add(spec.pad_length, TopoDS::Edge(shape));
+        if (spec.chamfer_mode.empty()) {
+            for (const auto& edge : selected) algorithm.Add(spec.pad_length, TopoDS::Edge(edge));
+        } else {
+            if (spec.chamfer_mode != "TWO_DISTANCES" && spec.chamfer_mode != "DISTANCE_ANGLE")
+                throw std::invalid_argument("CHAMFER_MODE_INVALID");
+            if (spec.chamfer_mode == "TWO_DISTANCES") validate_positive(spec.second_length, "second chamfer distance");
+            else if (!(spec.revolve_angle > 0 && spec.revolve_angle < 1.5707963267948966))
+                throw std::invalid_argument("CHAMFER_ANGLE_INVALID");
+            TopoDS_Face support;
+            for (const auto& shape : selected) if (shape.ShapeType() == TopAbs_FACE) {
+                if (!support.IsNull()) throw std::invalid_argument("CHAMFER_REFERENCE_FACE_REQUIRED");
+                support = TopoDS::Face(shape);
+            }
+            if (support.IsNull() || selected.size()<2) throw std::invalid_argument("CHAMFER_REFERENCE_FACE_REQUIRED");
+            TopTools_IndexedMapOfShape boundary;
+            TopExp::MapShapes(support,TopAbs_EDGE,boundary);
+            for (const auto& shape : selected) {
+                if (shape.ShapeType() == TopAbs_FACE) continue;
+                if (!boundary.Contains(shape)) throw std::invalid_argument("CHAMFER_EDGE_OUTSIDE_REFERENCE_FACE");
+                if (spec.chamfer_mode == "TWO_DISTANCES")
+                    algorithm.Add(spec.pad_length, spec.second_length, TopoDS::Edge(shape), support);
+                else algorithm.AddDA(spec.pad_length, spec.revolve_angle, TopoDS::Edge(shape), support);
+            }
         }
         algorithm.Build();
         return finish(algorithm);
+    }
+    if (spec.generator == "SPLIT_FACE") {
+        const gp_Pln plane(gp_Pnt(spec.neutral_origin.x, spec.neutral_origin.y, spec.neutral_origin.z),
+                           gp_Dir(spec.neutral_normal.x, spec.neutral_normal.y, spec.neutral_normal.z));
+        BRepFeat_SplitShape split(input);
+        for (const auto& shape : selected) {
+            const auto face = TopoDS::Face(shape);
+            BRepAlgoAPI_Section section(face, plane, false);
+            section.ComputePCurveOn1(true);
+            section.Build();
+            if (!section.IsDone() || section.HasErrors())
+                throw std::runtime_error("SPLIT_FACE_SECTION_FAILED");
+            TopTools_IndexedMapOfShape edges;
+            TopExp::MapShapes(section.Shape(), TopAbs_EDGE, edges);
+            if (edges.IsEmpty()) throw std::invalid_argument("SPLIT_FACE_PLANE_MISSES_FACE");
+            for (int i = 1; i <= edges.Extent(); ++i) split.Add(TopoDS::Edge(edges(i)), face);
+        }
+        split.Build();
+        if (!split.IsDone()) throw std::runtime_error("SPLIT_FACE_FAILED");
+        for (const auto& face : selected)
+            if (split.Modified(face).Extent() < 2)
+                throw std::invalid_argument("SPLIT_FACE_PLANE_MISSES_FACE");
+        if (solid_count(split.Shape()) != solid_count(input))
+            throw std::runtime_error("SPLIT_FACE_SOLID_COUNT_CHANGED");
+        return finish(split);
     }
     if (spec.generator == "DRAFT") {
         validate_positive(spec.revolve_angle, "draft angle");
@@ -4057,6 +4192,13 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
             }
             return false;
         };
+        const auto check_inward_material = [&](const TopoDS_Shape& result) {
+            if (spec.reversed) return;
+            if (!removed_material_witness(result))
+                throw std::runtime_error("SHELL_INVALID_INTERIOR");
+            if (has_material_difference(result, input, facts, toleranceLimit))
+                throw std::runtime_error("SHELL_MATERIAL_OUTSIDE_INPUT");
+        };
         if (!spec.reversed) {
             try {
                 auto planar = convex_planar_shell(input, selected, spec.pad_length);
@@ -4065,6 +4207,8 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                 // results without deriving global mass as a validity proxy.
                 if (!removed_material_witness(result.shape))
                     throw std::invalid_argument("SHELL_THICKNESS_EXCEEDS_INTERIOR");
+                if (has_material_difference(result.shape, input, facts, toleranceLimit))
+                    throw std::runtime_error("SHELL_MATERIAL_OUTSIDE_INPUT");
                 result.diagnostics.push_back("SHELL_CONVEX_PLANAR_OFFSET_HISTORY");
                 return result;
             } catch (const std::invalid_argument& error) {
@@ -4079,15 +4223,12 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                 std::vector<TopoDS_Shape> closing;
                 for (const auto& face : selected) closing.push_back(attemptCopy.ModifiedShape(face));
                 auto candidate = build(attemptCopy.Shape(), closing);
-                // Preserve the native boundary/tolerance and wall checks. An
-                // actual cavity witness independently rejects a no-op result.
-                // Re-cutting coincident spline supports is not a reliable test
-                // of containment (nor is the signed volume of that difference).
+                // Validate the final trimmed/healed candidate. Coincident
+                // Boolean cells are reclassified against both original operands.
                 if (clippedToInput) prune_shell_internal_traces(candidate, toleranceLimit, false);
                 else verify_shell_offset(candidate, toleranceLimit);
                 if (solid_count(candidate.shape) != solid_count(input)) throw std::runtime_error("SHELL_DISCONNECTED_WALLS");
-                if (!spec.reversed && !removed_material_witness(candidate.shape))
-                    throw std::runtime_error("SHELL_INVALID_INTERIOR");
+                check_inward_material(candidate.shape);
                 TopTools_ListOfShape source; source.Append(input);
                 Handle(BRepTools_History) history = new BRepTools_History(source, attemptCopy);
                 history->Merge(detail::shell_result_history(attemptCopy.Shape(), candidate.shape, candidate.history));
@@ -4950,10 +5091,12 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 pattern_range_bases.insert_or_assign(spec.feature_id,freeze_tool(private_stage(baseline)));
             }
             ToolBuild tool;
+            const bool split_owner = spec.generator == "SPLIT_BODY";
+            const bool split_output = spec.generator == "SPLIT_RESULT";
             const bool modifier = spec.generator == "FILLET" || spec.generator == "CHAMFER" ||
-                                  spec.generator == "DRAFT" || spec.generator == "SHELL";
-            if(!modifier && spec.generator!="SOLID_PATTERN" && spec.generator!="BOOLEAN")++stats.generator_calls;
-            if (modifier) {
+                                  spec.generator == "DRAFT" || spec.generator == "SHELL" || spec.generator == "SPLIT_FACE";
+            if(!modifier && !split_owner && !split_output && spec.generator!="SOLID_PATTERN" && spec.generator!="BOOLEAN")++stats.generator_calls;
+            if (modifier || split_owner) {
                 tool.feature_id = spec.feature_id;
             } else if (spec.generator == "SOLID_PATTERN") {
                 const auto& pattern_spec=spec;
@@ -5035,8 +5178,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     seed_builder.Add(tool.fixed_shape,part.shape);tool.fixed_named.insert(tool.fixed_named.end(),part.named.begin(),part.named.end());
                     tool.named.insert(tool.named.end(),part.named.begin(),part.named.end());tool.generated.insert(tool.generated.end(),part.generated.begin(),part.generated.end());
                 }
-            } else if (spec.generator == "BOOLEAN") {
-                if (result.IsNull() || spec.tools.empty() || spec.tools.size() > 32 ||
+            } else if (spec.generator == "BOOLEAN" || split_output) {
+                if ((split_output ? !result.IsNull() || spec.tools.size() != 1 : result.IsNull()) || spec.tools.empty() || spec.tools.size() > 32 ||
                     (spec.body_operation == "INTERSECT" && spec.tools.size() != 1))
                     throw std::invalid_argument("INVALID_BOOLEAN_INPUT");
                 tool.feature_id = spec.feature_id;
@@ -5112,7 +5255,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 tool = build_generator_tool(spec,input_shape,input_named,&runtime);
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
-            const bool reusable_tool = !modifier && spec.generator!="BOOLEAN" &&
+            const bool reusable_tool = !modifier && !split_owner && !split_output && spec.generator!="BOOLEAN" &&
                 spec.extent!="TO_PLANE" && spec.extent!="TO_NEXT" && spec.extent!="TO_SURFACE" && (spec.extent!="THROUGH_ALL" || spec.generator=="HOLE") &&
                 (spec.generator!="HOLE" || spec.extent=="BLIND" || spec.extent=="THROUGH_ALL") && !tool.shape.IsNull();
             if (required_pattern_tools.count(spec.feature_id) && !reusable_tool)
@@ -5160,6 +5303,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 : spec.generator=="BOOLEAN" && spec.explicit_boolean_regions
                     ? assemble_boolean_regions(*impl_->boolean_partition(result,live_named,tool.shape,tool.region_named),result,live_named,tool,spec)
                 : spec.generator=="SOLID_PATTERN" && (tool.private_boolean || !tool.through_holes.empty()) ? apply_private_pattern()
+                : split_owner ? split_body_stage(result,live_named,spec)
+                : split_output ? split_body_stage(tool.shape,tool.named,spec)
                 : modifier ? apply_local_modifier(result, live_named, spec, &facts)
                            : apply_body_operation(result, live_named, tool, spec.body_operation, spec.generator == "LOFT", &facts);
             stats.body_operation_ms += std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-operation_started).count();

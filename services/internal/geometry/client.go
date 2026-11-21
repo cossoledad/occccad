@@ -98,6 +98,8 @@ type LoftBoundary struct {
 }
 
 type ProfilePad struct {
+	Rib                                                 bool
+	ChamferMode                                         string
 	GeometryGenerator                                   *workerv1.GeometryFeatureSpec
 	LoftStart, LoftEnd                                  *LoftBoundary
 	HolePositions                                       []HolePosition
@@ -155,7 +157,7 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 			InputFeatureId: pad.InputFeatureID, ProfileFeatureId: pad.ProfileFeatureID,
 			PadLength: pad.Length, Units: "mm", Plane: pad.Plane,
 			HoleKind: pad.HoleKind, RecessDiameter: pad.RecessDiameter, RecessDepth: pad.RecessDepth, CountersinkAngle: pad.CountersinkAngle,
-			BodyOperation: pad.BodyOperation, Generator: pad.Generator, RevolveAngle: pad.RevolveAngle,
+			BodyOperation: pad.BodyOperation, Generator: pad.Generator, Rib: pad.Rib, ChamferMode: pad.ChamferMode, RevolveAngle: pad.RevolveAngle,
 			AxisStart: &workerv1.Vec2{X: pad.AxisStart[0], Y: pad.AxisStart[1]},
 			AxisEnd:   &workerv1.Vec2{X: pad.AxisEnd[0], Y: pad.AxisEnd[1]}, Reversed: pad.Reversed}
 		if pad.BooleanResult != nil && pad.BooleanResult.Mode == "EXPLICIT" {

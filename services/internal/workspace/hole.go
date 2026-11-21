@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 
@@ -18,6 +19,9 @@ func validateHole(f Feature, earlier map[string]Feature) error {
 	if err := validateTerminationPlane(f, earlier); err != nil {
 		return err
 	}
+	if f.HoleStandard != "" && metricClearanceDiameters[f.HoleStandard] == 0 {
+		return fmt.Errorf("%w: HOLE_STANDARD_UNKNOWN", ErrValidation)
+	}
 	if err := validateHolePositionSet(f); err != nil {
 		return err
 	}
@@ -29,8 +33,8 @@ func validateHole(f Feature, earlier map[string]Feature) error {
 		if f.Sketch != nil || f.ProfileMemberSlot != nil || f.KeepTools || f.Operation != "REMOVE" || f.Profile != "" || f.ProfileSelection != nil || f.NeutralPlane != nil || f.NeutralPlaneID != "" || f.AxisEntityID != "" || len(f.Tools) > 0 || len(f.Selections) > 0 || len(f.Sections) > 0 || f.Pattern != nil || (f.Extent != "BLIND" && f.Extent != "THROUGH_ALL" && f.Extent != "TO_PLANE") {
 			return fmt.Errorf("%w: HOLE_DEFINITION_INVALID", ErrValidation)
 		}
-		if p == nil || p.AxisEntityID != "" || p.Reference.Target != "ENTITY" || p.Reference.SubElement != "POINT" || p.Reference.EntityID == "" || p.Reference.PointID != "" || p.Reference.ControlPointIndex != nil || p.Reference.ControlPointID != "" {
-			return fmt.Errorf("%w: HOLE_EXPLICIT_SKETCH_POINT_REQUIRED", ErrValidation)
+		if !validHoleReference(*p) {
+			return fmt.Errorf("%w: HOLE_SKETCH_LOCATION_REQUIRED", ErrValidation)
 		}
 		source, ok := earlier[p.SketchID]
 		if !ok || source.Type != "SKETCH" || source.Sketch == nil {
@@ -47,6 +51,21 @@ func validateHole(f Feature, earlier map[string]Feature) error {
 		return fmt.Errorf("%w: HOLE_REQUIRES_TARGET_BODY", ErrValidation)
 	}
 	return nil
+}
+
+func validHoleReference(p PatternPointReference) bool {
+	r := p.Reference
+	if p.AxisEntityID != "" || r.Target != "ENTITY" || r.EntityID == "" || r.ControlPointIndex != nil || r.ControlPointID != "" {
+		return false
+	}
+	switch r.SubElement {
+	case "POINT", "CENTER":
+		return r.PointID == ""
+	case "START", "END":
+		return r.PointID != ""
+	default:
+		return false
+	}
 }
 
 // Structural identity remains valid after point deletion. Resolution is separate
@@ -82,8 +101,13 @@ func singleHolePointState(model PartModel, f Feature) FeatureInputResolution {
 				if e.Suppressed {
 					return missing
 				}
-				if e.Kind != "POINT" || e.Point == nil || e.SourceEntityID != "" {
-					return FeatureInputResolution{Status: modelcore.SelectionTypeMismatch, DiagnosticCode: "HOLE_POINT_TYPE_MISMATCH", Diagnostic: "孔位必须引用普通草图的显式点"}
+				r := f.HolePoint.Reference
+				if r.SubElement == "START" && r.PointID != e.StartPointID || r.SubElement == "END" && r.PointID != e.EndPointID {
+					return missing
+				}
+				_, ok := constraintReferencePoint(r, map[string]SketchEntity{e.ID: e})
+				if !ok || !validHoleReference(*f.HolePoint) || e.SourceEntityID != "" {
+					return FeatureInputResolution{Status: modelcore.SelectionTypeMismatch, DiagnosticCode: "HOLE_POINT_TYPE_MISMATCH", Diagnostic: "该草图元素不再提供所选孔位"}
 				}
 				return FeatureInputResolution{Status: modelcore.SelectionResolved}
 			}
@@ -116,6 +140,10 @@ func singleHoleInput(model PartModel, f Feature) (geometry.ProfilePad, error) {
 		return geometry.ProfilePad{}, fmt.Errorf("%w: HOLE_SUPPORT_UNAVAILABLE", ErrValidation)
 	}
 	id := f.HolePoint.Reference.EntityID
+	if f.HolePoint.Reference.SubElement != "POINT" {
+		raw, _ := json.Marshal(f.HolePoint.Reference)
+		id = "location/" + modelcore.ValueDigest(raw)
+	}
 	return geometry.ProfilePad{FeatureID: f.ID, BodyID: f.BodyID, Generator: "HOLE", HoleKind: holeKind(f), RecessDiameter: f.RecessDiameter, RecessDepth: f.RecessDepth, CountersinkAngle: f.CountersinkAngle * math.Pi / 180, BodyOperation: "REMOVE", ProfileFeatureID: source.ID, Extent: f.Extent, Length: f.Depth, Reversed: f.Reversed, PlaneOrigin: origin, PlaneNormal: n, PlaneUDirection: u, Regions: []geometry.ProfileRegion{{ID: "hole/" + source.ID + "/" + id, Outer: geometry.ProfileLoop{ID: "hole-loop/" + id, Curves: []geometry.ProfileCurve{{EntityID: id, Kind: "CIRCLE", Radius: f.Diameter / 2}}}}}}, nil
 }
 
@@ -133,7 +161,10 @@ type holeParameter struct {
 }
 
 func holeParameters(f Feature) []holeParameter {
-	result := []holeParameter{{"diameter", "Diameter", "mm", f.Diameter, modelcore.LengthDimension}}
+	var result []holeParameter
+	if f.HoleStandard == "" {
+		result = append(result, holeParameter{"diameter", "Diameter", "mm", f.Diameter, modelcore.LengthDimension})
+	}
 	if f.Extent == "BLIND" {
 		result = append(result, holeParameter{"depth", "Depth", "mm", f.Depth, modelcore.LengthDimension})
 	}

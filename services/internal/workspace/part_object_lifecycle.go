@@ -150,6 +150,9 @@ func deletionPlan(m PartModel, p deleteNodesPayload) (PartDeletePlan, map[string
 		if !ok || !managedPartObject(t.TargetKind) {
 			return plan, nil, fmt.Errorf("%w: delete target does not exist", ErrValidation)
 		}
+		if o.Feature != nil && o.Feature.Type == "SPLIT_RESULT" {
+			return plan, nil, fmt.Errorf("%w: select the owning split feature or output Body", ErrValidation)
+		}
 		if o.Plane != nil && isStandardDatumPlane(o.ID) {
 			return plan, nil, fmt.Errorf("%w: standard datum planes are protected", ErrValidation)
 		}
@@ -180,6 +183,19 @@ func deletionPlan(m PartModel, p deleteNodesPayload) (PartDeletePlan, map[string
 
 	for changed := true; changed; {
 		changed = false
+		for _, f := range m.Features {
+			if f.Type != "SPLIT_RESULT" {
+				continue
+			}
+			child := all[objectKey("FEATURE", f.ID)]
+			parent := all[objectKey("FEATURE", f.SplitParentID)]
+			if _, gone := removed[parent.key()]; gone {
+				changed = add(child, "SPLIT_OUTPUT") || changed
+			}
+			if _, gone := removed[child.key()]; gone {
+				changed = add(parent, "SPLIT_DEFINITION") || changed
+			}
+		}
 		for _, o := range all {
 			_, owned := removed[objectContainer(o)]
 			if o.Parameter != nil {

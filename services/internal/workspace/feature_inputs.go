@@ -19,6 +19,7 @@ func featureInputs(f Feature) []featureInput {
 			out = append(out, featureInput{Role: role, EntityKind: "FEATURE", FeatureID: id, EntityID: entity, MemberSlot: slot})
 		}
 	}
+	add("SPLIT_PARENT", f.SplitParentID, "", nil)
 	axis := func(id string) {
 		parts := strings.Split(id, ":")
 		if len(parts) == 3 && parts[0] == "SKETCH_LINE" {

@@ -15,11 +15,11 @@ import (
 )
 
 func isLocalModifier(kind string) bool {
-	return kind == "FILLET" || kind == "CHAMFER" || kind == "DRAFT" || kind == "SHELL"
+	return kind == "FILLET" || kind == "CHAMFER" || kind == "DRAFT" || kind == "SHELL" || kind == "SPLIT_FACE" || kind == "SPLIT_BODY"
 }
 
 func isBodyFeature(kind string) bool {
-	return isGeometryBodyFeature(kind) || kind == "HOLE" || kind == "SOLID_PATTERN" || kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
+	return kind == "SPLIT_RESULT" || isGeometryBodyFeature(kind) || kind == "HOLE" || kind == "SOLID_PATTERN" || kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
 }
 
 func validateSolidStage(f Feature, earlier map[string]Feature) error {
@@ -38,7 +38,7 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 	if f.Type == "HOLE" {
 		return validateHole(f, earlier)
 	}
-	if len(f.HolePoints) > 0 || f.Thread != nil || f.DrillTipAngle != 0 || f.DepthConvention != "" || f.HolePoint != nil || f.HoleKind != "" || f.RecessDiameter != 0 || f.RecessDepth != 0 || f.CountersinkAngle != 0 || f.Diameter != 0 || f.Depth != 0 {
+	if f.HoleStandard != "" || len(f.HolePoints) > 0 || f.Thread != nil || f.DrillTipAngle != 0 || f.DepthConvention != "" || f.HolePoint != nil || f.HoleKind != "" || f.RecessDiameter != 0 || f.RecessDepth != 0 || f.CountersinkAngle != 0 || f.Diameter != 0 || f.Depth != 0 {
 		return fmt.Errorf("%w: hole parameters require HOLE", ErrValidation)
 	}
 	if associatedExtrudeExtent(f.Extent) {
@@ -101,21 +101,60 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 			return fmt.Errorf("%w: through all requires linear cut", ErrValidation)
 		}
 	}
-	if f.Type == "DRAFT" {
+	if f.Type == "DRAFT" || f.Type == "SPLIT_FACE" || f.Type == "SPLIT_BODY" {
 		if (f.NeutralPlaneID == "") == (f.NeutralPlane == nil) {
-			return fmt.Errorf("%w: draft requires one neutral plane", ErrValidation)
+			return fmt.Errorf("%w: modifier requires one reference plane", ErrValidation)
 		}
 		if err := validateReferencedPlane(f.NeutralPlaneID, f.NeutralPlane, earlier); err != nil {
 			return err
 		}
 	}
-	if isLocalModifier(f.Type) {
+	if f.ChamferMode != "" {
+		if f.Type != "CHAMFER" || (f.ChamferMode != "TWO_DISTANCES" && f.ChamferMode != "DISTANCE_ANGLE") {
+			return fmt.Errorf("%w: CHAMFER_MODE_INVALID", ErrValidation)
+		}
+		faces := 0
+		for _, pick := range f.Selections {
+			if pick.Selection.ExpectedType == modelcore.PersistentTopologyFace {
+				faces++
+			}
+		}
+		if faces != 1 || len(f.Selections) < 2 {
+			return fmt.Errorf("%w: CHAMFER_REFERENCE_FACE_REQUIRED", ErrValidation)
+		}
+	}
+	if f.Type == "SPLIT_BODY" {
+		if (f.SplitKeepSide != "POSITIVE" && f.SplitKeepSide != "NEGATIVE") || f.SplitBodyID != splitResultBodyID(f.ID) || len(f.Selections) != 0 {
+			return fmt.Errorf("%w: SPLIT_DEFINITION_INVALID", ErrValidation)
+		}
+		found := false
+		for _, stage := range earlier {
+			if stage.BodyID == f.BodyID && isBodyFeature(stage.Type) && !stage.Suppressed {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("%w: SPLIT_REQUIRES_SINGLE_SOLID", ErrValidation)
+		}
+	} else if f.SplitKeepSide != "" || f.SplitBodyID != "" {
+		return fmt.Errorf("%w: split fields require a body split", ErrValidation)
+	}
+	if f.Type == "SPLIT_RESULT" {
+		parent, ok := earlier[f.SplitParentID]
+		if !ok || parent.Type != "SPLIT_BODY" || parent.SplitBodyID != f.BodyID || f.ID != splitResultID(parent.ID) {
+			return fmt.Errorf("%w: SPLIT_PARENT_INVALID", ErrValidation)
+		}
+	} else if f.SplitParentID != "" {
+		return fmt.Errorf("%w: invalid split parent", ErrValidation)
+	}
+	if isLocalModifier(f.Type) && f.Type != "SPLIT_BODY" {
 		if len(f.Selections) == 0 || len(f.Selections) > 128 {
 			return fmt.Errorf("%w: modifier requires 1..128 selections", ErrValidation)
 		}
 		for _, pick := range f.Selections {
 			expected := modelcore.PersistentTopologyFace
-			if f.Type == "FILLET" || f.Type == "CHAMFER" {
+			if f.Type == "FILLET" || f.Type == "CHAMFER" && (f.ChamferMode == "" || pick.Selection.ExpectedType != modelcore.PersistentTopologyFace) {
 				expected = modelcore.PersistentTopologyEdge
 			}
 			if err := pick.Selection.Validate(); err != nil {
@@ -189,13 +228,19 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 }
 
 func editSolidDefinition(model PartModel, current *Feature, replacement Feature, sources map[string]modelcore.ValueSource) (json.RawMessage, modelcore.ChangeSet, error) {
-	if current == nil || (!isBodyFeature(current.Type) && current.Type != "SKETCH_PATTERN" && current.Type != "GEOMETRY") || current.Type == "IMPORT_BODY" || current.Geometry != nil && current.Geometry.Kind == "IMPORTED" || replacement.Type != current.Type {
+	if current == nil || (!isBodyFeature(current.Type) && current.Type != "SKETCH_PATTERN" && current.Type != "GEOMETRY") || current.Type == "IMPORT_BODY" || current.Type == "SPLIT_RESULT" || current.Geometry != nil && current.Geometry.Kind == "IMPORTED" || replacement.Type != current.Type {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: unsupported Feature definition edit", ErrValidation)
 	}
 	if err := setGeometryTolerancePolicy(replacement.Geometry); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	replacement.ID = current.ID
+	if current.Type == "SPLIT_BODY" {
+		if replacement.SplitBodyID != "" && replacement.SplitBodyID != current.SplitBodyID {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: split output identity is immutable", ErrValidation)
+		}
+		replacement.SplitBodyID = current.SplitBodyID
+	}
 	if err := resolveAutomaticPatternSource(model, &replacement); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
@@ -209,6 +254,13 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 	before := *current
 	if current.Type != "BOOLEAN" && (replacement.BodyID != current.BodyID || replacement.GeometricalSetID != current.GeometricalSetID) {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: editing a generator cannot change Body identity", ErrValidation)
+	}
+	if replacement.HoleStandard != "" && replacement.HoleStandard != before.HoleStandard {
+		for _, p := range model.Parameters {
+			if p.OwnerFeatureID == before.ID && p.PropertySlot == "diameter" && p.Source.External != nil {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: detach external diameter before selecting a hole standard", ErrValidation)
+			}
+		}
 	}
 	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	replacement.ID, replacement.Order, replacement.Name = current.ID, current.Order, current.Name
@@ -502,7 +554,7 @@ func featureParameterExpressions(model PartModel, feature Feature, expressions m
 }
 
 func (s *Service) modifierInput(ctx context.Context, requestID string, model PartModel, feature Feature) (geometry.ProfilePad, error) {
-	spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, Generator: feature.Type, Length: feature.Length, RevolveAngle: feature.Angle * math.Pi / 180, Reversed: feature.Reversed}
+	spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, Generator: feature.Type, Length: feature.Length, Length2: feature.Length2, ChamferMode: feature.ChamferMode, RevolveAngle: feature.Angle * math.Pi / 180, Reversed: feature.Reversed}
 	index := -1
 	for i, f := range model.Features {
 		if f.ID == feature.ID {
@@ -529,7 +581,7 @@ func (s *Service) modifierInput(ctx context.Context, requestID string, model Par
 		}
 		spec.Selections = append(spec.Selections, resolution.Candidates[0].SemanticRef)
 	}
-	if feature.Type == "DRAFT" {
+	if feature.Type == "DRAFT" || feature.Type == "SPLIT_FACE" {
 		spec.NeutralOrigin, spec.NeutralNormal, err = s.resolveReferencedPlane(ctx, requestID, model, feature.ID, feature.NeutralPlaneID, feature.NeutralPlane)
 		if err != nil {
 			return spec, err

@@ -212,6 +212,46 @@
       "implementation": "form"
     },
     {
+      "id": "part.rib",
+      "name": "加强筋",
+      "helpText": "使所选中心线形成的筋沿草图法向延伸至目标实体。",
+      "iconKey": "thicken",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
       "id": "part.pocket",
       "name": "切除",
       "helpText": "沿草图平面法向生成工具体，并从当前 Body 移除材料。",
@@ -456,6 +496,86 @@
       "name": "拔模",
       "helpText": "以中性平面创建恒角拔模。",
       "iconKey": "draft",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.split_body",
+      "name": "分割实体",
+      "helpText": "以平面将实体分为两个可独立加工的实体。",
+      "iconKey": "shell",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.split_face",
+      "name": "分割面",
+      "helpText": "以平面分割所选实体表面。",
+      "iconKey": "shell",
       "repeatable": false,
       "visibleWhen": {
         "all": [
@@ -6856,6 +6976,11 @@
           "order": 10
         },
         {
+          "commandId": "part.rib",
+          "groupKey": "primary",
+          "order": 18
+        },
+        {
           "commandId": "part.pocket",
           "groupKey": "primary",
           "order": 20
@@ -6889,6 +7014,16 @@
           "commandId": "part.draft",
           "groupKey": "primary",
           "order": 80
+        },
+        {
+          "commandId": "part.split_body",
+          "groupKey": "primary",
+          "order": 76
+        },
+        {
+          "commandId": "part.split_face",
+          "groupKey": "primary",
+          "order": 75
         },
         {
           "commandId": "part.shell",

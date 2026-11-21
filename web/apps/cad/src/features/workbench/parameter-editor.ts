@@ -18,6 +18,7 @@ export function parameterDisplayValue(parameter: ParameterDefinition, preferredL
 export function parameterSourceText(parameter: ParameterDefinition, inputUnit?: string, exact=false): string {
   if (parameter.source.expression) return parameter.source.expression.sourceText;
   if (parameter.source.produced) return "测量输出";
+  if (parameter.role === "OUTPUT" && parameter.propertySlot === "diameter") return "孔规格";
   if (parameter.source.external) return "关联发布参数";
   if (!parameter.source.literal) return "";
   const unit = inputUnit ?? parameterInputUnit(parameter);

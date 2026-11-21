@@ -454,20 +454,23 @@ func previewBodyID(payload json.RawMessage, m PartModel) string {
 // createFeatureBody records the explicit NEW_BODY intent in the same command
 // as the feature. One command creates one Body, regardless of its solid count.
 func createFeatureBody(m *PartModel, f *Feature) []modelcore.ModelChange {
-	order := 1
-	for _, b := range m.Bodies {
-		if b.Order >= order {
-			order = b.Order + 1
-		}
-	}
-	b := PartBody{ID: "body-" + f.ID, Name: nextBodyName(*m), Order: order, Visible: true, CreatedByFeatureID: f.ID}
-	m.Bodies = append(m.Bodies, b)
-	created, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: b.ID, SlotID: "body.entity"}, nil, b)
+	created, b := appendOwnedBody(m, f.ID)
 	active, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: "part", SlotID: "active-body"}, m.ActiveBodyID, b.ID)
 	m.ActiveBodyID = b.ID
 	f.BodyID = b.ID
 	f.Operation = "ADD"
 	return []modelcore.ModelChange{created, active}
+}
+
+func appendOwnedBody(m *PartModel, featureID string) (modelcore.ModelChange, PartBody) {
+	order := 1
+	for _, b := range m.Bodies {
+		order = max(order, b.Order+1)
+	}
+	b := PartBody{ID: "body-" + featureID, Name: nextBodyName(*m), Order: order, Visible: true, CreatedByFeatureID: featureID}
+	m.Bodies = append(m.Bodies, b)
+	created, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: b.ID, SlotID: "body.entity"}, nil, b)
+	return created, b
 }
 
 // A feature-owned Body disappears with its originating feature. Do not silently

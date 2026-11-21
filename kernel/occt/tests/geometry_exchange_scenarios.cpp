@@ -4,12 +4,14 @@
 #include <internal/occt_kernel.hpp>
 #include <internal/mass_properties.hpp>
 #include <internal/solid_material.hpp>
+#include <internal/plane_partition.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <BRepAlgoAPI_Check.hxx>
+#include <BRepAlgoAPI_Section.hxx>
 #include <occccad/kernel/topology_naming.hpp>
 #include <occccad/kernel/geometry_id.hpp>
 #include <occccad/kernel/mesh_glb.hpp>
@@ -2262,6 +2264,32 @@ TEST(GeometryExchange, FilletPreservesUntouchedExtrudeEdges) {
     }
 }
 
+TEST(GeometryExchange, GearboxPlanePartitionKeepsSignedSides) {
+    const auto stock = BRepPrimAPI_MakeBox(80, 60, 30).Solid();
+    const auto volume = [](const TopoDS_Shape& shape) {
+        GProp_GProps props;
+        BRepGProp::VolumeProperties(shape, props);
+        return props.Mass();
+    };
+    for (const auto x : {25., 35.}) {
+        const auto split = occccad::kernel::detail::partition_solid(stock, gp_Pln(gp_Pnt(x,0,0),gp_Dir(1,0,0)));
+        ASSERT_FALSE(split.history.IsNull());
+        EXPECT_NEAR(volume(split.positive), (80.-x)*60.*30., 1e-6);
+        EXPECT_NEAR(volume(split.negative), x*60.*30., 1e-6);
+        EXPECT_EQ(BRepClass3d_SolidClassifier(split.positive, gp_Pnt(70,30,15),1e-7).State(), TopAbs_IN);
+        EXPECT_EQ(BRepClass3d_SolidClassifier(split.negative, gp_Pnt(70,30,15),1e-7).State(), TopAbs_OUT);
+        TopTools_IndexedMapOfShape pos, neg;
+        TopExp::MapShapes(split.positive, TopAbs_FACE, pos);
+        TopExp::MapShapes(split.negative, TopAbs_FACE, neg);
+        int shared = 0;
+        for (int i = 1; i <= pos.Extent(); ++i) if (neg.Contains(pos(i))) ++shared;
+        EXPECT_EQ(shared, 1);
+    }
+    for (double x : {80., 90.})
+        EXPECT_THROW(occccad::kernel::detail::partition_solid(stock, gp_Pln(gp_Pnt(x,0,0),gp_Dir(1,0,0))),std::invalid_argument);
+    EXPECT_NEAR(volume(stock), 144000., 1e-6);
+}
+
 TEST(GeometryExchange, ChamferedTrihedralCornerFillets) {
     const auto readShape = [](const std::vector<uint8_t>& bytes) {
         std::istringstream stream(std::string(bytes.begin(), bytes.end()));
@@ -2670,6 +2698,13 @@ void check_shell_chain(OcctKernel& kernel, std::vector<ProfilePadSpec> chain, co
         // The opening stays open, the base has the requested thickness,
         // and material immediately beyond the inner wall is absent.
         const auto state = [&](const gp_Pnt& p) { return BRepClass3d_SolidClassifier(shape, p, 1e-6).State(); };
+        // No wall may cross a support plane outside the planar opening.
+        // The intersection catches a narrow lip which a center probe misses.
+        gp_Pln above(gp_Pnt(0,0,height + toleranceLimit*4), gp_Dir(0,0,1));
+        above.Transform(frame);
+        BRepAlgoAPI_Section outside(shape, above);
+        ASSERT_TRUE(outside.IsDone());
+        EXPECT_FALSE(TopExp_Explorer(outside.Shape(),TopAbs_EDGE).More());
         EXPECT_EQ(state(gp_Pnt(0,0,height-thickness*0.1).Transformed(frame)), TopAbs_OUT);
         EXPECT_EQ(state(gp_Pnt(0,0,thickness*0.5).Transformed(frame)), TopAbs_IN);
         EXPECT_EQ(state(gp_Pnt(0,0,thickness*1.5).Transformed(frame)), TopAbs_OUT);

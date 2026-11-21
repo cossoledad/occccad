@@ -153,8 +153,10 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		}
 		var geometryKey string
 		var repairRequired []FeaturePreviewIssue
-		geometryFeatureID := previewGeometryFeatureID(prepared.command.Payload, model)
-		if geometryFeatureID != "" {
+		definition := previewFeature(prepared.command.Payload, model)
+		geometryFeatureID := ""
+		if definition.Type == "GEOMETRY" {
+			geometryFeatureID = definition.ID
 			bodyID = ""
 			geometryKey, err = service.evaluateGeometricFeature(ctx, "preview/"+prepared.requestID, &model, geometryFeatureID)
 		} else if requiresOrderedEvaluation(prepared.command) {
@@ -216,6 +218,30 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		if geometryFeatureID != "" {
 			artifact.Result = &modelcore.GeometryResultReference{FeatureID: geometryFeatureID, ResultID: "result"}
 		}
+		var splitResultArtifact *Artifact
+		var splitVisuals map[string]bool
+		if definition.Type == "SPLIT_BODY" && !definition.Suppressed {
+			index := bodyIndex(model, definition.SplitBodyID)
+			if index < 0 {
+				return CommandPreview{}, fmt.Errorf("%w: missing split output Body", ErrValidation)
+			}
+			sibling := &model.Bodies[index]
+			key := sibling.GeometryKey
+			if !requiresOrderedEvaluation(prepared.command) || key == "" {
+				key, err = service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID+"/sibling", model, sibling.ID, true)
+				if err != nil {
+					return CommandPreview{}, err
+				}
+			}
+			output, e := service.loadArtifact(ctx, key)
+			if e != nil {
+				return CommandPreview{}, e
+			}
+			sibling.GeometryKey = key
+			output.BodyID, output.RepresentationKind = sibling.ID, "TRANSIENT_PREVIEW"
+			splitResultArtifact = &output
+			splitVisuals = map[string]bool{output.Representations["VISUAL"].ObjectID: true}
+		}
 		bodyName := ""
 		bodyAssignment := "TARGET_BODY"
 		if index := bodyIndex(model, bodyID); index >= 0 {
@@ -234,7 +260,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		previewID := newID("preview")
 		service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
 			headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-			payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, geometryKey: geometryKey, visualObjectID: artifact.Representations["VISUAL"].ObjectID,
+			payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, geometryKey: geometryKey, visualObjectID: artifact.Representations["VISUAL"].ObjectID, visualObjectIDs: splitVisuals,
 			changes: previewChanges, expiresAt: time.Now().Add(interactionCandidateTTL)})
 		finish()
 		artifact.RepresentationKind = "TRANSIENT_PREVIEW"
@@ -276,7 +302,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			ReferenceGeometry: datumPreviewReferences(prepared.command, model), ParameterCandidates: parameterPreviewCandidates(prepared.command, model),
 			PreviewID: previewID, BaseVersionID: prepared.headRevision,
 			BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,
-			ResultBodyID: bodyID, ResultBodyName: bodyName, BodyAssignment: bodyAssignment,
+			SplitResultArtifact: splitResultArtifact, ResultBodyID: bodyID, ResultBodyName: bodyName, BodyAssignment: bodyAssignment,
 			SketchCandidates: solvedSketchPreviewCandidates(prepared.command, model),
 		}, nil
 	}()

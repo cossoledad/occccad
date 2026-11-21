@@ -32,7 +32,7 @@ import (
 
 const geometryValidationPolicy = "occccad.geometry.brep-valid.v1"
 
-const evaluatorVersion = "part-solid-generators-v88-occt-fb4a17b508257b7fd375ead67d019146"
+const evaluatorVersion = "part-solid-generators-v90-occt-fb4a17b508257b7fd375ead67d019146"
 
 // Representation changes qualify newly evaluated artifacts independently of
 // the semantic Naming policy, exact shape identity and dependency manifest.
@@ -1435,7 +1435,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 					point  SketchPoint2
 				}{"center", *entity.Center})
 			}
-			if entity.Kind == "ARC" || entity.Kind == "ELLIPTICAL_ARC" {
+			if entity.Kind == "LINE" || entity.Kind == "ARC" || entity.Kind == "ELLIPTICAL_ARC" {
 				if first, last, ok := entityProfileEndpoints(entity); ok {
 					auxiliaryPoints = append(auxiliaryPoints, struct {
 						suffix string
@@ -1455,9 +1455,16 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				}
 			}
 			for _, auxiliary := range auxiliaryPoints {
+				reference := SketchGeometryRef{Target: "ENTITY", EntityID: entity.ID, SubElement: strings.ToUpper(auxiliary.suffix)}
+				switch auxiliary.suffix {
+				case "start":
+					reference.PointID = entity.StartPointID
+				case "end":
+					reference.PointID = entity.EndPointID
+				}
 				manifest.Primitives = append(manifest.Primitives, VisualPrimitive{ID: entity.ID + ":" + auxiliary.suffix, DisplayEntityID: entity.ID, FeatureID: feature.ID,
 					Kind: "POINTS", Semantic: "SKETCH_POINT", EntityType: "REFERENCE_POINT", Role: entity.Role,
-					PointReference: &SketchGeometryRef{Target: "ENTITY", EntityID: entity.ID, SubElement: strings.ToUpper(auxiliary.suffix)}, Status: primitive.Status, Positions: [][3]float64{toWorld(auxiliary.point)}, Selectable: auxiliary.suffix == "center" || auxiliary.suffix == "start" || auxiliary.suffix == "end"})
+					PointReference: &reference, Status: primitive.Status, Positions: [][3]float64{toWorld(auxiliary.point)}, Selectable: auxiliary.suffix == "center" || auxiliary.suffix == "start" || auxiliary.suffix == "end"})
 			}
 		}
 		for _, external := range feature.Sketch.ExternalGeometry {
@@ -1917,7 +1924,15 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			}
 			solidFeatures = append(solidFeatures, spec)
 			bodyTipFeatureID = feature.ID
-		case "FILLET", "CHAMFER", "DRAFT", "SHELL":
+		case "SPLIT_BODY", "SPLIT_RESULT":
+			spec, err := service.splitBodyInput(ctx, reqID, fullModel, feature)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+			}
+			spec.InputFeatureID = bodyTipFeatureID
+			solidFeatures = append(solidFeatures, spec)
+			bodyTipFeatureID = feature.ID
+		case "FILLET", "CHAMFER", "DRAFT", "SHELL", "SPLIT_FACE":
 			spec, err := service.modifierInput(ctx, reqID, fullModel, feature)
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
@@ -2040,7 +2055,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 				}
 			}
 			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID,
-				InputFeatureID: bodyTipFeatureID, ProfileFeatureID: sketch.ID,
+				InputFeatureID: bodyTipFeatureID, ProfileFeatureID: sketch.ID, Rib: feature.ThinWall != nil && feature.ThinWall.Rib,
 				StartOffset: feature.StartOffset, EndOffset: feature.EndOffset, TerminationSurface: endSurface, Tools: terminationTools, ProfileOrigins: origins, SweepPath: sweepPath,
 				TerminationOrigin: endOrigin, TerminationNormal: endNormal,
 				Regions: regions, Length: feature.Length, Extent: feature.Extent, Length2: feature.Length2,
@@ -2470,10 +2485,10 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 	if kind == "PAD" && feature.Operation == "REMOVE" && (feature.Name == "" || strings.HasPrefix(feature.Name, "Pad")) {
 		node.Name = strings.Replace(node.Name, "Pad", "Pocket", 1)
 	}
-	if deletable {
+	if deletable && feature.Type != "SPLIT_RESULT" {
 		node.Capabilities = []string{"DELETE"}
 	}
-	if childrenEditable && ((isBodyFeature(feature.Type) || feature.Type == "SKETCH_PATTERN" || feature.Type == "GEOMETRY") && feature.Type != "IMPORT_BODY" && !(feature.Geometry != nil && feature.Geometry.Kind == "IMPORTED")) {
+	if childrenEditable && ((isBodyFeature(feature.Type) || feature.Type == "SKETCH_PATTERN" || feature.Type == "GEOMETRY") && feature.Type != "IMPORT_BODY" && feature.Type != "SPLIT_RESULT" && !(feature.Geometry != nil && feature.Geometry.Kind == "IMPORTED")) {
 		node.Capabilities = append(node.Capabilities, "EDIT", "SUPPRESS")
 	}
 	node.Suppressed = feature.Suppressed

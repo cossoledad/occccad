@@ -6,6 +6,13 @@ import (
 	"math"
 )
 
+// ISO 273 medium-series clearance diameters in millimetres.
+var metricClearanceDiameters = map[string]float64{
+	"ISO273_MEDIUM_M3": 3.4, "ISO273_MEDIUM_M4": 4.5,
+	"ISO273_MEDIUM_M5": 5.5, "ISO273_MEDIUM_M6": 6.6,
+	"ISO273_MEDIUM_M8": 9, "ISO273_MEDIUM_M10": 11,
+}
+
 type HoleThreadDefinition struct {
 	Mode          string  `json:"mode"` // ANNOTATION: engineering intent; never a helical BREP.
 	Designation   string  `json:"designation"`
@@ -25,9 +32,9 @@ func validateHolePositionSet(f Feature) error {
 	if f.HolePoint != nil && len(f.HolePoints) > 0 || len(holePositions(f)) == 0 || len(holePositions(f)) > 128 {
 		return fmt.Errorf("%w: HOLE_POSITION_SET_INVALID", ErrValidation)
 	}
-	seen := map[string]bool{}
+	seen := map[[4]string]bool{}
 	for _, p := range holePositions(f) {
-		key := p.SketchID + "/" + p.Reference.EntityID
+		key := [4]string{p.SketchID, p.Reference.EntityID, p.Reference.SubElement, p.Reference.PointID}
 		if seen[key] {
 			return fmt.Errorf("%w: HOLE_POSITION_DUPLICATE", ErrValidation)
 		}

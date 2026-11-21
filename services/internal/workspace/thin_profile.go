@@ -10,6 +10,7 @@ import (
 )
 
 type ThinWallDefinition struct {
+	Rib        bool                  `json:"rib,omitempty"`
 	Input      string                `json:"input"` // REGIONS | CHAINS
 	Mode       string                `json:"mode"`  // ONE_SIDED | TWO_SIDED | SYMMETRIC (total thickness)
 	Side       string                `json:"side"`  // LEFT | RIGHT, along the formal directed chain
@@ -57,6 +58,9 @@ func validateThinWall(f Feature) error {
 	d := f.ThinWall
 	if d == nil {
 		return nil
+	}
+	if d.Rib && (f.Type != "LINEAR_EXTRUDE" || f.Operation != "ADD" || f.Extent != "TO_NEXT" || d.Input != "CHAINS" || f.StartOffset != 0 || f.EndOffset != 0) {
+		return fmt.Errorf("%w: RIB_REQUIRES_CHAIN_TO_NEXT_MATERIAL", ErrValidation)
 	}
 	if !linearExtrudeFeature(f) || !positiveFinite(d.Thickness) || (d.Input != "REGIONS" && d.Input != "CHAINS") || (d.Mode != "ONE_SIDED" && d.Mode != "TWO_SIDED" && d.Mode != "SYMMETRIC") || (d.Side != "LEFT" && d.Side != "RIGHT") || (d.Join != "MITER" && d.Join != "ROUND") {
 		return fmt.Errorf("%w: THIN_DEFINITION_INVALID", ErrValidation)

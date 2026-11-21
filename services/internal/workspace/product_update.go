@@ -346,6 +346,7 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 		variant.Publications = projection.Publications
 		collections := DocumentView{}
 		projectPartCollections(&collections, projection)
+		variant.HoleStandards = collections.HoleStandards
 		variant.ReplicationSources, variant.SketchDerivedEntities = collections.ReplicationSources, collections.SketchDerivedEntities
 		variant.Part = &projection
 		variant.SketchAnalyses = service.projectExactSketchAnalyses(ctx, projection)
@@ -403,6 +404,7 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 	manifestJSON, _ := json.Marshal(manifest)
 	collections := DocumentView{}
 	projectPartCollections(&collections, model)
+	variant.HoleStandards = collections.HoleStandards
 	variant.ReplicationSources, variant.SketchDerivedEntities = collections.ReplicationSources, collections.SketchDerivedEntities
 	variant.Part = &model
 	variant.SketchAnalyses = service.projectExactSketchAnalyses(ctx, model)

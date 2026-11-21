@@ -1257,7 +1257,7 @@ export function Workbench() {
     if(!node.definitionDigest)return;
     const feature = editingView.part?.features.find(candidate => candidate.id === node.entityId);
     if(feature?.geometry){if(activeInstancePath){operationFeedback(new CommandInputError("请在独立零件窗口编辑曲线与曲面"),"编辑特征");return;}closeCommandPanels();store.setActiveTool("select","once");setGeometryEditor({feature,digest:node.definitionDigest});return;}
-    if (feature && ["SWEEP", "HOLE", "SOLID_PATTERN", "SKETCH_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase())) {
+    if (feature && ["SWEEP", "HOLE", "SOLID_PATTERN", "SKETCH_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "SPLIT_FACE", "SPLIT_BODY", "LOFT"].includes(feature.type.toUpperCase())) {
       setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature, digest: node.definitionDigest});
     } else if (feature?.type === "BOOLEAN") {
       setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setSolidEditor(undefined);setGeometryEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({feature, digest: node.definitionDigest});
@@ -1462,7 +1462,7 @@ onInsertAfter:(node,type)=>{
  if(!editingView?.part||!canEdit||command.isPending||store.activeSketchID||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.capabilities?.includes("INSERT_AFTER"))return;
  const anchor=editingView.part.features.find(f=>f.id===node.entityId);if(!anchor)return;
  const insertion={context:contextScopeForView(editingView),intentId:randomUUID(),afterFeatureId:anchor.id,bodyId:anchor.bodyId!,versionId:editingView.document.versionId,occurrencePath:activeInstancePath,label:`${editingView.part.bodies.find(b=>b.id===anchor.bodyId)?.name} / ${anchor.name}`};
- if(!["FILLET","CHAMFER","DRAFT","SHELL"].includes(type)&&!canCreateHistorical)return;
+ if(!["FILLET","CHAMFER","DRAFT","SHELL","SPLIT_FACE","SPLIT_BODY"].includes(type)&&!canCreateHistorical)return;
  closeCommandPanels();endHistoryResult();
  if(type==="SKETCH"){setSketchInsertion(insertion);return;}
  if(type==="EXTRUDE_ADD"||type==="EXTRUDE_REMOVE"){
@@ -1702,7 +1702,7 @@ onToggleConstruction:(node)=>{
   const parameterDraftSource=Form.useWatch("source",parameterForm),parameterDraftKey=Form.useWatch("key",parameterForm);
  const previewParameter=documentParameters(editingView).find(p=>p.parameterId===editingParameterID);
  let parameterPreviewInput:Record<string,unknown>|undefined;
- try{if(editingParameterID&&editingView&&previewParameter&&previewParameter.role!=="MEASURED"&&!previewParameter.source.produced&&!boundContextParameter(editingParameterID)&&!previewParameter.source.external&&typeof parameterDraftSource==="string"){
+ try{if(editingParameterID&&editingView&&previewParameter&&previewParameter.role!=="OUTPUT"&&previewParameter.role!=="MEASURED"&&!previewParameter.source.produced&&!boundContextParameter(editingParameterID)&&!previewParameter.source.external&&typeof parameterDraftSource==="string"){
  const parsed=parseParameterSource(parameterEditSource(previewParameter,parameterDraftSource,parameterInputUnit(previewParameter,lengthUnit)),parameterInputUnit(previewParameter,lengthUnit));
  if(parsed.kind==="LITERAL"||parsed.expression)parameterPreviewInput={type:"EDIT_PARAMETER",parameterId:editingParameterID,name:parameterDraftKey?.trim()||previewParameter.key,...(parsed.kind==="LITERAL"?{value:parsed.value,unit:parsed.unit}:{expression:parsed.expression})};
  }}catch{}
@@ -1712,7 +1712,7 @@ onToggleConstruction:(node)=>{
 	if (!editingView || !editingParameterID) return;
 	const values = await parameterForm.validateFields();
 	const current = documentParameters(editingView).find((candidate) => candidate.parameterId === editingParameterID);
-    if(current?.source.produced||current?.role==="MEASURED"||current?.source.external||boundContextParameter(editingParameterID)){
+    if(current?.source.produced||current?.role==="OUTPUT"||current?.role==="MEASURED"||current?.source.external||boundContextParameter(editingParameterID)){
       await command.mutateAsync(()=>api.command(editingView.document.id,{type:"RENAME_PARAMETER",parameterId:editingParameterID,name:values.key.trim()||current?.key}));
       setEditingParameterID(undefined);return;
     }
@@ -1728,7 +1728,7 @@ onToggleConstruction:(node)=>{
 		{onSuccess:()=>setEditingParameterID(undefined)});
   };
   const editingParameterDefinition=documentParameters(editingView).find(parameter=>parameter.parameterId===editingParameterID);
-  const parameterSourceReadonly=Boolean(editingParameterDefinition?.source.produced)||editingParameterDefinition?.role==="MEASURED"||Boolean(editingParameterDefinition?.source.external)||Boolean(boundContextParameter(editingParameterID));
+  const parameterSourceReadonly=Boolean(editingParameterDefinition?.source.produced)||editingParameterDefinition?.role==="OUTPUT"||editingParameterDefinition?.role==="MEASURED"||Boolean(editingParameterDefinition?.source.external)||Boolean(boundContextParameter(editingParameterID));
   const endInteractionForActivation = () => {
     setDesignAssociationOpen(false);setPublicationManagerOpen(false);setFeatureSelection(undefined);
     viewport.current?.cancelAssemblyInteraction();stopConflictAnalysis();
@@ -2135,7 +2135,7 @@ onToggleConstruction:(node)=>{
 			<div className="parameter-manager-header"><span>参数 / 别名</span><span>来源</span><span>计算值</span><span /></div>
             <div className="parameter-manager-list" role="region" aria-label="参数列表">
 			{(documentParameters(editingView)).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前文档尚无参数" />
-				: (documentParameters(editingView)).filter(p=>parameterFilter==='ALL'||parameterFilter==='USER'&&p.lifecycle==='USER'||parameterFilter==='OUTPUT'&&!!p.source.produced||parameterFilter==='SELECTED'&&[store.selection?.entityId,store.selection&&'featureId' in store.selection?store.selection.featureId:undefined,store.selection?.id].includes(p.ownerFeatureId??'')).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
+				: (documentParameters(editingView)).filter(p=>parameterFilter==='ALL'||parameterFilter==='USER'&&p.lifecycle==='USER'||parameterFilter==='OUTPUT'&&p.role==='OUTPUT'||parameterFilter==='SELECTED'&&[store.selection?.entityId,store.selection&&'featureId' in store.selection?store.selection.featureId:undefined,store.selection?.id].includes(p.ownerFeatureId??'')).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
 					<span><strong>{parameter.qualifiedDisplayPath ?? parameter.displayName ?? parameter.label}</strong>
 						{parameter.displayAlias && <Typography.Text type="secondary">{parameter.displayAlias}</Typography.Text>}
 						</span>
@@ -2146,7 +2146,7 @@ onToggleConstruction:(node)=>{
 					<Typography.Text>{parameterDisplayValue(parameter, lengthUnit)}</Typography.Text>
 					<Space size={4} wrap>
                         <Button size="small" disabled={!canEdit} onClick={() => openParameterEditor(parameter.parameterId)}>编辑</Button>
-                        {!parameter.source.produced&&<Button size="small" disabled={!canEdit} onClick={()=>{setParameterManagerOpen(false);setExternalParameterID(parameter.parameterId)}}>引用</Button>}
+                        {parameter.role!=="OUTPUT"&&!parameter.source.produced&&<Button size="small" disabled={!canEdit} onClick={()=>{setParameterManagerOpen(false);setExternalParameterID(parameter.parameterId)}}>引用</Button>}
                         <Button size="small" type="text" disabled={!canEdit} onClick={()=>publishParameter(parameter)}>发布</Button>
                         {parameter.lifecycle==="USER"&&<Button size="small" type="text" danger disabled={!canEdit} onClick={()=>command.mutate(()=>api.command(editingView!.document.id,{type:"DELETE_PARAMETER",parameterId:parameter.parameterId}))}>删除</Button>}
                     </Space>
@@ -2222,7 +2222,7 @@ onToggleConstruction:(node)=>{
     {solidEditor && editingView?.part && <SolidFeatureEditor key={editingView.document.id+solidEditor.feature.id+solidEditor.feature.type+(solidEditor.insertion?.intentId??"")} view={editingView} feature={solidEditor.feature} digest={solidEditor.digest} insertion={solidEditor.insertion} resume={solidEditor.resume} unit={solidEditor.resume?.unit??lengthUnit} onSketch={assistantHandoff.current?undefined:enterSolidSketch} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifact={featureInputChanged}
       intentRequestId={handoffEditorIntent(assistantHandoff.current,editingView.document.id,editingView.document.versionId,solidEditor.feature.type)}
       onClose={()=>{const handoff=assistantHandoff.current;assistantHandoff.current=undefined;if(handoff&&handoff.state!=="COMMITTED")void finishAssistantHandoff(handoff,handoff.state==="UNKNOWN"?"UNKNOWN":"CANCELLED");viewport.current?.clearCommandPreview();setSolidEditor(undefined);setGeometryEditor(undefined);}}
-      onPreview={(artifact,operation,sketchFeatureId)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation,sketchFeatureId);else viewport.current?.clearCommandPreview();}}
+      onPreview={(artifact,operation,sketchFeatureId,sibling)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation,sketchFeatureId,sibling);else viewport.current?.clearCommandPreview();}}
       onApply={async input=>{
         const handoff=assistantHandoff.current,matched=handoffMatchesCommit(handoff,editingView.document.id,editingView.document.versionId,input);
         if(handoff&&input.requestId===handoff.domainRequestId&&!matched)throw new Error(handoff.state==="UNKNOWN"?"原请求提交结果未知，请先在建模助手核对操作结果，勿再次提交":"接管目标、版本或操作已变化，请取消工具并重新规划");

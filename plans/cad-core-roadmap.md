@@ -6,6 +6,8 @@
 
 | 方向 | 范围与验收重点 | 当前依据 |
 |---|---|---|
+| 实体建模正确性 | 已有材料差拦截和复制选源展示；修复复杂放样内抽壳构造，通过正向几何与外壁命名回归 | [实体审计](../docs/references/solid-modeling.md)、[工程验收](../docs/validation/solid-modeling-workflows.md) |
+| 实体建模后续范围 | 首批平面分体、分面、加强筋、标准间隙孔和非对称倒角已进入工作台。后续候选包括曲面分割、二维阵列、变半径圆角和更多孔系；按工程样件排期 | [范围与参考](../docs/references/solid-modeling.md)、[工程验收](../docs/validation/solid-modeling-workflows.md) |
 | 工程曲面扩展 | 扩大导向线与支撑面的适用范围，补齐一般曲面编辑及测量、发布和 Product 中的引用 | [当前边界](../docs/architecture/current/wireframe-surfaces.md)、[商业 CAD 对照](../docs/references/surface-modeling.md) |
 | 几何测量交互 | 依据实机反馈完善专用上下文来源、标签排布和选择语义；保持临时计算、保留/更新及标注历史边界 | [几何测量](../docs/architecture/current/geometric-measurement.md) |
 | 零件持续建模性能 | 在复杂 STEP、混合长链和持续增长的拓扑上测量布尔构造、边界校验、变化面传输、Naming 历史读取和模型冻结。分别验证首次操作、改参、冷恢复及取消 | [增长边界](../docs/architecture/current/part-feature-evaluation.md#通用特征性能与增长边界)、[复测方法](../docs/validation/part-feature-performance.md) |

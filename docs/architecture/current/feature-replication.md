@@ -2,6 +2,8 @@
 
 返回[唯一能力表](solid-features.md#feature-能力表)。本页区分固定工具/材料范围/实体阶段复制与生成器在成员位置重执行；它们复用同一 SOLID_PATTERN、稳定槽位、Command 和 Naming。
 
+种子行显示当前采用的生成工具、净材料范围、成员位置重执行或完整实体阶段。自动选项显示服务端解析出的方式；只有实体阶段可用时，须显式选择该阶段。
+
 ## 参数化阵列
 
 `CREATE_PATTERN` 创建 `SOLID_PATTERN` 或 `SKETCH_PATTERN`；编辑、预览、抑制、删除、补偿历史和 per-Body 制品沿用 Feature 链。共同定义为稳定源引用、`PatternDefinition` 分布及逻辑槽位；实体多种子在 `additionalSources` 保存其余各项的正式阶段／工具／材料范围定义，逐项进入依赖、删除及范围保护、缓存和 Worker，作为同一 Feature 一次预览／提交／历史操作。种子限定同 Body、同添加／切除语义，最多32项；不以首个种子代替其余输入。空间草图阵列仍一次引用一个草图，草图内几何可多选。控制面只计算刚体变换，三类几何分别求值。长度、角度、相位、数量使用既有 Quantity、ParameterID 和 checkedAST，不由浏览器逐成员发命令。

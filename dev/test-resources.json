@@ -919,6 +919,15 @@
     ]
   },
   {
+    "path": "services/internal/control/engineering_flange_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
     "path": "services/internal/control/thin_feature_integration_test.go",
     "resources": [
       "configured testsupport.OpenDevelopmentDatabase",

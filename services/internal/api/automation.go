@@ -223,13 +223,22 @@ func (server *Server) handleAutomationRequest(ctx context.Context, client *realt
 	client.sendResponse(envelope.ID, "automation.completed.v1", result)
 }
 func automationPreviewURLs(document string, preview *workspace.CommandPreview) {
-	if preview.Artifact == nil {
-		return
+	preview.Artifact = previewArtifactURL(document, preview.PreviewID, preview.Artifact)
+	preview.SplitResultArtifact = previewArtifactURL(document, preview.PreviewID, preview.SplitResultArtifact)
+}
+
+func previewArtifactURL(document, id string, artifact *workspace.Artifact) *workspace.Artifact {
+	if artifact == nil {
+		return nil
 	}
-	for role, ref := range preview.Artifact.Representations {
+	a := *artifact
+	a.RepresentationKind = "TRANSIENT_PREVIEW"
+	a.Representations = map[string]workspace.Representation{}
+	for role, ref := range artifact.Representations {
 		if ref.ObjectID != "" {
-			ref.URL = "/api/documents/" + url.PathEscape(document) + "/representations/" + url.PathEscape(ref.ObjectID) + "?previewId=" + url.QueryEscape(preview.PreviewID)
-			preview.Artifact.Representations[role] = ref
+			ref.URL = "/api/documents/" + url.PathEscape(document) + "/representations/" + url.PathEscape(ref.ObjectID) + "?previewId=" + url.QueryEscape(id)
 		}
+		a.Representations[role] = ref
 	}
+	return &a
 }

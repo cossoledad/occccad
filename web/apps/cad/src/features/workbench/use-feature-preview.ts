@@ -7,7 +7,7 @@ import {randomUUID} from "../../utils/random-uuid";
 import { useEffect, useRef, useState } from "react";
 import type { Artifact, Feature,ReferenceGeometry,ParameterDefinition } from "../../types";
 import { api } from "../../api/client";
-export function useFeaturePreview(documentId: string, versionId: string, input: Record<string, unknown> | undefined, operation: Feature["operation"], onPreview: (artifact?: Artifact, operation?: Feature["operation"]) => void, automatic = true) {
+export function useFeaturePreview(documentId: string, versionId: string, input: Record<string, unknown> | undefined, operation: Feature["operation"], onPreview: (artifact?: Artifact, operation?: Feature["operation"],splitResult?:Artifact) => void, automatic = true) {
     input=input?contextCommand(documentId,input):undefined;
     const [state, setState] = useState<{
         repairRequired?:{featureId:string;name:string;diagnostic:string}[];referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
@@ -79,7 +79,7 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
                 const result=await evaluate();
                 if(!alive)return;
                 setState({key,result,repairRequired:result.repairRequired,referenceGeometry:result.referenceGeometry,parameterCandidates:result.parameterCandidates,id:result.previewId,pending:false,loftSections:result.loftSections,loftConnections:result.loftConnections});
-                callback.current(result.artifact,latest.current.operation);
+                callback.current(result.artifact,latest.current.operation,result.splitResultArtifact);
             }catch(error){if(alive&&!candidate.controller.signal.aborted){recordDeveloperEvidence("特征预览",error);setState({key,pending:false,error:engineeringProblem(error),failure:error});}}
         };
         let delayed: ReturnType<typeof setTimeout> | undefined;

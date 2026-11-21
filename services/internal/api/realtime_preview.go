@@ -160,16 +160,8 @@ func (client *realtimeClient) startPreview(server *Server, ctx context.Context, 
 		p.expires = time.Now().Add(time.Minute)
 		// URLs are session/actor-scoped grants checked against the candidate cache.
 		// Never mutate the cached descriptor's map or expose inline mesh arrays.
-		if result.Artifact != nil {
-			a := *result.Artifact
-			a.RepresentationKind = "TRANSIENT_PREVIEW"
-			a.Representations = map[string]workspace.Representation{}
-			for role, ref := range result.Artifact.Representations {
-				ref.URL = "/api/documents/" + url.PathEscape(input.DocumentID) + "/representations/" + url.PathEscape(ref.ObjectID) + "?previewId=" + url.QueryEscape(result.PreviewID)
-				a.Representations[role] = ref
-			}
-			result.Artifact = &a
-		}
+		result.Artifact = previewArtifactURL(input.DocumentID, result.PreviewID, result.Artifact)
+		result.SplitResultArtifact = previewArtifactURL(input.DocumentID, result.PreviewID, result.SplitResultArtifact)
 		if result.ReplacementView != nil {
 			for key, artifact := range result.ReplacementView.Artifacts {
 				refs := map[string]workspace.Representation{}

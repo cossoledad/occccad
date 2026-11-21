@@ -590,7 +590,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		feature := *request.Feature
 		feature.ID = commandEntityID(strings.ToLower(feature.Type), request.RequestID)
-		feature.Name = numberedFeatureName(model.Features, feature.Type, strings.Title(strings.ToLower(feature.Type)))
+		feature.Name = numberedFeatureName(model.Features, feature.Type, automaticTypePrefix(feature.Type))
 		if pick := feature.NeutralPlane; pick != nil && pick.Selection.SourceDocumentID != documentID {
 			return "", nil, fmt.Errorf("%w: cross-document neutral plane", ErrValidation)
 		}
@@ -714,6 +714,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 		}
 		prefix, label := "extrude", "Extrude"
+		if request.ThinWall != nil && request.ThinWall.Rib {
+			prefix, label = "rib", "Rib"
+		}
 		if generator == "REVOLVE" {
 			prefix, label = "revolve", "Revolve"
 		}

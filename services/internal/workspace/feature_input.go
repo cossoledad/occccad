@@ -245,7 +245,7 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 	}
 	// Non-plane inputs authorize their complete declared context (including
 	// Boolean tools). The download gate separately checks the requested Body.
-	planeConsumer := feature.Type == "LOFT" || feature.Type == "DRAFT" || feature.Extent == "TO_PLANE" || feature.Extent == "TO_SURFACE" || (feature.Type == "SOLID_PATTERN" && feature.Pattern != nil && feature.Pattern.Kind == "MIRROR")
+	planeConsumer := feature.Type == "LOFT" || feature.Type == "DRAFT" || feature.Type == "SPLIT_FACE" || feature.Type == "SPLIT_BODY" || feature.Extent == "TO_PLANE" || feature.Extent == "TO_SURFACE" || (feature.Type == "SOLID_PATTERN" && feature.Pattern != nil && feature.Pattern.Kind == "MIRROR")
 	if !resolve && !planeConsumer {
 		request.BodyID = ""
 	}

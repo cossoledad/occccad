@@ -45,7 +45,7 @@ func applyFeatureSuppression(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 		if f.ID != payload.FeatureID {
 			continue
 		}
-		if (!isBodyFeature(f.Type) && f.Type != "SKETCH_PATTERN" && f.Type != "GEOMETRY") || f.Type == "IMPORT_BODY" {
+		if (!isBodyFeature(f.Type) && f.Type != "SKETCH_PATTERN" && f.Type != "GEOMETRY") || f.Type == "IMPORT_BODY" || f.Type == "SPLIT_RESULT" {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: feature does not support suppression", ErrValidation)
 		}
 		before := featureHistoryDefinition(*f)
@@ -56,8 +56,27 @@ func applyFeatureSuppression(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 		if err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
+		set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{modelcore.DependencyKey("feature:" + f.ID)}}
+		if f.Type == "SPLIT_BODY" {
+			for j := range model.Features {
+				child := &model.Features[j]
+				if child.SplitParentID != f.ID {
+					continue
+				}
+				prior := featureHistoryDefinition(*child)
+				child.Suppressed = payload.Suppressed
+				child.EvaluationStatus, child.Diagnostic = "", ""
+				c, err := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: child.ID, SlotID: "entity"}, prior, featureHistoryDefinition(*child))
+				if err != nil {
+					return nil, modelcore.ChangeSet{}, err
+				}
+				set.Changes = append(set.Changes, c)
+				set.ImpactSeeds = append(set.ImpactSeeds, modelcore.DependencyKey("feature:"+child.ID))
+			}
+			normalizeBodies(&model)
+		}
 		next, err := json.Marshal(model)
-		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{modelcore.DependencyKey("feature:" + f.ID)}}, err
+		return next, set, err
 	}
 	return nil, modelcore.ChangeSet{}, ErrNotFound
 }

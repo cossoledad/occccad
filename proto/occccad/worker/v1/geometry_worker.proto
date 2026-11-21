@@ -804,7 +804,9 @@ message ProfilePadSpec {
     string depth_convention = 47; // CYLINDER | TIP
     LoftBoundarySpec loft_start = 48;
     LoftBoundarySpec loft_end = 49;
-    GeometryFeatureSpec geometry_generator = 50; // typed solid bridge, currently THICKEN
+    GeometryFeatureSpec geometry_generator = 50;
+    bool rib = 52;
+    string chamfer_mode = 51; // empty: equal distance; TWO_DISTANCES or DISTANCE_ANGLE require one adjacent reference face
 
 
 }

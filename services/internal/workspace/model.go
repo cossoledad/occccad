@@ -530,6 +530,8 @@ type Feature struct {
 	LoftStart          *LoftBoundaryDefinition `json:"loftStart,omitempty"`
 	LoftEnd            *LoftBoundaryDefinition `json:"loftEnd,omitempty"`
 	Sweep              *SweepDefinition        `json:"sweep,omitempty"`
+	ChamferMode        string                  `json:"chamferMode,omitempty"`
+	HoleStandard       string                  `json:"holeStandard,omitempty"`
 	HolePoints         []PatternPointReference `json:"holePoints,omitempty"`
 	DrillTipAngle      float64                 `json:"drillTipAngle,omitempty"`
 	DepthConvention    string                  `json:"depthConvention,omitempty"`
@@ -556,6 +558,9 @@ type Feature struct {
 	Ruled              bool                    `json:"ruled,omitempty"`
 	Selections         []FeatureSelection      `json:"selections,omitempty"`
 	NeutralPlane       *FeatureSelection       `json:"neutralPlane,omitempty"`
+	SplitKeepSide      string                  `json:"splitKeepSide,omitempty"`
+	SplitBodyID        string                  `json:"splitBodyId,omitempty"`
+	SplitParentID      string                  `json:"splitParentId,omitempty"`
 	NeutralPlaneID     string                  `json:"neutralPlaneId,omitempty"`
 	Extent             string                  `json:"extent,omitempty"`
 	Length2            float64                 `json:"length2,omitempty"`
@@ -858,6 +863,7 @@ type ReferenceUpdate struct {
 }
 
 type ContextVariantSnapshot struct {
+	HoleStandards            map[string]float64               `json:"holeStandards,omitempty"`
 	ReplicationSources       map[string]ReplicationSource     `json:"replicationSources,omitempty"`
 	SketchDerivedEntities    map[string][]SketchEntity        `json:"sketchDerivedEntities,omitempty"`
 	SketchAnalyses           map[string]SketchProfileAnalysis `json:"sketchAnalyses,omitempty"`
@@ -1151,6 +1157,7 @@ type DocumentView struct {
 	BodyAppearances         map[string]ResolvedAppearance    `json:"bodyAppearances,omitempty"`
 	ResultAppearances       map[string]ResolvedAppearance    `json:"resultAppearances,omitempty"`
 	ObjectAppearances       map[string]ResolvedAppearance    `json:"objectAppearances,omitempty"`
+	HoleStandards           map[string]float64               `json:"holeStandards,omitempty"`
 	ReplicationSources      map[string]ReplicationSource     `json:"replicationSources,omitempty"`
 	SketchDerivedEntities   map[string][]SketchEntity        `json:"sketchDerivedEntities,omitempty"`
 	Document                DocumentSummary                  `json:"document"`
@@ -1426,6 +1433,7 @@ type CommandPreview struct {
 	ModelHash            string                               `json:"modelHash"`
 	Artifact             *Artifact                            `json:"artifact,omitempty"`
 	ResultBodyID         string                               `json:"resultBodyId,omitempty"`
+	SplitResultArtifact  *Artifact                            `json:"splitResultArtifact,omitempty"`
 	ResultBodyName       string                               `json:"resultBodyName,omitempty"`
 	BodyAssignment       string                               `json:"bodyAssignment,omitempty"`
 	ConstraintLimited    bool                                 `json:"constraintLimited,omitempty"`

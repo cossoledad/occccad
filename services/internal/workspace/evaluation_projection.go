@@ -15,7 +15,7 @@ import (
 // Plane/all-through termination is geometric, not driven by the stored finite length.
 func featureHasDrivingLength(feature Feature) bool {
 	if isLocalModifier(feature.Type) {
-		return feature.Type != "DRAFT"
+		return feature.Type != "DRAFT" && feature.Type != "SPLIT_FACE" && feature.Type != "SPLIT_BODY"
 	}
 	return (feature.Type == "PAD" || feature.Type == "LINEAR_EXTRUDE") && !associatedExtrudeExtent(feature.Extent) && feature.Extent != "THROUGH_ALL"
 }
@@ -79,6 +79,13 @@ func ensureFeatureParameters(model *PartModel) {
 			for _, p := range holeParameters(feature) {
 				add(feature.ID, p.slot, p.label, p.unit, p.value, p.dimension, false)
 			}
+			if d, ok := metricClearanceDiameters[feature.HoleStandard]; ok {
+				add(feature.ID, "diameter", "Diameter", "mm", d, modelcore.LengthDimension, false)
+				p := &model.Parameters[existing["parameter:"+feature.ID+":diameter"]]
+				q, _ := modelcore.NewQuantity(d, "mm")
+				p.Role = "OUTPUT"
+				p.Source = modelcore.ValueSource{Literal: &q}
+			}
 		}
 		if feature.Pattern != nil {
 			for _, parameter := range patternParameters(&feature.Pattern.PatternDefinition) {
@@ -94,10 +101,10 @@ func ensureFeatureParameters(model *PartModel) {
 		if featureHasDrivingLength(feature) {
 			add(feature.ID, "length", "Length", "mm", feature.Length, modelcore.LengthDimension, false)
 		}
-		if strings.ToUpper(feature.Type) == "REVOLVE" || feature.Type == "DRAFT" {
+		if strings.ToUpper(feature.Type) == "REVOLVE" || feature.Type == "DRAFT" || feature.ChamferMode == "DISTANCE_ANGLE" {
 			add(feature.ID, "angle", "Angle", "deg", feature.Angle, modelcore.AngleDimension, false)
 		}
-		if feature.Extent == "TWO_SIDED" {
+		if feature.Extent == "TWO_SIDED" || feature.ChamferMode == "TWO_DISTANCES" {
 			add(feature.ID, "length2", "Second length", "mm", feature.Length2, modelcore.LengthDimension, false)
 		}
 		if feature.Sketch != nil {
@@ -444,6 +451,13 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			return err
 		}
 		if feature.Type == "HOLE" {
+			if feature.HoleStandard != "" {
+				d, ok := metricClearanceDiameters[feature.HoleStandard]
+				if !ok {
+					return fmt.Errorf("%w: HOLE_STANDARD_UNKNOWN", ErrValidation)
+				}
+				feature.Diameter = d
+			}
 			for _, p := range holeParameters(*feature) {
 				q := values["parameter:"+feature.ID+":"+p.slot]
 				value, err := quantityInDisplayUnit(q, p.unit)
@@ -514,13 +528,13 @@ func validateAndResolvePartParameters(model *PartModel) error {
 				return fmt.Errorf("%w: extrude length must evaluate to a positive finite value", ErrValidation)
 			}
 		}
-		if feature.Type == "REVOLVE" || feature.Type == "DRAFT" {
+		if feature.Type == "REVOLVE" || feature.Type == "DRAFT" || feature.ChamferMode == "DISTANCE_ANGLE" {
 			feature.Angle, err = quantityInDisplayUnit(values["parameter:"+feature.ID+":angle"], "deg")
-			if err != nil || !positiveFinite(feature.Angle) || feature.Angle > 360 {
+			if err != nil || !positiveFinite(feature.Angle) || feature.Angle > 360 || feature.ChamferMode == "DISTANCE_ANGLE" && feature.Angle >= 90 {
 				return fmt.Errorf("%w: invalid revolve angle", ErrValidation)
 			}
 		}
-		if feature.Extent == "TWO_SIDED" {
+		if feature.Extent == "TWO_SIDED" || feature.ChamferMode == "TWO_DISTANCES" {
 			feature.Length2 = values["parameter:"+feature.ID+":length2"].SIValue * 1000
 			if !positiveFinite(feature.Length2) {
 				return fmt.Errorf("%w: invalid second length", ErrValidation)
@@ -578,7 +592,7 @@ func validatePartStructure(model PartModel) error {
 		if b.CreatedByFeatureID != "" {
 			found := false
 			for _, f := range model.Features {
-				if f.ID == b.CreatedByFeatureID && f.BodyID == b.ID && (isSolidGenerator(f.Type) || f.Type == "LOFT" || isGeometryBodyFeature(f.Type)) {
+				if f.ID == b.CreatedByFeatureID && f.BodyID == b.ID && (isSolidGenerator(f.Type) || f.Type == "LOFT" || f.Type == "SPLIT_RESULT" || isGeometryBodyFeature(f.Type)) {
 					found = true
 					break
 				}
@@ -688,7 +702,7 @@ func validatePartStructure(model PartModel) error {
 				return fmt.Errorf("%w: termination datum plane missing", ErrValidation)
 			}
 		}
-		if feature.Type == "DRAFT" && feature.NeutralPlaneID != "" {
+		if (feature.Type == "DRAFT" || feature.Type == "SPLIT_FACE" || feature.Type == "SPLIT_BODY") && feature.NeutralPlaneID != "" {
 			if _, exists := datums[feature.NeutralPlaneID]; !exists {
 				return fmt.Errorf("%w: neutral datum plane missing", ErrValidation)
 			}
@@ -922,6 +936,9 @@ func buildPartGraph(model PartModel) (*modelcore.DependencyGraph, error) {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
+		if feature.Type == "SPLIT_RESULT" {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.SplitParentID), Target: key, Kind: modelcore.ReadGeometry})
+		}
 		if feature.Type == "HOLE" || feature.Type == "BOOLEAN" || feature.Type == "SOLID_PATTERN" || isLocalModifier(feature.Type) || feature.Type == "LOFT" {
 			if bodyTipFeatureID != "" {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
@@ -1069,14 +1086,14 @@ func buildPartGraph(model PartModel) (*modelcore.DependencyGraph, error) {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.TerminationPlaneID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
-		if feature.Type == "DRAFT" && feature.NeutralPlane != nil {
+		if (feature.Type == "DRAFT" || feature.Type == "SPLIT_FACE" || feature.Type == "SPLIT_BODY") && feature.NeutralPlane != nil {
 			pick := feature.NeutralPlane
 			source := pick.Selection.Anchor.FeatureID
 			if tip := bodyTips[pick.Selection.SourceBodyID]; tip != "" {
 				source = tip
 			}
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + source), Target: key, Kind: modelcore.ReadTopology})
-		} else if feature.Type == "DRAFT" {
+		} else if feature.Type == "DRAFT" || feature.Type == "SPLIT_FACE" || feature.Type == "SPLIT_BODY" {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.NeutralPlaneID), Target: key, Kind: modelcore.ReadGeometry})
 		}
 		if feature.Sketch != nil {

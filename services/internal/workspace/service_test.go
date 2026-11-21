@@ -23,7 +23,7 @@ func TestPartVisualizationManifestAndGLBExtensionContainSelectableSketchGeometry
 			Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xz", Plane: "XZ"},
 			Entities: []SketchEntity{
 				{ID: "point-visible", Kind: "POINT", Role: "CONSTRUCTION", Point: &SketchPoint2{X: 2, Y: 3}},
-				{ID: "line-visible", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 1, Y: 4}, End: &SketchPoint2{X: 5, Y: 6}},
+				{ID: "line-visible", Kind: "LINE", Role: "PROFILE", StartPointID: "first", EndPointID: "last", Start: &SketchPoint2{X: 1, Y: 4}, End: &SketchPoint2{X: 5, Y: 6}},
 			}, Constraints: []SketchConstraint{{ID: "coincident-visible", Kind: "COINCIDENT",
 				References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line-visible", SubElement: "START"}, {Target: "ENTITY", EntityID: "point-visible", SubElement: "POINT"}}}},
 			Solve: SketchSolveState{Status: "UNDER_CONSTRAINED"}}})
@@ -31,12 +31,21 @@ func TestPartVisualizationManifestAndGLBExtensionContainSelectableSketchGeometry
 		t.Fatalf("a new Part must own three planes and one axis system: %#v", model)
 	}
 	visualization := visualizationManifest(model)
-	if len(visualization.Primitives) != 3 || visualization.Primitives[0].ID != "point-visible" ||
-		visualization.Primitives[0].Positions[0] != [3]float64{2, 0, 3} ||
-		visualization.Primitives[1].Kind != "POLYLINE" || !visualization.Primitives[1].Selectable ||
-		visualization.Primitives[2].Semantic != "SKETCH_CONSTRAINT" || visualization.Primitives[2].EntityType != "COINCIDENT" ||
-		visualization.Primitives[2].Positions[0] != [3]float64{1, 0, 4} || len(visualization.Primitives[2].RelatedEntityIDs) != 2 {
-		t.Fatalf("unexpected visualization manifest: %#v", visualization)
+	picks := map[string]VisualPrimitive{}
+	for _, primitive := range visualization.Primitives {
+		picks[primitive.ID] = primitive
+	}
+	point, line, constraint := picks["point-visible"], picks["line-visible"], picks["coincident-visible"]
+	if len(picks) != 5 || point.Positions[0] != [3]float64{2, 0, 3} || line.Kind != "POLYLINE" || !line.Selectable ||
+		constraint.Semantic != "SKETCH_CONSTRAINT" || constraint.EntityType != "COINCIDENT" ||
+		constraint.Positions[0] != [3]float64{1, 0, 4} || len(constraint.RelatedEntityIDs) != 2 {
+		t.Fatal("missing point, profile or constraint")
+	}
+	for role, id := range map[string]string{"START": "first", "END": "last"} {
+		marker := picks["line-visible:"+strings.ToLower(role)]
+		if !marker.Selectable || marker.PointReference == nil || *marker.PointReference != (SketchGeometryRef{Target: "ENTITY", EntityID: line.ID, SubElement: role, PointID: id}) {
+			t.Fatalf("invalid %s endpoint marker: %#v", role, marker)
+		}
 	}
 	glb, err := glbWithVisualization(nil, visualization)
 	if err != nil {

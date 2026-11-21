@@ -616,7 +616,7 @@ export class CadViewportEngine {
   private lastSketchSnap?: SketchSnapResult;
   private sketchDraftPoints: Vec2[] = [];
   private commandPreview?: THREE.Object3D;
-  private previewBody?: { group: THREE.Group; visible: boolean };
+  private previewBodies?: {group: THREE.Group; visible: boolean;restore:()=>void}[];
   private assemblyPosePreview?: Map<string, { position: THREE.Vector3; rotation: THREE.Quaternion }>;
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2; scopeKey:string };
@@ -1159,7 +1159,7 @@ export class CadViewportEngine {
     this.showProfileRegions(this.featureSelection);
     this.showBooleanRegions(this.featureSelection);
     this.refreshInteractionHighlights();
-    if (retainedPreview) this.previewArtifact(retainedPreview.descriptor,retainedPreview.operation,retainedPreview.sketchFeatureId);
+    if (retainedPreview) this.previewArtifact(retainedPreview.descriptor,retainedPreview.operation,retainedPreview.sketchFeatureId,retainedPreview.splitResult);
     this.emitDebugState();
     this.callbacks.documentViewReady?.(view.document.id, restoredCamera);
     this.invalidate();
@@ -1389,7 +1389,7 @@ export class CadViewportEngine {
       else if (hidden === false) object.visible = false;
     });
     this.hideBooleanInputs();
-    if (this.previewBody && !this.featureSelection) this.previewBody.group.visible = false;
+    if (!this.featureSelection) for(const input of this.previewBodies??[]) input.group.visible=false;
     this.refreshInteractionHighlights();
     this.refreshSceneGround();
   }
@@ -1774,22 +1774,24 @@ export class CadViewportEngine {
     this.frameContent(true);
   }
 
-  private restorePreviewInput?: () => void;
-  private commandPreviewRequest?:{descriptor:ArtifactDescriptor;operation:FeaturePreviewOperation;sketchFeatureId?:string};
+  private commandPreviewRequest?:{descriptor:ArtifactDescriptor;operation:FeaturePreviewOperation;sketchFeatureId?:string;splitResult?:ArtifactDescriptor};
   private previewVisualGeneration = 0;
   private previewVisuals?: VisualRepository;
   private previewSketchHidden:THREE.Object3D[]=[];
-  previewArtifact(descriptor: ArtifactDescriptor, operation: FeaturePreviewOperation = "NEW_BODY", sketchFeatureId?:string): void {
+  previewArtifact(descriptor: ArtifactDescriptor, operation: FeaturePreviewOperation = "NEW_BODY", sketchFeatureId?:string,splitResult?:ArtifactDescriptor): void {
     this.clearCommandPreview();
     const generation = this.previewVisualGeneration;
     if (!(descriptor.representationKind === "TRANSIENT_PREVIEW"||this.repairComparisonActive&&descriptor.representationKind==='HISTORICAL_COMPARISON') || !this.view) return;
-    this.commandPreviewRequest={descriptor,operation,sketchFeatureId};
-    const view = { ...this.view, artifact: descriptor, artifacts: {} };
+    this.commandPreviewRequest={descriptor,operation,sketchFeatureId,splitResult};
+    const view = { ...this.view, artifact: descriptor, artifacts: splitResult?{[splitResult.geometryKey]:splitResult}:{} };
     this.previewVisuals = this.visuals.previewRepository();
     void this.previewVisuals.hydrate(view).then(display => {
       if (generation !== this.previewVisualGeneration || this.disposed || !display.artifact) return;
       if(sketchFeatureId!==undefined)this.showSketchPatternPreview(display.artifact,sketchFeatureId);
-      else this.showPreviewArtifact(display.artifact, operation);
+      else {
+        this.showPreviewArtifact(display.artifact,splitResult?"ADD":operation);
+        if(splitResult && display.artifacts?.[splitResult.geometryKey]) this.showPreviewArtifact(display.artifacts[splitResult.geometryKey],"NEW_BODY");
+      }
     }).catch(error => {
       if (generation !== this.previewVisualGeneration || this.disposed) return;
       this.callbacks.toolPromptChanged(`预览显示加载失败：${error instanceof Error ? error.message : String(error)}`);
@@ -1825,13 +1827,13 @@ export class CadViewportEngine {
     const group=triangleCount(artifact.mesh)?makeFeaturePreview(makeGeometry(artifact,false),operation,binding?.mesh.geometry,
       {result:artifact.mesh.edges??[],original:binding?.artifact.mesh.edges??[]}):makeCurvePreview(artifact,operation);
     if (binding) {
-      this.previewBody = { group: binding.group, visible: binding.group.visible };
+      (this.previewBodies??=[]).push({group:binding.group,visible:binding.group.visible,restore:hideFeaturePreviewInput(binding.group)});
       binding.group.visible = binding.group.visible && !!this.featureSelection;
-      this.restorePreviewInput = hideFeaturePreviewInput(binding.group);
     }
     if (this.editContext?.translation) group.position.fromArray(this.editContext.translation);
     if (this.editContext?.rotation) group.quaternion.fromArray(this.editContext.rotation);
-    this.scene.add(group); this.commandPreview = group;
+    if(!this.commandPreview){this.commandPreview=new THREE.Group();this.scene.add(this.commandPreview);}
+    this.commandPreview.add(group);
     this.host.dataset.featurePreview = operation;
     this.updateCameraClipping(); this.invalidate();
   }
@@ -1842,14 +1844,10 @@ export class CadViewportEngine {
     this.previewVisuals?.dispose();
     this.previewVisuals = undefined;
     delete this.host.dataset.featurePreview;
-    this.restorePreviewInput?.();
-    this.restorePreviewInput = undefined;
+    for(const input of this.previewBodies??[]){input.restore();input.group.visible=input.visible;}
+    this.previewBodies=undefined;
     for(const object of this.previewSketchHidden)object.visible=true;
     this.previewSketchHidden=[];
-    if (this.previewBody) {
-      this.previewBody.group.visible = this.previewBody.visible;
-      this.previewBody = undefined;
-    }
     if (this.commandPreview) {
       this.scene.remove(this.commandPreview); this.disposeRenderable(this.commandPreview);
       this.commandPreview = undefined;
@@ -3246,9 +3244,12 @@ export class CadViewportEngine {
           this.materials.point(CATIA_VISUAL_THEME.vertex, SKETCH_ELEMENT_STYLE.endpointSize, false));
         endpointMarkers.userData = { ...entitySelection, sketchEntityOverlay: true,sketchDerivedMember:derivedMemberIDs.has(entity.id) }; endpointMarkers.renderOrder = entity.role === "CONSTRUCTION" ? SKETCH_FEEDBACK_ORDER.constructionEndpoint : SKETCH_FEEDBACK_ORDER.endpoint; group.add(endpointMarkers);
         this.selectionIndex.registerPick(endpointMarkers,hit=>{
-          if(this.featureSelection?.role!=="point")return null;
-          const index=hit.index??0;
-          const subElement=(["LINE","ARC","ELLIPTICAL_ARC"].includes(entity.kind)&&index<2)?(index===0?"START":"END"):entity.center?"CENTER":undefined;
+          const role = this.featureSelection?.role;
+          if (role !== "point" && role !== "sketch-point") return null;
+          const index = hit.index ?? 0;
+          const hasEnds = ["LINE","ARC","ELLIPTICAL_ARC"].includes(entity.kind);
+          const subElement = hasEnds && index < 2 ? (index === 0 ? "START" : "END")
+            : entity.center && index === (hasEnds ? 2 : 0) ? "CENTER" : undefined;
           if(!subElement||derivedMemberIDs.has(entity.id))return null;
           return {...entitySelection,visualType:"POINT",sketchReference:{target:"ENTITY",entityId:entity.id,subElement}};
         },80,0,"sketch");

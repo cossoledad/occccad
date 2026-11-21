@@ -119,6 +119,7 @@ export type CommandPreview = {
   modelHash: string;
   artifact?: Artifact;
   resultBodyId?: string;
+  splitResultArtifact?: Artifact;
   resultBodyName?: string;
   bodyAssignment?: "TARGET_BODY" | "EXPLICIT_NEW_BODY";
   constraintLimited?: boolean;
@@ -168,7 +169,7 @@ export type DocumentProperties = {
 
 export type PatternDefinition = { directionReference?:SketchGeometryRef; reversed?:boolean; centerReference?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef}; axisEntityId?:string; id:string; kind:"LINEAR"|"CIRCULAR"|"MIRROR"; mirrorPlaneId?:string; mirrorPlane?:NonNullable<Feature["selections"]>[number]; distribution:"FIXED_STEP"|"TOTAL_SPAN"|"FULL_CIRCLE"; count:number; spacing?:number; angle?:number; phase?:number; origin:Vec3; direction:Vec3; skippedSlots?:number[]; suppressed?:boolean };
 export type SketchPattern = PatternDefinition & {name?:string;entityIds:string[]};
-export type ThinWallDefinition={input:"REGIONS"|"CHAINS";mode:"ONE_SIDED"|"TWO_SIDED"|"SYMMETRIC";side:"LEFT"|"RIGHT";join:"MITER"|"ROUND";thickness:number;thickness2?:number;entityIds?:string[];reversed?:boolean;directions?:Array<{entityId:string;reversed?:boolean}>};
+export type ThinWallDefinition={rib?:boolean;input:"REGIONS"|"CHAINS";mode:"ONE_SIDED"|"TWO_SIDED"|"SYMMETRIC";side:"LEFT"|"RIGHT";join:"MITER"|"ROUND";thickness:number;thickness2?:number;entityIds?:string[];reversed?:boolean;directions?:Array<{entityId:string;reversed?:boolean}>};
 export type LoftBoundaryDefinition={condition:"NORMAL"|"DIRECTION"|"G1"|"G2";magnitude:number;directionEntityId?:string;reversed?:boolean;supports?:NonNullable<Feature["selections"]>};
 export type GeometryResultReference={featureId:string;resultId:string};
 export type GeometricInput={kind:"RESULT"|"TOPOLOGY"|"SKETCH"|"PLANE"|"DATUM"|"POINT";datum?:DatumReference;point?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef};featureId?:string;resultId?:string;entityIds?:string[];selection?:NonNullable<Feature["selections"]>[number];planeId?:string;reversed?:boolean};
@@ -183,10 +184,11 @@ export type Feature = {
  geometricalSetId?:string;geometry?:GeometricFeatureDefinition;result?:{id:string;domain:"POINT_SET"|"WIRE_SET"|"SHEET_SET"|"SOLID_SET"|"MIXED_SET";geometryKey:string};
  loftStart?:LoftBoundaryDefinition;loftEnd?:LoftBoundaryDefinition;
  sweep?:{path:{geometry?:GeometricInput;sketchId:string;entityIds:string[];direction?:{entityId:string;reversed:boolean};reversed?:boolean};frameMode:"CORRECTED_FRENET"|"FRENET";cornerMode:"MITER"|"G1_ONLY"};
+ chamferMode?:"TWO_DISTANCES"|"DISTANCE_ANGLE";
  thinWall?:ThinWallDefinition;
  order?:number;
  holePoints?:NonNullable<PatternDefinition["centerReference"]>[];drillTipAngle?:number;depthConvention?:"CYLINDER"|"TIP";thread?:{mode:"ANNOTATION";designation:string;hand:"RIGHT"|"LEFT";majorDiameter:number;pitch:number;depth:number};
- holePoint?:PatternDefinition["centerReference"];diameter?:number;depth?:number;holeKind?:"SIMPLE"|"COUNTERBORE"|"COUNTERSINK";recessDiameter?:number;recessDepth?:number;countersinkAngle?:number;
+ holePoint?:PatternDefinition["centerReference"];diameter?:number;depth?:number;holeStandard?:string; holeKind?:"SIMPLE"|"COUNTERBORE"|"COUNTERSINK";recessDiameter?:number;recessDepth?:number;countersinkAngle?:number;
  terminationPlaneId?:string;terminationPlane?:NonNullable<Feature["selections"]>[number];
  terminationSurface?:NonNullable<Feature["selections"]>[number];startOffset?:number;endOffset?:number;
   pattern?:PatternDefinition & {additionalSources?:Array<{source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"|"FEATURE_REEXECUTION";startFeatureId?:string}>;startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"|"FEATURE_REEXECUTION"};
@@ -209,7 +211,10 @@ export type Feature = {
   visible?: boolean;
   importDefinitionId?: string;
   id: string;
-  type: "GEOMETRY" | "THICKEN" | "MOVE_PLANAR_FACE" | "RESIZE_BORE" | "CLOSE_SURFACE" | "SWEEP" | "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
+  splitKeepSide?: "POSITIVE"|"NEGATIVE";
+  splitBodyId?: string;
+  splitParentId?: string;
+  type: "GEOMETRY" | "THICKEN" | "MOVE_PLANAR_FACE" | "RESIZE_BORE" | "CLOSE_SURFACE" | "SWEEP" | "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "SPLIT_BODY" | "SPLIT_RESULT" | "SPLIT_FACE" | "LOFT" | "HOLE";
   name?: string;
   plane?: PlaneName | "CUSTOM";
   sketch?: SketchFeature;
@@ -493,6 +498,7 @@ export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;co
   bodyAppearances?: Record<string, ResolvedAppearance>;
   resultAppearances?: Record<string, ResolvedAppearance>;
   objectAppearances?:Record<string,ResolvedAppearance>;
+ holeStandards?:Record<string,number>;
  replicationSources?:Record<string,{sourceKind?:"SKETCH_FRAME"|"GENERATOR_TOOL"|"FEATURE_DELTA"|"FEATURE_REEXECUTION";startFeatureId?:string;operation?:Feature["operation"];tool:boolean;reexecution?:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
   sketchDerivedEntities?:Record<string,SketchEntity[]>;
   document: DocumentSummary;
@@ -565,7 +571,7 @@ export type ContextCatalogPublication = { instancePath:InstancePath;documentId:s
   displayPath:string;selectable:boolean;diagnostic?:string };
 export type ContextCatalog = { rootProductDocumentId:string;rootProductRevisionId:string;activeInstancePath?:InstancePath;
   expectedType?:string;digest:string;publications:ContextCatalogPublication[] };
-export type ContextVariantSnapshot = {replicationSources?:DocumentView["replicationSources"];sketchDerivedEntities?:DocumentView["sketchDerivedEntities"];part?:DocumentView["part"];sketchAnalyses?:DocumentView["sketchAnalyses"];variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
+export type ContextVariantSnapshot = {holeStandards?:DocumentView["holeStandards"];replicationSources?:DocumentView["replicationSources"];sketchDerivedEntities?:DocumentView["sketchDerivedEntities"];part?:DocumentView["part"];sketchAnalyses?:DocumentView["sketchAnalyses"];variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
   bindingIds:string[];bindingDigest:string;evaluationManifestDigest?:string;bodies:PartBody[];status:"READY"|"FAILED";
   publications?:Publication[];diagnosticCode?:string;diagnostic?:string};
 export type ProductUpdatePlanEntry = {referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED";kind:"CONTEXT_BINDING"|"OCCURRENCE_REFERENCE"|"ASSEMBLY_SOLVE";bindingId:string;name:string;sourceDisplayPath:string;owningDisplayPath:string;

@@ -421,6 +421,7 @@ func projectPartCollections(view *DocumentView, model PartModel) {
 	sketchVisual := sketchDisplayProjection(model)
 	view.SketchVisualization = &sketchVisual
 	view.ReplicationSources = replicationSources(model)
+	view.HoleStandards = metricClearanceDiameters
 	view.FeatureOrderDigest = featureOrderDigest(model)
 	view.SketchDerivedEntities = map[string][]SketchEntity{}
 	for _, feature := range model.Features {

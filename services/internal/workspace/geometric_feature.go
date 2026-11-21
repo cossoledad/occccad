@@ -924,18 +924,18 @@ func geometryKindLabel(kind string) string {
 	return "几何特征"
 }
 
-func previewGeometryFeatureID(payload json.RawMessage, model PartModel) string {
+func previewFeature(payload json.RawMessage, model PartModel) Feature {
 	var p struct {
 		Feature   Feature `json:"feature"`
 		FeatureID string  `json:"featureId"`
 	}
 	_ = json.Unmarshal(payload, &p)
 	for _, f := range model.Features {
-		if f.Type == "GEOMETRY" && (f.ID == p.Feature.ID || f.ID == p.FeatureID) {
-			return f.ID
+		if f.ID == p.Feature.ID || f.ID == p.FeatureID {
+			return f
 		}
 	}
-	return ""
+	return Feature{}
 }
 func (s *Service) geometricFeatureInput(ctx context.Context, documentID string, request FeatureInputRequest, model PartModel, f Feature) (FeatureInput, error) {
 	if request.BodyID != "" {

@@ -3,6 +3,7 @@
 | 要验证的行为 | 入口 | 观察结果 |
 |---|---|---|
 | 全仓单元测试 | `mise run check --scope all --level unit` | 分域通过、失败与跳过，报告位于 `build/agent-check/` |
+| 实体能力与改参 | [工程零件验收](solid-modeling-workflows.md) | 材料、持久引用、编辑和冷重建 |
 | 零件持续建模 | [工程场景与复测方法](part-feature-performance.md) | 精确结果、引用、历史和用户操作耗时 |
 | 装配与机构 | [求解器](../../kernel/assembly/README.md)、[合同](../../tests/assembly-contract/README.md)、[重放](../../tests/assembly-corpus/README.md) | 约束残差、分支、自由度、预算与失败分类 |
 | 几何交换 | [交换语料](../../tests/exchange-corpus/README.md) | 单位、结构、表示类型、颜色、可恢复的警告 |

@@ -6,4 +6,6 @@
 
 [曲线与曲面建模](surface-modeling.md)记录 CATIA WFS/GSD、SOLIDWORKS、Creo、Onshape、NX、Rhino 的公开功能/操作对照及 OCCT 算法候选边界；本项目的待实施设计由 CAD 主线链接。
 
+[实体建模能力对照](solid-modeling.md)归纳实体生成、修饰、复制、直接编辑和持续建模的审计基线。
+
 外部行为用于设计对照，不代表本项目已实现，也不直接决定内部架构。对应事实见[current](../architecture/current/README.md)，目标与有意差异见[target](../architecture/target/README.md)。

@@ -1868,6 +1868,8 @@ public:
  pad.termination_surface = {input.termination_surface().feature_id(), input.termination_surface().output_slot(), {input.termination_surface().source_ids().begin(), input.termination_surface().source_ids().end()}};
                 pad.extent = input.extent();
                 pad.second_length = input.second_length();
+                pad.rib = input.rib();
+                pad.chamfer_mode = input.chamfer_mode();
                 pad.plane_origin = {input.plane_origin().x(), input.plane_origin().y(),
                                     input.plane_origin().z()};
                 pad.plane_normal = {input.plane_normal().x(), input.plane_normal().y(),
@@ -2013,7 +2015,7 @@ public:
                 <<runtime.base_stage->root.topology_history.evidence_digest;
             std::string prefix=occccad::kernel::make_geometry_id(base_brep.data(),base_brep.size())+
                 request->topology_policy().SerializeAsString()+request->import_seed().SerializeAsString()+
-                base_facts.str()+"stage-runtime-v7-frozen-root-facts";
+                base_facts.str()+"stage-runtime-v9-solid-split";
             for(const auto& pad:request->profile_pads()) {
                 prefix=occccad::kernel::make_geometry_id(prefix+pad.SerializeAsString());
                 runtime.stage_keys.push_back(prefix);

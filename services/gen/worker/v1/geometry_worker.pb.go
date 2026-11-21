@@ -6888,7 +6888,9 @@ type ProfilePadSpec struct {
 	DepthConvention   string               `protobuf:"bytes,47,opt,name=depth_convention,json=depthConvention,proto3" json:"depth_convention,omitempty"` // CYLINDER | TIP
 	LoftStart         *LoftBoundarySpec    `protobuf:"bytes,48,opt,name=loft_start,json=loftStart,proto3" json:"loft_start,omitempty"`
 	LoftEnd           *LoftBoundarySpec    `protobuf:"bytes,49,opt,name=loft_end,json=loftEnd,proto3" json:"loft_end,omitempty"`
-	GeometryGenerator *GeometryFeatureSpec `protobuf:"bytes,50,opt,name=geometry_generator,json=geometryGenerator,proto3" json:"geometry_generator,omitempty"` // typed solid bridge, currently THICKEN
+	GeometryGenerator *GeometryFeatureSpec `protobuf:"bytes,50,opt,name=geometry_generator,json=geometryGenerator,proto3" json:"geometry_generator,omitempty"`
+	Rib               bool                 `protobuf:"varint,52,opt,name=rib,proto3" json:"rib,omitempty"`
+	ChamferMode       string               `protobuf:"bytes,51,opt,name=chamfer_mode,json=chamferMode,proto3" json:"chamfer_mode,omitempty"` // empty: equal distance; TWO_DISTANCES or DISTANCE_ANGLE require one adjacent reference face
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -7271,6 +7273,20 @@ func (x *ProfilePadSpec) GetGeometryGenerator() *GeometryFeatureSpec {
 		return x.GeometryGenerator
 	}
 	return nil
+}
+
+func (x *ProfilePadSpec) GetRib() bool {
+	if x != nil {
+		return x.Rib
+	}
+	return false
+}
+
+func (x *ProfilePadSpec) GetChamferMode() string {
+	if x != nil {
+		return x.ChamferMode
+	}
+	return ""
 }
 
 type ProfileOrigin struct {
@@ -17099,7 +17115,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x17correspondence_resolved\x18\t \x01(\bR\x16correspondenceResolved\x12\x19\n" +
 	"\bpoint_id\x18\n" +
 	" \x01(\tR\apointId\x12-\n" +
-	"\x05point\x18\v \x01(\v2\x17.occccad.worker.v1.Vec3R\x05point\"\xc0\x14\n" +
+	"\x05point\x18\v \x01(\v2\x17.occccad.worker.v1.Vec3R\x05point\"\xf5\x14\n" +
 	"\x0eProfilePadSpec\x12:\n" +
 	"\aregions\x18\x01 \x03(\v2 .occccad.worker.v1.ProfileRegionR\aregions\x12\x1d\n" +
 	"\n" +
@@ -17159,7 +17175,9 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\n" +
 	"loft_start\x180 \x01(\v2#.occccad.worker.v1.LoftBoundarySpecR\tloftStart\x12>\n" +
 	"\bloft_end\x181 \x01(\v2#.occccad.worker.v1.LoftBoundarySpecR\aloftEnd\x12U\n" +
-	"\x12geometry_generator\x182 \x01(\v2&.occccad.worker.v1.GeometryFeatureSpecR\x11geometryGenerator\"p\n" +
+	"\x12geometry_generator\x182 \x01(\v2&.occccad.worker.v1.GeometryFeatureSpecR\x11geometryGenerator\x12\x10\n" +
+	"\x03rib\x184 \x01(\bR\x03rib\x12!\n" +
+	"\fchamfer_mode\x183 \x01(\tR\vchamferMode\"p\n" +
 	"\rProfileOrigin\x12\x1d\n" +
 	"\n" +
 	"derived_id\x18\x01 \x01(\tR\tderivedId\x12@\n" +

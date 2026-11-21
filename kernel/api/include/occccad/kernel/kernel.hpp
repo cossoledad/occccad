@@ -257,6 +257,8 @@ struct ProfilePadSpec {
     std::string depth_convention;
     std::string extent;
     double second_length{};
+    bool rib{};
+    std::string chamfer_mode;
     std::vector<FeatureTopologyRef> selections;
     Vec3 neutral_origin, neutral_normal;
     std::vector<LoftSectionSpec> sections;
