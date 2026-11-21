@@ -226,6 +226,23 @@ TEST(BodyValidation, MaterialWitnessRequiresActualResultMembership) {
     const auto cut = BRepAlgoAPI_Cut(box, tool).Shape();
     EXPECT_TRUE(proves_material_change(box, tool, added, true, {}));
     EXPECT_TRUE(proves_material_change(box, tool, cut, false, {}));
+    BRep_Builder builder;
+    TopoDS_Compound members;
+    builder.MakeCompound(members);
+    builder.Add(members, tool);
+    builder.Add(members, inside);
+    const auto multi_cut = BRepAlgoAPI_Cut(box, members).Shape();
+    EXPECT_TRUE(proves_material_change(box, members, multi_cut, false, {}));
+    EXPECT_FALSE(proves_material_change(box, members, box, false, {}));
+    TopoDS_Compound missed;
+    builder.MakeCompound(missed);
+    builder.Add(missed, touch);
+    builder.Add(missed, inside);
+    const auto later_cut = BRepAlgoAPI_Cut(box, missed).Shape();
+    // The first member just touches. The whole Boolean partition will decide.
+    EXPECT_FALSE(proves_material_change(box, missed, later_cut, false, {}));
+    // A ray inside the material hits a face in both directions on every axis.
+    EXPECT_FALSE(proves_material_change(box, inside, added, true, {}));
     EXPECT_FALSE(proves_material_change(box, tool, box, true, {}));
     EXPECT_FALSE(proves_material_change(box, inside, box, true, {}));
     EXPECT_FALSE(proves_material_change(box, touch, box, false, {}));

@@ -724,6 +724,12 @@
     ]
   },
   {
+    "path": "services/internal/control/plate_hole_array_performance_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationRuntimeService"
+    ]
+  },
+  {
     "path": "services/internal/control/profile_available_regions_integration_test.go",
     "resources": [
       "configured testsupport.OpenDevelopmentDatabase",

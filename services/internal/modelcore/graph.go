@@ -45,44 +45,60 @@ type DependencyGraph struct {
 // retaining fixed phase validation for ordinary modeling dependencies. Domain
 // historical-source checks still constrain which feature stages may be read.
 func ScheduleEvaluationGraph(nodes []DependencyNode, edges []DependencyEdge) (*DependencyGraph, error) {
-	flat := append([]DependencyNode(nil), nodes...)
-	for i := range flat {
-		flat[i].Phase = 0
-	}
-	graph, err := NewDependencyGraph(flat, edges)
+	graph, err := dependencyGraph(nodes, edges, false)
 	if err != nil {
 		return nil, err
 	}
-	original := map[DependencyKey]DependencyNode{}
+	// A graph with no derived values already carries its final phases.
 	for _, node := range nodes {
-		original[node.Key] = node
+		if node.Derived {
+			graph.propagateDerivedPhases()
+			for i := range nodes {
+				nodes[i].Phase = graph.Nodes[nodes[i].Key].Phase
+			}
+			break
+		}
 	}
+	for _, edge := range graph.Edges {
+		if err := graph.validatePhase(edge); err != nil {
+			return nil, err
+		}
+	}
+	return graph, nil
+}
+
+func (graph *DependencyGraph) propagateDerivedPhases() {
 	incoming := map[DependencyKey][]DependencyKey{}
-	for _, edge := range edges {
+	for _, edge := range graph.Edges {
 		incoming[edge.Target] = append(incoming[edge.Target], edge.Source)
 	}
 	tainted := map[DependencyKey]bool{}
 	for _, key := range graph.TopologicalOrder() {
-		node := original[key]
+		node := graph.Nodes[key]
 		tainted[key] = node.Derived
 		for _, source := range incoming[key] {
-			previous := original[source]
 			if tainted[source] || node.Derived {
-				if previous.Phase > node.Phase {
-					node.Phase = previous.Phase
-				}
+				node.Phase = max(node.Phase, graph.Nodes[source].Phase)
 			}
 			tainted[key] = tainted[key] || tainted[source]
 		}
-		original[key] = node
+		graph.Nodes[key] = node
 	}
-	for i := range nodes {
-		nodes[i] = original[nodes[i].Key]
+}
+
+func (graph *DependencyGraph) validatePhase(edge DependencyEdge) error {
+	source, target := graph.Nodes[edge.Source], graph.Nodes[edge.Target]
+	if source.Phase > target.Phase {
+		return fmt.Errorf("dependency %s in phase %d cannot drive earlier phase %d", edge.Source, source.Phase, target.Phase)
 	}
-	return NewDependencyGraph(nodes, edges)
+	return nil
 }
 
 func NewDependencyGraph(nodes []DependencyNode, edges []DependencyEdge) (*DependencyGraph, error) {
+	return dependencyGraph(nodes, edges, true)
+}
+
+func dependencyGraph(nodes []DependencyNode, edges []DependencyEdge, checkPhase bool) (*DependencyGraph, error) {
 	// An edge describes a dependency relation, not the number of operands that
 	// read it. Definitions retain operand multiplicity. All graph consumers,
 	// including persistence and snapshot digests, use this same unique set.
@@ -104,13 +120,15 @@ func NewDependencyGraph(nodes []DependencyNode, edges []DependencyEdge) (*Depend
 		graph.Nodes[node.Key] = node
 	}
 	for _, edge := range graph.Edges {
-		source, sourceOK := graph.Nodes[edge.Source]
-		target, targetOK := graph.Nodes[edge.Target]
+		_, sourceOK := graph.Nodes[edge.Source]
+		_, targetOK := graph.Nodes[edge.Target]
 		if !sourceOK || !targetOK {
 			return nil, fmt.Errorf("edge %s -> %s references an unknown node", edge.Source, edge.Target)
 		}
-		if source.Phase > target.Phase {
-			return nil, fmt.Errorf("dependency %s in phase %d cannot drive earlier phase %d", edge.Source, source.Phase, target.Phase)
+		if checkPhase {
+			if err := graph.validatePhase(edge); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if cycle := graph.Cycle(); len(cycle) > 0 {

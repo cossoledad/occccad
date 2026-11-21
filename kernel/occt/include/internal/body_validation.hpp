@@ -15,7 +15,8 @@ bool valid_body_boundary(const TopoDS_Shape& result, const TopoDS_Shape& predece
 // the other operand before reusing this fact in OCCT's Boolean builder.
 bool reuse_boolean_orientation(const TopoDS_Shape& validated_input, const TopoDS_Shape& tool);
 
-// A positive result proves membership changed across an ADD or REMOVE.
+// Input is a validated finite Body. A positive result proves membership changed
+// across an ADD or REMOVE on the actual result.
 // Inconclusive probes leave the Boolean partition as the authority.
 bool proves_material_change(const TopoDS_Shape& input, const TopoDS_Shape& tool,
                             const TopoDS_Shape& result, bool addition,
