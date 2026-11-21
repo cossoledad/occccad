@@ -17,4 +17,4 @@
 | 实时与验证 | [Realtime](realtime.md)、[可观测性](validation.md)、[测试路由](../../../tests/README.md) | Node/Mock 不替代真实浏览器；kernel/RPC 计时不等于端到端延迟 |
 | 自动化与 AI 建模 | [操作、查询、任务与显示](automation.md) | 持久 Run、分段 Part、冻结选择与普通轴孔装配；复杂 ContextVariant、大树索引和其他外部入口未交付 |
 
-限制由上表主题正文拥有；不可变历史、稳定身份及计算边界见[架构约定](../target/README.md)。下一步只见 [CAD 核心主线](../../../plans/cad-core-roadmap.md)。性能测量归[验证记录](../../validation/README.md)，测试入口或历史通过不能复制成当前全量通过声明。
+限制由上表主题正文拥有；不可变历史、稳定身份及计算边界见[架构约定](../target/README.md)。下一步只见 [CAD 核心主线](../../../plans/cad-core-roadmap.md)。性能测量归[验证方法](../../validation/README.md)，测试入口或历史通过不能复制成当前全量通过声明。

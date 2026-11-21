@@ -60,9 +60,7 @@ A grounded inconsistent component with no movable parameters emits explicit
 
 The offline [replay tool](../../services/cmd/occccad-3dreplay/README.md) uses this
 same solver and production input adapter. Its tables preserve all saved constraint
-states separately from participation and original failure attempts. The
-[performance report](../../docs/validation/performance-baseline.md) records
-measured payload, allocation, phase and RSS tradeoffs.
+states separately from participation and original failure attempts.
 
 ## Native primitives and public compilation
 
@@ -109,51 +107,7 @@ ctest --test-dir build/cmake/linux-gcc15-x86_64/release -R '^assembly-corpus/' -
 
 ## Performance
 
-Dated workstation measurements and raw-sample snapshot: [performance baseline](../../docs/validation/performance-baseline.md).
-
-Run the deterministic dense-backend baseline with
-`mise run benchmark:baseline`; the assembly result is written to
-`build/performance/assembly-solver.txt`.
-
-Cross-layer evidence and safe execution requirements belong to the shared
-[contract runner](../../tests/assembly-contract/README.md). Native success alone
-does not certify Web, Domain, history or Release. Maintainer feedback is scoped
-to current usage, not industrial or performance acceptance.
-
-Run the focused solver benchmark with one command:
-
-```sh
-mise run benchmark
-# Optional: more samples or all kernel/Router/Session/allocation stages.
-mise run benchmark --samples=20
-mise run benchmark --stages=static,interaction,service,allocations
-```
-
-The command uses existing optimized artifacts selected by `--profile` (default release) (Release by default); it does not configure or rebuild
-native targets. Optional service/allocation stages use `go test` and may compile
-the Go test harness.
-Default stages are native static chains/BFGS and interaction/failure paths,
-with five samples per scene, run serially. Sanitized/unoptimized builds are
-rejected. Each run creates a new timestamped directory under
-`build/performance/assembly/`, containing `environment.json`, raw stage logs
-and `summary.json` (native means/medians and full interaction samples).
-Explicit `service` stages use the same configured SQLite/PostgreSQL development database, ArtifactStore and
-analytic fixtures as normal application startup; an environment-blocked test fails the command instead of
-reporting performance success. No stage resets data. The underlying runner is
-`mise run benchmark`; `--label` accepts a unique
-run name and never overwrites an existing run. See the
-[performance report](../../docs/validation/performance-baseline.md) for
-measured inputs, environment and evidence boundaries.
-
-`occcad_assembly_interaction_benchmark [samples] [scene]` measures kernel-only
-latency for `single`, `connected50-200`, `independent50`, and `group-contact`,
-plus grounded contradiction, budget, cancellation and invalid-input paths.
-`occcad_assembly_solver_benchmark [samples] [long-ids]` covers static plane chains
-and the warm rotation objective regression (which actually exercises BFGS).
-The 50-body case is one connected component with 200 active definitions,
-including explicit dependent loop constraints; output reports physical rank,
-actual components and sample count. It does not measure transport or rendering,
-and therefore cannot certify input-to-display P95 or 60 Hz.
+`mise run benchmark` runs native static and interaction scenarios against the optimized build. To include Router/Session and allocations, run `mise run benchmark --stages=static,interaction,service,allocations`. Use `--samples` to set the repetition count. Each run writes its environment, stage logs and summary to a new directory under `build/performance/assembly/`. Service stages use the configured development database and ArtifactStore. Native timings cover the solver only.
 
 The translated/rotated FACE 4 to fixed FACE 6 regression is also available as a
 [minimal 3dreplay fixture](../../tests/test.data/face4-face6.3dreplay), replayable

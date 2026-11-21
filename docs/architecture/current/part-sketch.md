@@ -8,76 +8,15 @@ Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v2`：Datum/PLANAR_F
 
 ## Part 与 Body
 
-Part Revision 的 `model_json` 保存显式 `bodies[]`、`activeBodyId`、`geometricalSets[]` 和统一排序的 Feature。实体特征归 `bodyId`，几何 Feature 与其上下文新建草图归 `geometricalSetId`，所有权互斥，详见[线框与曲面](wireframe-surfaces.md)。Body 保存稳定 ID、名称、显隐、顺序和本 Revision 的派生 `geometryKey`；Part 不再有唯一最终 Geometry，`document_versions.geometry_key` 已移除。空 Part 初始包含 Body.1，也可以删除全部 Body，继续建立仅曲线/曲面的 Part。Body/Feature 的顺序随历史恢复，不能用恢复时的 map 遍历顺序决定求值链。
-
-`CREATE_BODY / DELETE_BODY / RENAME_BODY / SET_ACTIVE_BODY / SET_DEFINITION_VISIBILITY` 经现有 realtime Domain Command、ChangeSet、CAS 和 Undo/Redo 执行。普通 ADD/REMOVE/INTERSECT 始终作用于指定 Body；未指定目标的实体命令默认使用其 Sketch 所属 Body。`NEW_BODY` 原子创建恰好一个 Body 并将生成 Feature 归入该 Body，链内记录 ADD。一个 Body 的有效结果可包含多个 Solid；普通 ADD 不因不连通而改变 Body 身份。Preview 与提交使用同一归属规则。已有 Feature 编辑保持其 Body 归属，不因编辑重分配持久身份。删除 Body 同时删除其 Feature/参数；跨 Body profile 依赖禁止悬空删除。
-
-工作台在会话中可显式指定当前工作 Body；实体 Feature 表单在打开时固定目标 `bodyId`，Preview 和提交共用这一值，不受之后工作 Body 切换影响。Preview 返回最终 `resultBodyId/resultBodyName/bodyAssignment`，仅区分既有目标 Body 和显式 `NEW_BODY`。保存的 `activeBodyId` 仍可供旧命令作为默认值；已有 Revision 加载时不重分配 Body。
-
-建模树只把 Body 作为建模历史与独立求值单元、Feature 作为设计步骤；Solid 是几何结果，不自动成为业务树节点。未使用 Sketch 留在所属 Body；同 Body 单个生成 Feature 消费时可以收纳为其输入；多次或跨 Body 使用时保留唯一 Sketch 定义和只读输入引用入口。树上的收纳不改变 `Feature.BodyID`、`Profile`、求值顺序或删除依赖验证；当前没有从树入口单独移除 Profile 关系的命令。
-
-由实体 Feature 创建的 Body 保存 `createdByFeatureId`，删除该 Feature 时同一 ChangeSet 删除对应 Body 并调整 Active Body，独立 profile Sketch 保留；若 Body 内还有其他 Feature，先拒绝删除以避免静默丢失后续操作。创建、删除及其 Undo/Redo 同时恢复 Feature、Body、参数及独立制品引用。属性面板只展示信息与文件下载，业务编辑经正式命令执行。
-
-协调器为每个 Body 构建独立 Feature chain，只附带其实际引用的 Sketch profile/轴输入。Body 独立求值、Naming 和缓存；未变化的输入命中原有 Geometry/Artifact。草图支撑和外部投影按 PersistentSelection 的 Body/FeatureResult owner 求值对应前缀；有限平面 Sheet 可支撑关联草图。同 Part 的跨 Body Boolean 使用明确的 Feature 输出阶段；实体能力和边界见[实体 Feature](solid-features.md)。当前没有 Body local transform 或跨文档 Boolean。所有几何坐标均为 Part-local。
-
-不可变 Revision 保存 Body → GeometryKey，继续复用 `geometry_artifacts/geometry_representations`；完整 BREP、Visual、Naming 在 ArtifactStore。每个实体 Body 独立拥有三类制品，空 Body/仅草图 Body 只有可用的 Visual，不伪造空实体 Naming。ContextVariant 同样保存 Body 结果列表。STEP Definition 导入仍是一个 Part/一个 Body；多 Body Part 导出时只在交换阶段将各 BREP 组合为同一个 Part Definition，不生成新的 Part 级持久制品。
+Part Revision 保存 Body、活动 Body、几何图形集及有序 Feature。表单打开时冻结目标 Body，预览和确认共用该目标。每个 Body 独立求值、命名与缓存，草图通过真实依赖参与相应链。树可以把输入草图收纳到特征下面，模型始终保留同一个草图身份。所有权、删除及下游失效见[对象生命周期](part-object-lifecycle.md)，制品与冷重建见[求值流程](part-feature-evaluation.md)。
 
 ## 草图模型与求解
 
-Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Coincident、H/V、Parallel、Perpendicular、Collinear、Fixed/FixedPoint、按精确类型限制的 Tangent/Equal/Concentric/PointOnObject、Midpoint/Symmetry，驱动 Distance、signed H/V Distance、Length、Radius/Diameter、Angle、Major/Minor Radius，以及生成操作的 MIRROR/SAME_SUPPORT 关系。Geometry client 是唯一协议适配边界：Worker 的历史 `SOLVED`/`INVALID_MODEL` 名称在此归一为平台 `FULLY_CONSTRAINED`/`INVALID`，PlaneGCS 整数返回码不会进入服务、Revision 或用户错误。求解结果把约束程度 `FULLY_CONSTRAINED / UNDER_CONSTRAINED / UNRESOLVED` 与诊断 `REDUNDANT / CONFLICTING` 正交保存；零 DoF 的闭包即使存在冗余，几何仍显示完全约束色，只有冗余约束本身显示诊断色。宏生成的 `internal` 约束仍参与求解和冲突诊断，但其纯冗余项不阻止整个原子宏提交；用户显式添加的无关冗余约束报告 REDUNDANT。Symmetry 支持“点—直线—点”的轴对称及“点—点—点”的中心对称；当其基于内置 U/V 轴且一个方程已被同一线段的 Horizontal/Vertical/对应轴 Parallel 隐含时，适配层保留复合设计意图。Spline 显式区分 FIT 插值通过点与 CONTROL 控制极点。FIT 的 `controlPoints` 历史字段仍表示拟合点，`controlPointIds` 是其稳定身份；CONTROL 使用 `poles/poleIds`。权威 OCCT 返回非周期 clamped rational B-Spline 的实际 degree、唯一 knots、multiplicities、weights 和参数域，显示及 Profile 消费该 canonical 曲线。FIT 点移动/插入/删除后重新插值；CONTROL 点移动保留 basis，增加/删除通过合法 knot insertion/removal，后者通过齐次系数逆操作一致性验证，不重拟合采样点。改变 basis 时失去唯一对应的点引用须显式释放；保持的点身份不随数组插入变化。FIT 转 CONTROL 是正式操作，保留拟合来源和精确 canonical 曲线；开闭操作不承诺闭合接缝的切向连续。完整样条曲率/G2/G3 约束未交付。Web 预览是瞬态状态；`EDIT_SKETCH` 提交后服务端求解结果才进入不可变 Revision。
+`EDIT_SKETCH` 原子应用几何与约束，`SolveSketch` 将稳定引用、单位、驱动尺寸和分支意图交给 Geometry Worker。PlaneGCS 在适配层按 DogLeg、Levenberg–Marquardt、BFGS 顺序尝试求解。大幅修改受支持的长度或间距时，可用逐步调整目标取得初值，按最终目标核对残差。预览使用相同的领域验证和求解，产生独立候选；只有正式提交推进 Head。
 
-`CREATE_POLYGON` 生成普通边、构造圆和正式内部约束。内接圆模式中，偶数边的等长相切多边形额外用构造半径连接圆心与第一边中点，并约束半径垂直该边，消除交替切线长度自由度；省去由闭合隐含的最后一项等长。奇数边的等长相切关系已隐含中点切触，不重复添加方程。辅助半径不参与 Profile，和整体创建共用稳定操作来源及原子历史。
+约束程度由自由度描述，冲突和冗余由独立诊断解释。只读参考尺寸反映已解几何，驱动尺寸通过受检表达式和稳定参数身份进入方程。草图工具将捕获到的端点、曲线、中点等按角色转成正式关系；网格捕获只定位。拖动使用临时目标，取消释放候选。样条控制点与曲线上插值点保留各自语义，构造几何可参与约束并排除在实体轮廓之外。
 
-进入草图会原子清空浏览选择与候选，支撑面不成为下一条草图命令的预选。连续多点绘制将当前会话的顶点纳入既有屏幕像素捕获器，支持起点闭合和中途端点捕获；草稿点不拥有持久实体 ID。正式提交将重复顶点转换为真实线/弧端点间的 Coincident，结束或取消清除草稿捕获。样条绘制、编辑预览及持久显示共用屏幕像素点标记；CONTROL 额外显示控制多边形，FIT 只显示拟合点。自动点捕获及显式点拾取保留 `controlPointId`，不会将控制极点误当成曲线上的采样点；禁用点捕获不禁用显式编辑拾取。Select 拖动样条点沿冻结手势基线计算目标，再捕获其它可见草图元素；排除被编辑样条自身和网格，Alt 暂时跳过捕获。捕获位置预览不隐式建立新的 Coincident。
-
-绘图捕获完整传递种类及稳定支撑：自动约束开启时，点/端点/圆心生成 Coincident，支持的曲线内部生成 PointOnObject，直线中点生成 Midpoint；网格只定位。几何与关系同一事务提交，已由连接链隐含的重复捕获关系不重复添加。A 切换自动约束，Alt 临时关闭关系生成，数值终点覆盖相应捕获；控制点拖动仍只捕获位置，不隐式加关系。曲线内部关系限现有求解器支持的 Line/Circle/Arc/Ellipse/EllipticalArc；Spline 保留端点及稳定编辑点捕获。
-
-角色拾取先过滤不适用及已接受引用，再按点标记范围、屏幕距离与稳定身份排序。允许点的尺寸/编辑命令在标记命中范围内优先点或端点，离开范围恢复曲线拾取；纯直线命令保持直线角色。hover 与 click 使用同一候选策略，重叠候选不取决于创建顺序。
-
-
-```mermaid
-stateDiagram-v2
-    [*] --> Validate
-    Validate --> INVALID: 领域引用或数值无效
-    Validate --> BackendSolve: 模型有效
-    BackendSolve --> Diagnose: success 或 non-success
-    Diagnose --> CONFLICTING: 存在冲突解释集
-    Diagnose --> REDUNDANT: 存在冗余解释集
-    Diagnose --> FULLY_CONSTRAINED: DoF = 0 且无诊断
-    Diagnose --> UNDER_CONSTRAINED: DoF > 0 且无诊断
-    Diagnose --> FAILED: 后端无法分类
-    note right of REDUNDANT
-      诊断与约束程度正交
-      DoF = 0 仍显示完全约束几何
-    end note
-```
-
-PlaneGCS 适配器按 `DogLeg → Levenberg-Marquardt → BFGS` 执行确定性收敛回退；只有三种算法都失败且诊断不能产生冲突/冗余解释集时才返回平台 `FAILED`。`diagnose()` 会为冗余分析临时求解 reduced systems 并恢复 parameter reference，因此完整系统的 `applySolution()` 必须在诊断结束后执行；否则含 internal 冗余的六边形会让之后其他连通分量的约束看似提交成功却保存旧坐标。仓库保存了真实 XZ“圆弧闭包 + 内置 U 轴角度”以及“六边形 + 后建直线/Spline 分量”的数值回归。
-
-大步线长或真实两线间距编辑若局部数值求解失败，适配器可在同一 PlaneGCS 内以最多 16 个渐进目标取得初值；仅使用已通过残差验证的结果推进，最终恢复原始目标并完整诊断，不增加固定或修改持久约束。该路径仅识别正式长度/整线间距角色，不混用端点距离。SolveSketch RPC 上限为 15 秒，其它计算接口不变；保留原圆弧有向范围的周期表达，求解不能将四分之一弧变成互补大弧。
-
-普通逻辑约束的定义编辑保留 ConstraintId，可以原子替换逻辑种类、引用及停用状态；不跨越逻辑/尺寸类型，也不改变内部生成关系归属。生成关系更改引用需其操作的显式影响策略；关联镜像可以替换轴但不偷换来源/目标。删除单尺寸只删除其 managed 参数，保留可见支持逻辑关系；存在表达式下游读时原子拒绝。删除 MIRROR 明确解除关联并保留几何和正式连接；其他内部关系独立删除需显式释放。
-
-尺寸保留稳定 ParameterId、Quantity 与 checkedAST 绑定；默认别名为可读的种类编号。统一尺寸定义编辑将引用、值/表达式、名称、停用与驱动/参考模式放入一次 Domain Command。参考尺寸保留原驱动 Source，退出 Solver 与 DoF 计算，解后按当前精确几何重新测量；不可测的约束值和参数 EvaluatedValue 均为空。恢复驱动须显式选择原 Source 或当前测量，不覆盖公式。当前 evaluator 明确拒绝表达式读取参考尺寸，以免形成同一草图的测量—驱动反馈环。
-
-两直线角度在放置时按鼠标区域确定两条有向射线和扫掠方向，`angleSector` 随 Constraint 保存；工具选项可选择反角，原尺寸编辑器提供明确的弧线方向切换。前端测量/绘制、服务端参考测量及既有 PlaneGCS 角度输入转换使用同一语义；反角绘制完整有向弧。普通文字拖动仅更新既有本地排版偏好，不改区域、表达式、几何或模型历史；偏好保存相对几何锚点的偏移。点编辑及权威求解导致几何移动时，既有尺寸文字与引线随相同稳定支撑移动，并进入该几何编辑的原 ChangeSet；预览使用同一锚点差，Undo/Redo 与重开恢复一致。无 `angleSector` 的原定义保留原角度数值语义。
-
-
-本地 `OFFSET_ENTITIES` 生成独立 Line/Circle/Arc 精确副本，保留曲线种类、Construction role 及确定性来源/输出身份；支持单元素和由正式连接构成的适用连续链。正距离沿链方向左法向，独立完整圆按逆时针处理；MITER 使用解析支撑曲线交点，ROUND 使用真实圆弧和正式连接。圆/弧半径非正、非法短段、重叠和自交原子拒绝。不复制原驱动关系、不承诺持续偏移关联，也不把椭圆或任意样条的等距曲线折线化。原始几何、驱动尺寸和公式不因偏移创建被修改。
-
-圆角/倒角的主长度参数若携带值或表达式 Source，控制面先按文档单位编译 checkedAST 并求值，再把毫米 Quantity 交给精确候选构造；持久尺寸保留该 Source/AST，而不是把前端预览值当成公式结果。非法维度、未解析依赖或非正长度原子拒绝。圆角点击仅确定支撑曲线及保留侧；连接相邻边使用主值扫掠的 minor 弧，不因点击远离角点生成互补的 270° major 弧。
-
-周期 Circle/Ellipse 在两个位置分割时，参数接缝两侧合并为同一循环区间，产生两段真实曲线；任意参数接缝不是额外拓扑端点。删除命中模式在没有内部交点时删除整条命中曲线，保留命中/仅打断须有适用分割区间。编辑按稳定端点和正式关系报告用户引用影响，不按最近端点重绑。删除一段 Circle/Arc 时，中心和半径/直径/同心引用只可迁移到正式 SAME_SUPPORT 关系证明的共享支撑曲线；端点和其它整体曲线引用仍须显式处理或拒绝，不能套用这种迁移。
-
-公共交点捕获按当前文档/Revision/Sketch 和附近最多四条曲线筛选，复用 Worker 精确求交并缓存曲线对；圆/椭圆（含裁剪弧）以精确有理二次控制包络、正权 B-spline 以控制极点包络保守粗筛，不以固定采样折线排除候选；高缩放仍由 Worker 返回精确交点。 不同圆支撑使用 OCCT 解析求交并按圆弧真实参数域筛选；通用求交器的短容差片段不能作为同支撑或整段重叠的证据。并发请求受限，版本变化、取消及迟到响应不能恢复旧标记。创建交点生成普通稳定 Point 及必要的 Coincident/PointOnObject 支撑关系；求解器不支持的内部支撑明确拒绝。
-
-“分割”保留单曲线位置编辑；“交点分割”选择两条曲线及精确交点，可分割第一条或两条曲线，无须先建 Point。闭合曲线要求两个不同交点，参数接缝可作为明确选定的位置；交点处按精确分割区间收集全部稳定端点（包含跨接缝的一侧）；双曲线在内部交点切断后的四端点通过无重复的 Coincident 连接成一组，只分割第一条时用同一端点组的 PointOnObject 关联未分割曲线。连接去重使用最终候选的正式关系图。 删除曲线时将有效 Coincident 等价组投影到剩余稳定端点，补齐删除中间连接点所丢失的必要关系；视图区与结构树复用同一删除链，停用或显式解除的关系不用于推导，坐标接近及 PointOnObject 不作为点重合的证据。同支撑圆弧的端点重合在适配层编译为等价的周期角度关系，避免重复笛卡尔方程导致尺寸更新冲突；正式约束与身份保持。端点接触不生成零长段，全部替换与必要连接同一事务/撤销。提交重新核对冻结来源和精确参数，持久身份来自实体/端点及操作来源，不使用交点列表编号。原有尺寸/引用迁移及显式解除门禁继续适用，不能确定对应时拒绝。裁剪保留规范区间原端点，非周期曲线仅允许最多 8 ULP 的跨语言端点归一化。
-
-Sketch Move/Rotate/Copy 共用现有 manipulator 的平面模式、屏幕缩放与冻结手势基线。选集由工具持有，手柄和派生几何挂统一只读 preview layer；中心只编辑操作基点，释放一次提交原有 Transform/Copy command。失败恢复手柄，未知结果沿原 request/base version 查询；不改装配求解合同、不解除驱动关系以让变换成功。
-
-普通直线、圆、矩形及中心矩形按指针创建，不因数字按键生成尺寸约束；显式尺寸与几何约束同属草图功能。方向候选使用只读权威预览，确认复用同一几何/约束 ID；作用域及诊断见[方向推断](#方向推断与草图诊断)。正式尺寸、表达式、引用更换及下游实体回归为 `TestSketchDimensionsDriveSolidThroughRouter`。
-
-实体表单的输入草图往返由 `solid-sketch-workflow.ts` 保存草稿数量原文、单位、意图和 occurrence；既有特征的新输入在自身之前创建。返回基于最新 Revision 重新预览，原区域按稳定 ID 恢复/修复，仅新建输入初始化其当前区域。已确认草图操作不因取消实体而撤销；文档/occurrence 改变结束往返，未知回执阻止切换。尚不接管助手确认会话或放样多截面往返。操作步骤见[交互指南](../../guides/sketch-interaction.md#草图与实体往返)。
+[求解器与两线距离合同](../../../workers/geometry/sketch/README.md) · [绘制、编辑与约束操作](../../guides/sketch-interaction.md)
 
 ## Profile 与 Feature
 
@@ -93,7 +32,7 @@ Profile Builder 排除 Construction/Point，以正式连接等价类构建 Line/
 
 新建默认收集显式区域；命令内选择普通草图会把当前全部区域冻结为集合，面板列出选定区域。视图区按后端 `SketchProfileAnalysis.regionViews` 提供的外环／孔显示采样面拾取、高亮和增减，采样只用于显示，提交重新经过精确 Builder。编辑恢复有效项并保留失效行，支持明确替换或移除；“全选当前区域”是用户主动替换集合。整草图与显式集合由用户切换，不自动转义。候选限定目标特征之前的同文档、Revision 和 occurrence；预览及取消不推进 Head，变更集合不能采用旧候选。
 
-源码入口：`profile_selection.go`、`sketch_exact_profile.go`、`solid-feature-editor.tsx`、`profile-region-selection.ts`。定向真实 Router/Worker 回归 `profile_region_selection_integration_test.go` 覆盖独立／多区域、孔及岛、增加第三区域时 BREP/Naming 保持、尺寸更新、失效替换／移除、下游恢复、取消、Undo/Redo、重开和冷重建；浏览器 `solid-feature-live.spec.ts` 的 `explicit profile regions` 覆盖实际区域拾取、孔内过滤、编辑、修复及拉伸／切除／旋转体积。显式区域先从正式连接图提取独立闭合分量，再由同一精确 Worker 分类外环/孔/岛；开放线和分叉的诊断仍保留。`sketchAnalyses` 在 OPEN/INVALID 时也可提供已精确验证的 `regionViews/regionIds`，`geometryVerified` 仅认证这些候选，不表示整张草图闭合。WHOLE_SKETCH 和放样仍采用严格完整轮廓检查；闭环集合的交叉/重叠/自交仍由精确门禁拒绝。未支持任意相交曲线自动分区、开放实体轮廓。空间草图阵列成员继续使用已有整草图输入，尚未提供成员的区域拾取投影；放样未扩展。当前定向证据使用共享 SQLite、Release Worker 和 Chromium/SwiftShader，未代表任意拓扑拆并、复杂曲线及目标设备实机验收。
+源码入口：`profile_selection.go`、`sketch_exact_profile.go`、`solid-feature-editor.tsx`、`profile-region-selection.ts`。定向真实 Router/Worker 回归 `profile_region_selection_integration_test.go` 覆盖独立／多区域、孔及岛、增加第三区域时 BREP/Naming 保持、尺寸更新、失效替换／移除、下游恢复、取消、Undo/Redo、重开和冷重建；浏览器 `solid-feature-live.spec.ts` 的 `explicit profile regions` 覆盖实际区域拾取、孔内过滤、编辑、修复及拉伸／切除／旋转体积。显式区域先从正式连接图提取独立闭合分量，再由同一精确 Worker 分类外环/孔/岛；开放线和分叉的诊断仍保留。`sketchAnalyses` 在 OPEN/INVALID 时也可提供已精确验证的 `regionViews/regionIds`，`geometryVerified` 仅认证这些候选，不表示整张草图闭合。WHOLE_SKETCH 和放样仍采用严格完整轮廓检查；闭环集合的交叉/重叠/自交仍由精确门禁拒绝。未支持任意相交曲线自动分区、开放实体轮廓。空间草图阵列成员继续使用已有整草图输入，尚未提供成员的区域拾取投影；放样未扩展。
 
 ## 支撑与外部几何
 
@@ -145,18 +84,9 @@ DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投�
 
 ## 实现与验证入口
 
-- [Part 关联测试](../../../services/internal/workspace/associative_design_test.go)
-- [Profile corpus](../../../services/internal/workspace/profile_builder_test.go)
-- [Worker 协议](../../../proto/occccad/worker/v1/geometry_worker.proto)
-- [OCCT corpus](../../../kernel/occt/tests/geometry_exchange_scenarios.cpp)
+[Part 关联测试](../../../services/internal/workspace/associative_design_test.go) · [Profile Builder 测试](../../../services/internal/workspace/profile_builder_test.go) · [Worker 协议](../../../proto/occccad/worker/v1/geometry_worker.proto)
 
-平面 Face 的 `normal` 与 SelectionEvidence.direction 均包含 OCCT Face Orientation：有效闭合 Solid 指向材料外部，凹腔壁指向空腔；`xDirection × yDirection = normal`。拓扑 history 的 Face 身份匹配忽略 Orientation，因此生成证据前必须取最终 Solid 中的 Face occurrence，不能沿用 Prism/Boolean 工具面的朝向。面上新建草图从精确 B-Rep 读取有向法向，持久引用仍使用原 manifest evidence，已存在的源制品也能正确建立草图框架。Part evaluator 已更新为 `part-solid-generators-v12-oriented-face-normal`，重新求值不复用旧几何求值缓存；不重写历史 Revision 或源拓扑证据。
-
-草图编辑工具可调用只读生产 Preview 路径：`EDIT_SKETCH` 候选通过同一领域验证和权威求解，响应中的 `sketchCandidates` 仅复制已求解实体和 Solve 状态，不能从操作输入或旧显示快照推导。预览不修改文档 Head、Revision、Undo/Redo 或应用数据；取消、过期版本和迟到结果只丢弃候选。Web 近似预览明确标识，精确求解候选与正式模型分开；操作选项、引用释放和最终采用仍通过正式命令。状态所有权和尺寸引用更换见[Web 架构](web.md)，定向验证见[草图交互补齐](../../guides/sketch-interaction.md)。
-
-圆角/倒角裁剪子段由 SAME_SUPPORT 保持支撑，生成关系不重复添加 cut-point PointOnObject；相切引用实际连接的裁剪子段。线支撑已有端点 Coincident 时省略重复定位方程，保留模型关系。两侧内部相切圆角的局部/补弧分支翻转触发现有数值尺寸 continuation，禁止以补弧替代原圆角。自由延伸投影到 Line/Arc/EllipticalArc 的解析支撑，边界延伸继续使用 ComputeSketchCurves 精确交点并生成稳定连接。统一缩放停止支持，带 scale 的变换请求明确拒绝；已持久 Revision 的几何和历史不重写。
-
-派生裁剪线的 SAME_SUPPORT 与平行关系使用 PlaneGCS 既有角度原语的最近平行/反平行分支，避免原生叉积方程通过坍缩边取得伪零残差；不增加固定或持久角度尺寸。有限范围、非退化和原有约束残差仍是提交校验。
+面上建草图按最终 Solid 中的 Face 朝向读取精确法向，保持右手框架。编辑预览保留有效解和稳定引用；切换文档或 occurrence、取消及迟到响应均不能推广旧候选。
 
 ## 草图关联阵列
 

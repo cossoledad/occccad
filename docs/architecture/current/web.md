@@ -1,201 +1,22 @@
-# Web 工作台与交互边界
+# Web 工作台
 
-> 返回[当前架构目录](README.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
-
-## 状态与模块职责
-
-```mermaid
-flowchart TD
-    Pages["Auth / Document Center / Workbench"] --> Query["TanStack Query: 服务端状态"]
-    Pages --> Store["Zustand: 短期交互状态"]
-    Pages --> Command["Command Registry"]
-    Command --> Tool["Tool Manager"]
-    Tool --> Interaction["Input / Navigation / Selection"]
-    Interaction --> Engine["Viewport Engine"]
-    Engine --> Three["Three.js / BVH"]
-    Query --> Adapter["Mock / HTTP / Realtime adapter"]
-```
-
-页面通过 Viewport Engine 操作视口，不直接拥有 Three.js Scene/Renderer。模型、权限、Revision 与最终求值属于服务端；camera、hover、selection、工具采集和渲染插值是可丢弃状态。Mock 用于 UI 调试，不证明后端权限或几何正确性。
-
-`workbench-store` 的交互状态与 Inspector 页签偏好分开，只有偏好变化写入原有存储键。预选由 `WorkbenchTree` / `WorkbenchViewport` 订阅，命令与表单不订阅悬停。树行按非悬停输入和内部交互状态失效，悬停只更新受影响行；选集、菜单、编辑上下文或节点快照变化仍重新计算。结构树不提供搜索或过滤，普通展开与自动定位沿用 stable key 和文档会话；行内显隐与菜单共用正式定义 / occurrence 范围解析。
-
-任务中心与运动结果共用 `jobs` 查询。已知任务的实时事件只合并状态、保留完整结果 payload；未知任务与终态以 200 ms 合并刷新，重连恢复和窗口重新聚焦进行核对，仅活动任务保留 10 s 轮询。一个导入批次在上传前登记、全部提交和终态收齐后发一条完成通知，逐项失败与警告仍属于持久任务记录。独立导出保留下载动作；未知回执、引用破坏与实际失败不作为冗余提示删除。
-
-真实 / Mock API 在 Vite 构建入口选择唯一实现。登录页不静态加载文档中心，选项窗口与条件打开的命令面板各自延迟加载，Suspense 边界留在面板内；需常驻的控制器不因面板分块而失去生命周期。构建、实际工作流与测量范围见 [UI 与前端资源验证](../../validation/ui-refinement.md)。
-
-文档缩略图和标题均单击打开，勾选框负责多选；支持紧凑列表与折叠过多文件夹，首次加载保留缩略图骨架。目标文件夹按进入的分支查询，值始终为 Folder ID，不再递归预取全树。账号编辑 / 密码重置在同一管理抽屉内切换并保留列表筛选。选项窗口默认靠右、宽 640 px、按内容定高并保留已有拖动位置。实体表单使用明确操作名、独立单位、紧凑范围选择与“更多参数”，现有非默认薄壁 / 起始偏移仍展开。
-
-`SurfaceGeometryPool` 在同一视口内共享不可变位置、法线和索引 BufferAttribute；各实例保留独立几何包装、面分组、userData 和 BVH。Three 的几何释放会直接移除 GPU 属性，因此归还的包装先复用，最后一个租约归还时才统一释放；保留量由同一缓冲的并发租约峰值界定。材质预览只修改当前包装的分组。此实现不合并 draw call、不共享 BVH，也不替代稳定拾取身份或改变网格精度。
-
-客户端 UUID 统一通过 [random-uuid](../../../web/apps/cad/src/utils/random-uuid.ts) 生成。非安全上下文缺少原生 `crypto.randomUUID` 时，复用 `getRandomValues` 生成 UUID v4；没有安全随机源则明确失败，不以时间或 `Math.random` 替代。
-
-工作台由结构树、视口和属性/历史浮层组成。树展开与定位保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 默认收起并沿用已有保存偏好，关闭时卸载；两侧面板不占用画布布局列，开合不改变画布尺寸与相机。普通工程属性优先，DEBUG开发信息面板独立打开，挂载及切换页签后按需查询完整对象与调试信息，读取失败保留明确反馈。Document tabs 位于紧凑浅色全局标题栏，支持切换、关闭、新建、排序及窗口会话恢复。普通文档读取和依赖刷新不打开或重排标签；显式打开生命周期与窗口内稳定顺序见 [编辑上下文](product-edit-context.md)。
-
-草图提交屏障只等待权威命令回执、必要的宿主文档刷新及已校验显示制品；历史、属性和目录仍失效并按需刷新，其请求不延长草图输入锁。相同命令响应对象的刷新复用同一次发布，未知回执和显示失败继续保留原恢复/阻塞合同。标签栏的新建文档名称目录仅在新建入口读取，不在每次建模后查询整个目录。定向测量入口为 `solid-feature-live.spec.ts` 的 `sketch performance line`：分开记录命令回调（含服务调用）、显示加载、场景重建及工具栏可用耗时；这些阶段可能重叠，不能相加为内核 CPU 时间。草图图元规范见[工作台](../../guides/workbench.md)。
-
-## 浏览器导航与桌面交互
-
-`app/navigation.ts` 统一应用跳转和机构查询参数替换，`BrowserRouter` 是唯一页面历史。浏览器按钮、鼠标侧键和历史 POP 都读取同一 URL；不重复翻译侧键、不填充哨兵历史，也不阻止离开本站。页面历史与模型 Undo/Redo 独立。
-
-| 入口 | 当前行为 |
-|---|---|
-| 文档中心分类、文件夹、面包屑 | push；scope／Folder ID／搜索／类型／排序／分页／显示方式由 `library-location` 编解码，后退和刷新可恢复 |
-| 搜索、类型、排序、分页、显示方式 | replace 当前记录；搜索保留 250 ms 防抖，POP 立即取消旧计时和草稿，不能把它写进返回的历史页 |
-| 打开文档、切换标签、返回主页 | push；重复选择当前标签不生成记录，文档中心恢复其 URL 中的位置与筛选 |
-| 关闭当前标签、无法打开文档后返回、未知路由、退出登录 | replace 当前记录；关闭后的旧历史仍可通过显式历史访问重新打开文档 |
-| 机构恢复参数 | 经路由 replace，保留 Router 的 idx／key／usr，不直接覆写 `history.state` |
-| 弹窗、管理／消息抽屉、临时建模表单 | 不单独生成历史；页面导航关闭临时面板，宿主切换取消当前工具／预览；安全文档状态仍归 DocumentSessions，权威提交与回执合同不变 |
-
-`Alt + Left/Right` 交给浏览器；标签排序改用 `Alt + Shift + Left/Right`。InputManager 不消费鼠标按钮 3／4，仍正确结束与侧键交叠的普通 CAD 手势。键盘加速键及硬件侧键映射最终由浏览器／系统决定；不能把 JS 合成事件当作系统按钮验收。[History 事件](https://developer.mozilla.org/en-US/docs/Web/API/Window/popstate_event)与[鼠标按钮约定](https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent/button)是浏览器参考。
-
-异步新建／关闭文档用 `useNavigationIntent` 捕获来源历史 key；完成结果仍更新对应缓存，仅当原组件存活、原 key 仍为当前 Router／浏览器记录时自动跳转。创建还是编辑取请求开始时的操作，不借用完成时另一张表单的状态。
-
-`AppProviders` 安装唯一的 `browser-interactions` 策略，包含 React portal：普通文字由 CSS 和 selectstart 禁选，普通界面 contextmenu 只 preventDefault、不阻断应用菜单冒泡。文档／文件夹的右键与更多按钮复用同一权限菜单，树继续使用原上下文菜单。input／textarea／select／contenteditable、弹窗与抽屉正文、检查器 JSON 和测量结果保留文本选择及原生菜单；其他明确需要复制的结果可标记 `data-text-selectable`。不拦截这些区域的复制、粘贴或选择全部。页面级容器不再无条件阻断浮层内文本的右键。
-
-应用下拉/上下文菜单统一预留图标列，无图标的行使用同宽空位；分隔线、组标题不占位，子菜单箭头仍在尾列。规则属于设计系统，不由各业务菜单插入空图标。
-
-## 根场景与编辑上下文
-
-Product 始终显示根装配场景，宿主 Product 决定路由与活动标签，唯一 Edit Target 的 Reference Workspace 决定工作台、命令、历史和属性目标。Product 内只有携带完整 occurrence 路径的上下文编辑，不存在脱离 occurrence 的定义编辑切换；独立 Part 标签是另一个宿主工作空间。`ViewportEditContext`/`editingView` 将活动 Part 草图的拾取、约束、尺寸拖拽和编辑从根 Product 投影中分离；切换激活状态不产生空 Revision。创建 Part、Context Catalog、Pin/Follow 和组件替换的领域行为见[Product 架构](product-assembly.md)。
-
-工作台目录的 Sketcher 状态必须同时属于当前宿主的 EditSession、活动 Part 和草图。切换标签的首次渲染不能借用上一标签尚未清理的草图状态；返回原 Part 可恢复其编辑会话，引用它的 Product 仍按自己的上下文呈现。
-
-进入 Sketcher 保留权威 Body 作为只读环境，活动 Sketch、约束与预览叠加其上。普通工具只接受活动 Sketch；显式 Projection 才能进入上游 Body Edge/Vertex 选择并绑定 PersistentSelection。ExternalGeometry 独立、只读，使用同一捕捉/约束路径。退出后选择提升为 Sketch Feature；未消费草图保持可见，已消费草图在选择或重新编辑时临时显示。
-
-## 显示制品与稳定选择
-
-Part 求值输出 schema v1 `VisualizationManifest` 并写入 GLB 的 `OCCCCAD_visualization` 扩展。Point、曲线、约束 glyph 和尺寸引线携带稳定 entity/constraint/Feature identity、role、求解状态和关联实体；它们是可重建显示制品。Part 与 Product 共用 renderer 与 selection identity builder，Product 只施加 occurrence Transform，不维护另一份 Sketch 模型。
-
-InputManager、Tool、Selection 和 Overlay 共用完整 pointer down/move/up/cancel、capture/lost capture、Esc/blur 生命周期。hover、正式选择和工具保留引用独立呈现；拓扑层按所选对象及几何/显隐世代复用覆盖；hover 变化不重建保持不变的整件选择。整 Part/Body/occurrence 的面轮廓和 CAD 边各合成一条批次，不为每条边创建场景对象；同一不可变 mesh 的 occurrence 按引用租借共享缓冲，释放一个覆盖不销毁兄弟选择。面子集仍按当前显示映射精确索引，开放结果/点标记保持各自域语义。相机变化先保守筛选空间轮廓候选，再由原 shader 判断及深度/剖切门禁绘制；保持材料外观。草图覆盖随其交互状态刷新。隐藏对象及其子孙退出拾取候选。工具声明 geometry/instance 选择模式，在 hover/select 之前完成语义投影；树和视口按稳定 identity 同步，树祖先高亮不反向扩大精确拓扑选择。装配约束工具通过同一 selectionInput 消费视口点击、结构树节点和启动前选择集；固定/刚性先执行 instance 投影，再转换为 AssemblyGeometryRef。一个有效支持保留等待第二项，两个不同 occurrence 的支持进入现有约束定义和预览流程；重复支持不重复提交。工具激活先发布状态再消费预选，避免完成后又被激活通知覆盖。
-
-各 Body 的 GLB 独立下载/缓存，视口以 occurrence + Body 绑定显示与拾取；Body 选择、显隐与目标 Body Preview 不影响兄弟 Body。属性面板只读展示 Body 名称、活动/显隐状态与按 Revision 索引分组的 Part Files 下载，Product occurrence 中的 Body 属性也按其 resolved Revision 查询；编辑通过正式业务命令执行。最终 Body 制品绑定该 Body；历史 Feature 的阶段结果通过既有只读 feature-input 按需重建，不为每个 Feature 常驻完整网格。`BodyId + Revision + geometryKey + local topology ID` 只用于当前制品拾取证据，持久引用仍由服务端绑定。Publication 树入口选择保持 Publication 业务身份，只有同 Body、Revision、Geometry 范围内可唯一解析的目标才关联几何高亮；无法解析约束显示锚点时回退 occurrence 中心，保持 Broken 可选、可修复。
-
-结构树消费服务端 `DocumentStructureNode`：Product 的 Instance 下保留独立 Part/Product 定义根，Part 与 Product 内 Part 共用 Body/Feature/Sketch 投影；被多个 Feature 使用的 Sketch 保留一个定义入口和多个只读输入引用。节点显式携带 `EntityRef`、`OccurrenceRef`、`SnapshotScope`、owner、Body、能力，以及可分别读取的连接、时效、求值、子节点加载状态；树路径只标识当前投影入口。选择键包含文档、完整 occurrence、Revision/variant、Body 与几何范围；折叠祖先只显示后代提示，不变更精确命令目标。行虚拟化保留，Product/Part 历史分支默认按需展开；目前服务端仍构造完整结构快照，尚未实现分页获取子树。更多设计与 CATIA 对照见[语义结构树与交互上下文](semantic-tree.md)。
-
-单击树节点只选择，不改变编辑目标。双击 Instance 是激活其下 Part/Product 根的快捷方式；双击定义根得到同一目标，双击根 Product 返回装配编辑。只有类型、DocumentId 与完整 InstancePath 均匹配的 Part/Product 根显示文档编辑态，Instance 行不共用该标记。激活 Body 只改变会话工作 Body，覆盖持久 `activeBodyId` 默认值；选择、展开和临时显隐不写入 Revision。Feature 选择保持设计定义身份，使用 Naming 派生的当前面/边贡献集合高亮；无当前贡献与关联缺失分别提示。视图的真实面/边保持主选择，关联树节点只作定位提示，不再触发 Feature/Body 选择。“查看此步骤结果”显式加载历史制品，禁用其建模拾取并提供恢复当前结果；历史编辑使用上游阶段，结束恢复正常显示。Product 自动更新订阅来自服务端的非 PINNED 领域引用投影，并继续通过 UpdatePlan 按叶到根接受；过滤和展开状态不参与更新决策。
-
-CAD 命令字段、选择条目、状态与操作区复用公共表单组件，装配支撑与接合端点不维护独立列表外观。拾取结果绑定活动字段、会话及版本；输入失焦只更新草稿，当前候选才可确认。具体布局与键盘规则见[工作台 UI 规格](../../guides/workbench.md#命令表单与拾取)。
-
-捕捉过滤与 Selection 独立。三维类型过滤、草图网格/端点/中心/中点/曲线投影共用候选排序；禁用候选不能遮挡后方可用对象。显示折线上的投影仅是交互近似。命中稳定点时，同一编辑批次显式添加 Coincident，不能只保存相同坐标。
+React 工作台以文档和编辑会话组织交互。TanStack Query 管理服务端数据，Zustand 管理临时 UI 状态，Three.js 负责显示与拾取。模型修改经版本化命令进入服务端。正式 API 与 Mock API 在 Vite 构建入口选择。[Web 模块](../../../web/apps/cad/README.md)
 
 ## 命令、预览与提交
 
-文档、Toolbar Tab/命令组、命令和图标来自服务端校验的统一配置；呈现与实现通过稳定 ID 关联，本地 CommandRegistry 统一执行并独立检查可用条件。文档适配器、编辑事实、注册与操作清理见[公共框架](document-command-framework.md)。未知实现使目录校验失败，目录不承载远程代码。默认命令区按工作台/锚点呈现；导航、捕捉和显示单位属于偏好。全局快捷键避开输入框、IME、重复按键和对话框；上下文帮助点击不执行命令。
+工具带、搜索和上下文菜单由同一命令目录投影。工作台根据文档、目标对象、当前选区和编辑状态启用命令。启动时将兼容的已有选区带入相应角色，用户可以继续从视区或树选择、更换和清除输入。候选归发起它的会话、Revision 和输入代次所有。确认采用匹配候选，取消和过期响应不能推进 Head。[文档与命令框架](document-command-framework.md) · [表单与拾取](../../guides/workbench.md#命令表单与拾取)
 
-工具单击完成一个逻辑操作后回到选择，双击进入连续模式；Polyline/Spline 用 Enter 或双击完成多点采集。尺寸工具按引用选择、真实几何测量初值、放置、内联输入、提交运行；实体点拖动只在 pointerup 形成一个 Domain Command；尺寸标注位置拖动仅更新以 owner Document/Sketch/Constraint 稳定身份索引的浏览器显示偏好，不发送命令、不求解、不改变 Revision 或 Undo/Redo。显示重建与尺寸编辑预览复用此位置。显示/输入单位在 UI 转换，权威数量和表达式由服务端验证。
+## 场景、编辑与选择
 
-草图工具通过 `SketchCommandState` 投影选择、定义、放置、提交及未知结果阶段，ToolManager/Input Router 拥有手势和工具生命周期；工作台状态栏显示当前 role、接受数量和完成入口；inline 以引线数值显示工具显式请求的字段，点击或键入时才展开紧凑白色编辑框，advanced 面板保留高级选项。两者只是投影并派发字段、确认和取消动作，不从提示文字判断阶段；数值焦点由 input.id 代际控制，失焦不取消工具。线性尺寸同屏距离重叠候选优先 PROFILE 子边；Construction 仍可单独命中或通过主动预选选择。悬停、选集和尺寸预览使用独立显示层，选集/候选高于透明尺寸文字，避免互相清除或遮挡。尺寸进入 Placement 后冻结引用和尺寸种类，hover 其他几何不会改写定义。尺寸编辑器持有未提交值/表达式草稿，角色槽位使用 typed stable ref，面板只展示对象角色与定位，视图仅高亮引用几何。尺寸面板移除引用更换和折叠的更多设置，直接呈现名称、删除、停用和参考状态；逻辑约束编辑仍复用受控引用更换会话，按角色过滤候选并在排名前排除不兼容命中，定位/高亮不改模型选择。手动引用拾取独立于自动吸附偏好。尺寸面板开启时输入屏障阻止几何拖动，允许中键导航；逻辑约束引用子会话中 Esc/右键先取消更换，IME 不确认或取消。显示/输入采用文档长度单位，数值初始化采用统一两位小数显示；原始 Quantity 与表达式不因格式化改写。数值输入节点首次聚焦全选，返回视图后再聚焦保留光标；数量与表达式仍由服务端处理。
-
-草图提交持有原 requestId、baseVersionId 和操作快照；未知响应重试携带 `retryReceipt=true` 查询原请求，不重新生成操作身份。Engine 持有待确认回执；正常等待不增加底部提示框，未知回执通过状态栏查询恢复，关闭面板不撤销已发请求；回执待确认时继续阻止新编辑。请求已成功确认后渲染刷新失败不被当作领域提交失败重发。异步结果必须匹配文档/草图/版本/会话代际。操作交互与人工验证入口见[草图交互补齐](../../guides/sketch-interaction.md)。
-
-CommandDialog 允许由显式子选择会话继续拾取；尺寸面板默认输入屏障不允许任意修改其它几何。Part preview 复用正式 adapter、handler、参数/Sketch/Feature evaluator，返回带 base Revision/provenance 的精确结果；它不产生 Revision/历史/Outbox。提交可携带 verified candidate token，仅当 actor、document、base head/sequence、命令类型与 payload digest 全部匹配时提升候选，否则重新求值。当前候选和 warm-start cache 有 45 秒 TTL、256 项进程上限；丢失只影响性能。
-
-交互以 interactionId 和单调 previewSequence 取消旧请求、丢弃迟到响应。装配前端 actor 管理草拟/预览/确认/取消，服务端 workflow 管理解析/求解/应用/失败；二者不替代 Revision 或 solver 数值状态。nominal pose 来自 Revision，前次权威解只作短期 initial guess。数值输入通常在 blur/Enter 请求权威预览，成功后才能提交。
-
-实体 Feature preview 显示后端完整结果并临时替换当前 occurrence 的旧实体；取消恢复原可见性。Placement 动画只插值 TRS，旋转使用 quaternion slerp，同批 occurrence 共用时钟；新目标从当前显示帧接续，最终精确落到权威姿态。手柄与 Instance 使用同一确认帧。连续移动复用 AssemblyInteraction，精确位姿命令与操纵偏好的边界见[Product 连续操纵](product-assembly.md#连续操纵)。
-
-移动提交由视口结束屏障串行化，不设置机构定义对话框的全局忙碌状态。模型工具执行前等待该屏障并复核命令代际；等待阶段，旧工具清理产生的选择状态或尚未打开的表单不能自动结束新命令，显式取消与上下文失效仍可取消。视图命令保留独立可用性。权威刷新重建 Instance Group 时，屏障结束后将操纵器挂回当前选择，保留移动工具供下一次拖动；用户取消、切换工具或清除选择仍生效。
-
-中间求解帧失败可被后续目标恢复，不提前占用每手势一次的最终失败提示。未合格 Final 保留最后可行显示，展示重试／取消并透传服务端归档 ID，复制仍采用 `CAD_DIAGNOSTIC <document/archive> <code>`。显式取消恢复当前权威基准并重新挂接当前移动选择；未保存预览不成为下一手势基准，外部新 Head 不被旧基准覆盖。
-
-## 导航、布局与偏好
-
-默认透视 ISO 朝向（35° 纵向视角），全局选项可切换平行投影；切换保留关注深度处的显示比例与朝向，Fit 按各投影的可见内容计算；普通刷新保留视图，草图进入/退出保存并恢复相机上下文。进入草图、正对草图与法线视图先选择最近法向侧，再从支撑面两轴的四个正交朝向中选择旋转最少的一种，使平面坐标轴在屏幕上横平竖直；没有平面轴时使用投影后的世界轴。上述切换及退出草图通过280 ms缓入缓出动画完成，旋转用 quaternion slerp，围绕插值关注点运动并保留比例。新目标从当前显示帧接续，用户输入、切换文档或销毁视口会取消动画；不反转业务平面。网格独立于模型包围盒、Fit 和拾取。草图网格绘制和吸附共用自适应间距，吸附距离按实际屏幕投影衡量。草图原生轴线、引用高亮及约束拾取共用固定 CSS 像素长度；逻辑约束符号的留白也按屏幕像素计算，避免毫米偏移把小尺寸斜面草图的图标推远；轴仍位于实际草图面，近乎正对视线的退化轴不显示或参与选择。裁剪范围包含草图、辅助轴、交互预览；没有实体时仍按草图/导航关注点计算，避免小尺寸草图被远近裁剪剔除。Default、CATIA 和 SOLIDWORKS 导航由独立状态机实现；适用手势、参考资料与验证限制见[导航 README](../../../web/apps/cad/src/cad/navigation/README.md)。
-
-schema 16 的 `occccad.ui-preferences.v1` 保存光源基准、三维显示精度、Inspector、面板/工具条布局、树宽/显隐覆盖、导航、捕捉、基准元素分类显隐、实体正常/线框显示及独立边线/交点开关，以及默认/按 DocumentId 的显示单位。显示单位影响格式和新输入，不重写已有表达式或变成共享 Revision 属性；对象定义及 occurrence 显隐、抑制均走各自正式命令；浏览器观看偏好与临时隔离不写模型，唯一显隐规则见[建模显示](model-display.md#显示模型)。当前树省略重复的“模型结构”标题和文档名称，由根节点识别文档，保留紧凑收起按钮。树是同一视口上的透明覆盖层：画布延伸到树后，树宽和收起不改变画布比例。文字与控件按全局场景明暗配色；行和按钮接收指针，空白区域保留视口导航。收起按钮兼做树宽手柄：点击收起，移动至少 4 CSS 像素后拖动调宽，拖动结束不触发收起；Esc、失焦、pointercancel 或意外丢失捕获撤销本次调宽。方向键每次调整 16 像素，Home/End 到达当前宽度边界，Enter/Space 收起，收起/展开后焦点移交到对应按钮。没有独立边缘拖动条；宽度沿用本地偏好及响应式上限，不改变模型或 Revision。
-
-基准轴/面是屏幕稳定的辅助几何，关闭深度测试并有专用拾取层，避免被实体遮挡后不可选择；轴线以射线到命中点的实际距离执行像素容差，不依赖可选的 distanceToRay 字段。显示设置统一控制基准面、基准轴、坐标系，和树节点隐藏共同生效；隐藏对象不参与视区拾取。顶部唯一“选项”入口统一管理场景、显示、导航和新建默认外观，详见[对象属性与全局选项](object-scene-properties.md)。基准面、基准轴、坐标系分别开关。实体正常/线框显示与交点显隐独立，正常显示还可单独开关边线；线框始终保留 CAD 拓扑边（包含背面边），不暴露显示三角剖分。旧显示预设迁移为对应开关，显式选择反馈独立于普通实体显示。默认表面使用低金属度、适中粗糙度的哑光材质，提高半球漫反射填充并降低直射高光对比，避免放大粗曲面网格的法线差异；这不替代网格细分或曲面法线优化。环境由宽幅、低对比的 HDR 柔光板生成，每个视口初始化时通过 PMREM 预过滤一次，由视口持有并释放；不依赖外部 HDR 资产，不捕获模型、不逐帧重建，背景使用独立的屏幕上下渐变。构造虚线的节距和编辑草图尺寸箭头按 CSS 像素计算，动态几何在渲染上传及拾取前更新，不改变领域几何或尺寸值。语义色集中在 visual tokens，selection/hover/preview、求解诊断和坐标轴保持不同含义；精确像素、色值和动画时长由实现及视觉场景维护，不作为架构契约复制。
+- 根 Product 或 Part 提供显示场景。编辑目标包含所属文档及 occurrence 路径。草图、特征和装配工具各自管理输入，退出后恢复浏览上下文。[编辑会话](product-edit-context.md)
+- 树与视区投影同一语义选择。局部网格编号只定位当前快照的图元，跨版本引用须使用 PersistentSelection。多实例共享几何，位姿与实例高亮由显示层管理。[语义树](semantic-tree.md) · [显示与过滤](model-display.md)
+- 视口按几何键加载 GLB，按对象和场景状态更新外观、选择和预览。参考几何、自然边线与曲面材质共享相机和深度约定。[几何制品](geometry-representations.md) · [自然边线](natural-edges.md) · [对象属性与全局选项](object-scene-properties.md)
+- 导航、缩放、投影切换和草图平面相机沿用同一控制器。拖动装配使用独立交互 Session，机构使用已接受的构型与冻结回放。[相机导航](../../../web/apps/cad/src/cad/navigation/README.md) · [装配操纵](product-assembly.md#连续操纵) · [机构研究](kinematics-dmu.md)
 
 ## 文档浏览与创建
 
-登录页展示由真实 API/Worker 建模、再由工作台截图命令保存的三张模型图片；前端不依赖生成时的文档身份。图片每 6 s 循环切换，左侧滚轮按手势切换，分页按钮直接选择；手动操作重新计时，键盘焦点在展示区内、页面隐藏或展示区因窄屏隐藏时暂停计时。提供播放／暂停按钮，减少动态效果偏好默认暂停并取消动画。图片保持挂载并预加载，目标未载入时保留当前图；过渡只改变 opacity / transform，不重建模型。品牌和管理页面使用独立的组件样式；文件夹单击或键盘进入，卡片名称直接打开文档，批量操作按选择状态出现。用户管理将批准／编辑与更多操作分开，账号搜索合并短期输入，变更后刷新列表与统计。配方、文案边界及操作见[建模展示与视口截图](../../guides/model-showcase.md)。
+文档中心管理文件夹、分页、筛选、预览和显式多选。浏览器前进/后退恢复对应页面，工作台内的编辑状态由会话持有。缩略图的读取受文档权限和真实显示依赖约束。对象属性用于查看来源与值，修改由正式对象命令执行。[文档中心与截图](../../guides/model-showcase.md)
 
-`view.screenshot` 是声明式目录中的浏览器 UI Command。Viewport Handle 将请求交给 Engine，在完整渲染帧末复制原生像素，并冻结、合成当前几何测量 SVG，下载 PNG；不持久化模型，也不修改相机、选择或渲染缓冲保留策略。关闭视口／图形上下文丢失会拒绝尚未完成的请求。截图只负责视区图形，React 控件不进入图片。
+## 验证与限制
 
-Insert 复用 ACL 文档搜索和缩略图 API，支持范围、文件夹、搜索、分页及失败重试；提交只传稳定 DocumentId，循环引用由服务端验证。诊断下载使用文档 ACL/CSRF，导出命令、Workspace、manifest 和日志关联，排除凭据、无关文档日志和原始 B-Rep。
-
-主页仅加载当前页及当前文件夹，移动／复制时按进入的分支读取文件夹选项；命名目录仅在创建弹窗打开时读取。主页搜索合并250ms内的输入，主页及插入搜索取消已离开的列表请求。浏览列表显式使用 `includeHistory=false`，省去逐文档历史能力计算；API默认和显式完整列表、实际文档读取及Undo/Redo仍沿正式历史规则。所有者行直接使用已确定的最高角色，其他行继续使用完整的继承／团队权限解析，过滤和分页语义不变。
-
-主页与插入对话框共用按文档／版本URL分隔的缩略图Query，近视区时加载、合并同源在途请求，最多四路完整图片读取；离开后Blob保留两分钟再回收，各挂载视图独立释放Object URL。返回先显示缓存图并后台重新校验，保留pending重试；Product的FOLLOW_HEAD可能在自身Revision不变时改变，因此不把版本URL当作永久不变图片。退出登录清空Query及其私有图片缓存。
-
-主页／标签栏复用 `document-editor-dialog.tsx`，弹窗打开不等待名称目录，迟到建议只更新未被用户改写的默认名称。创建成功先缓存权威DocumentView并进入文档，目录刷新不阻塞导航。未变文档卡片复用渲染结果，弹窗和搜索草稿不重建全部卡片。真实浏览器回归入口为 `browser/document-center-live.spec.ts`；初次加载仍依赖列表／权限查询及缩略图服务，缓存不替代服务端授权或失败恢复。
-
-Document Center 支持跨页保留文档多选、全选当前页或当前筛选结果，并以最多四路请求批量移入回收站；部分失败时保留失败项。文件夹删除为软删除整个子树；所属文档随文件夹从活动列表隐藏，不改写各文档的 Revision 或独立回收站状态。回收站展示根文件夹，可整体恢复；原本单独删除的文档在文件夹恢复后仍留在文档回收站。当前永久清空仍只处理单独删除的文档，文件夹回收站只提供恢复。
-
-## 实现与验证入口
-
-- [Web 运行与测试](../../../web/apps/cad/README.md)
-- [编辑上下文](../../../web/apps/cad/src/features/workbench/product-edit-context.ts)
-- [Product 场景](../../../web/apps/cad/src/features/workbench/testing/product-edit-context.scenario.mjs)
-- [Publication 选择](../../../web/apps/cad/src/features/workbench/testing/publication-selection.scenario.mjs)
-- [偏好 schema](../../../web/apps/cad/src/state/ui-preferences.ts)
-
-新建草图会话记录所属文档和 FeatureId；退出或切换编辑上下文时，仅对本次新建、未执行草图编辑且仍无实体/约束/外部几何的草图提交正常删除命令，保留 Revision 历史。重新编辑已有空草图不触发清理。直线拉伸创建的默认方向按持久支持平面法向确定：NEW_BODY/ADD 为正向，REMOVE 为反向，不依赖相机观察方向；切换 Body 操作重设默认值，反向开关仍允许显式覆盖。
-
-工作台消费服务端 Artifact 的 `naming` 能力与属性查询的 `namingDiagnostic`，展示未生成、生成不完整、损坏和合同不匹配的具体原因。已知不可绑定的面/边/点限制面上草图、拓扑发布、外部投影及拓扑约束入口，提交仍由服务端验证；基准几何、法线视图和 Instance/Body 级选择不因缺少 naming 被统一禁用。纯逻辑回归入口为 `topology-naming-capability.scenario.mjs`。
-
-已有无命名定义的 ImportBody 在工作台告警中提供“建立导入命名”，调用正常 `REPAIR_IMPORT_NAMING` 命令并刷新权威 DocumentView；有编辑权限时可用，提交期间显示忙碌状态。修复形成新 Revision，可 Undo/Redo，未修复旧快照保持不可绑定诊断。
-
-实体显示唯一数据源为 `mesh.glb`；DocumentView 只有轻量引用和摘要，VisualRepository 独立下载、校验和解码，不向服务器状态回填 Mesh。GLB CAD 拾取映射、下载权限及 transient preview 边界见[几何制品](geometry-representations.md)。
-
-正常着色默认使用[自然边线](natural-edges.md)：消费 OCCT 的局部法线与邻接证据，弱化相切连接并隐藏已验证的共面分割/参数接缝；锐边、开口与未知证据保持结构表达。实线 occurrence 共享不可变边线缓冲，原 CAD 折线保留拾取身份；线框、显式 EDGE 拾取与交互高亮保持明确。全局显示选项保存自然/统一样式、光顺强度与法线角阈值，不写入模型 Revision。
-
-CAD Command 与 Preview 统一通过[realtime 控制面](realtime.md)提交；Preview 仅携带 GLB 引用。视口独立取消预览文件加载，sequence/generation 拒绝迟到结果；realtime client 在重连和 gap 后主动恢复权威快照。
-
-草图普通选择和工具角色共用屏幕距离及几何角色优先级；构造几何低于普通几何，尺寸引线、文字、hover、选中与修剪反馈分层。尺寸文本附着支持平面、按缩放维持显示尺度；圆角/倒角候选复用尺寸定义和渲染器。Select 框选及 Delete 经原有选择与正式命令路径执行。尺寸编辑保留相机和导航，草稿通过只读 Preview 显示，取消/版本变化/迟到结果不写回模型。
-
-状态栏/inline 输入的动作合同、单击单次/双击连续策略及人工步骤见[草图当前动作与 inline 输入](../../guides/sketch-interaction.md)。
-
-草图编辑共用状态栏/内联输入，相关创建与样条编辑命令通过服务端 `variants:*` 目录标记合并为分体按钮；主按钮显示并执行当前激活变体，没有激活变体时使用本页会话中记住的合法变体，下拉切换立即执行，隐藏或已移除的默认项回退到当前目录第一项。尺寸呈现线性/轴/角度三组，搜索仍保留每个具体命令。草图中底部 `view.normal` 无预选也正对活动草图，独立 `sketch.normal` 入口已删除。修剪只有一个用户入口，构造转换直接执行。圆角和倒角选取完成后进入既有尺寸标注的内联数值编辑；拖动标注只改 placement。Engine 所有草图临时显示使用单一非拾取 preview layer，几何/尺寸/hover/snap/只读编辑候选保持各自生命周期；工具与模态会话继续负责草稿、Revision/occurrence、代际和回执，显示层不成为第二套状态中心。直接延伸支持点选目标或拖动释放，边界捕获的精确预览合并指针更新并丢弃过期结果。
-
-工作台公共视觉 tokens、分体按钮、非模态面板和视口文本适配见 [UI 规格与组件入口](../../guides/workbench.md)。呈现层不改变 Command/Preview、选择来源或历史语义。
-
-工作台 Ribbon 由 `toolbar-layout.ts` 按容器和实际文字宽度分配固定两排32px按钮；variants 始终沿目录声明合组并保留活动/会话临时默认方式。相邻小组共享列；宽度不足时必要工具组改为正常尺寸的图标直达，保留名称与帮助，矩形族保留当前方式文字。仍不足时尾部组进入“更多”菜单，命令不丢失，工具带无滚动条或分页。布局仅负责呈现，可用性和执行仍由 CommandRegistry 管理，不执行或取消命令。前端数量、坐标、测量及数值控件的非编辑显示统一最多两位小数；表达式和技术诊断原文保留，模型与 Quantity 不舍入，未修改的格式化字段不覆盖原值。
-
-工作台结构树侧栏底部显示最后完成的一次后端请求的整数毫秒耗时；初始无请求时显示占位。HTTP 统计到响应体处理结束，WebSocket 统计连接等待、发送到响应/错误/超时/取消完成；同一命令的不同请求分别更新显示，按完成顺序取最后一次。该时间包含客户端与网络等待，是操作反馈的粗略 wall time，不是后端 CPU 时间，也不累计成命令总时长。耗时记录是页面内有界交互状态，既有诊断采样保留 200 项，不持久化模型、Revision 或导航状态。
-
-## 机构研究与冻结回放
-
-Assembly Design 的 `assembly.motion-study` 使用公共命令目录进入机构与 DMU。命令试动与录制双窗口共享暂态会话及显示拥有者；定义保存仍走版本化命令，试动/录制通过正式 PreviewID 与 CAS 确认，后台 Jobs 计算已保存有限路径的结果制品。
-
-Viewport 按统一 RAF 时钟批量更新既有 occurrence；帧间插值只作显示，暂停、采用位置及产品转换在精确逻辑时间重新求解。取消、标题关闭和 Esc 恢复入口 accepted，版本/编辑上下文及代际门禁清理旧覆盖。结果从树进入，终态结果可隐藏；没有全局播放或结果选择工具栏。机构、坐标、零位、活动命令资格、录制与回放的完整当前合同归[机构主题](kinematics-dmu.md)，未执行验收与扩展归[完整设计](kinematics-dmu.md)。
-
-命令预览在同文档/Revision/编辑 occurrence 内跨上游输入阶段的显示重建保留；原输入或版本变化、取消和关闭清除候选与加载代际。阶段显示的迟到加载不能清掉当前预览，也不能在取消后重新显示旧候选。
-
-## 工作台交互收敛
-
-命令目录按当前编辑目标和应用上下文控制入口。机构分析只在进入一个具体机构后对该机构工作，普通装配工具栏与搜索不暴露该入口；替换组件只有直接 Instance 的树右键入口。产品版本命令、面板、API 与数据模型已移除。
-
-装配约束共用 `assembly-constraint-fields`、`assembly-quantity-input` 与 `assembly-dialog-status`：主表单为支撑、关系、数值/公式和驱动/参考模式，不提供参数名称或求解详情。输入期间仅使旧候选失效并取消迟到请求，不请求预览、不反复恢复或改变位姿；失焦或 Enter 后按完整最终意图预览。取消未失焦草稿后重开命令重新建立候选。输入单位、字面量和公式经同一 `assemblyEditIntent` 进入 Preview 与 commit；非法输入留在字段旁，支撑错误留在选择框，整体错误与重试集中在底部。数量参数由“参数与公式”编辑别名和来源，约束分析列表直接提供定位、编辑和停用，打开编辑器会退出分析面板；不再重复列出已选约束状态、分析完成说明或求解自由度摘要。剩余运动保留可选方向显示、范围排除与失败诊断。取消、CAS、定义待更新保存和会话生命周期仍由原状态机负责。
-
-约束草稿变化只使可提交候选失效，保留最后显示的预览姿态；新结果从当前显示帧继续运动，取消、缺失支撑或基线失效时恢复接受姿态。
-
-发布由 `publication-manager.tsx` 统一 Part/Product 的列表和定义编辑，支持当前选择、明确拾取、参数选择与组件发布浏览，Product 也可直接拾取组件几何。默认连续拾取并立即新增，不展开新建表单；列表提供移除，悬浮与选择行均定位确切公开元素；表格、结构树与视图区保留相应状态。断链行显示“链接失效”，树显示角标且不高亮旧几何。元素路径通过共享 ElementPresentation 显示，别名独立编辑。编辑已有接口时才展开名称和目标字段，修改一次提交；关闭保留已发布项目并丢弃未应用编辑。参数编辑保留输入和错误反馈，移除计算值、单位示例和参数引用教学提示。参考元素复用单个表达式输入及内联别名补全，不再并排提供“插入参数引用”选择器；坐标、方向按向量并排，选择错误在当前对话框内显示。新建拓扑引用仅在已有目标 ID 时检查自引用，不能将两个缺省 ID 误判为同一对象。
-
-CATIA 对照页面为 `online/cfyugasm_C2/cfyugasmut0303.htm`、`cfyugasmut0304.htm`：约束属性集中呈现支撑、相关方向、数值、Measure 模式和求值状态。统一公式输入与诊断位置是本软件基于既有参数模型的设计取舍。
-
-发布参考页面为 `online/cfyugprt_C2/cfyugprtpublish.htm`（Publishing Elements）：名称/元素/状态列表、元素替换、参数选择和 Product 下级发布浏览。稳定 ID、逐项应用与跨文档显式接受是本软件的实现合同，手册对照不等于 CATIA 运行验证。
-
-结构树与属性的具体规则见[语义树](semantic-tree.md)、[对象属性](object-scene-properties.md)。定向浏览器入口为 `browser/workbench-ux-live.spec.ts`；测试代码存在不等于已运行验收。
-
-## 图标与工具带
-
-图形由 `workbenchconfig/icons.json` 的母形和动作部件唯一维护，Go 和前端各自展开为既有平铺 IconDefinition；命令、树、上下文菜单共用 `CadIcon`。图标绘制规则和新增入口归[图标指南](../../guides/cad-icons.md)。Part／Product／Body／几何图形集有独立对象图形；圆角、孔和曲面等 Feature 通过正式类型查命令图标。树映射每个可用拥有文档一次建立 Feature ID 索引，只有 Document／Revision 匹配才细化几何类型，不修改节点 entityType、名称、键或选择载荷。缺少对应快照时保持通用图标；状态徽标独立占据主图右下角。
-
-工具带始终两排，按列逐步缩减文字而非一次将整组变成纯图标；尽量保留每组第一列作为文字锚点，矩形族的临时默认文字继续保留。按可节省宽度和丢失标签成本选择列，实际字体只测量一次；窄屏仍沿正式更多菜单保留全部命令，不缩小点击区域。这里的首列优先是布局规则，不是经过测量的用户使用频率。
-
-## 紧凑命名与下拉选项
-
-`workbenchconfig/catalog.json` 拥有命令短名称，`engineering-text.ts` 的几何命令词汇与其一致。曲面构造中的“拉伸／旋转／扫掠／放样”、编辑中的“延长／裁剪／连接”等省去重复领域名；全局工具搜索仍展示工具组，并保留完整用途作为检索文本。曲线上点、内／外接多边形等关系或操作差异保留。名称只作显示，不改 Command ID、枚举、已有对象名或持久引用。
-
-范围枚举显示“平面／曲面／下一面”。`app/select-popup.ts` 通过 ConfigProvider 统一测量全部 Select 选项文字，分组、字段映射与虚拟窗口外的选项均参与；使用界面字体、最长文本宽度加 76 CSS px 控件留白，弹层至少与触发器等宽，最长不超过视口减 24 px。超长文字换行，保留 Select 虚拟滚动；测量按不可变 options / children 身份、字体及字段映射缓存，字体载入后失效。自定义渲染器生成的无文本图标或特殊排版不能由纯文本度量精确预测，组件拥有者应给出相应样式／宽度。验证见[UI 测量](../../validation/ui-refinement.md#细节与显示复核)。
-
-## 后续前端优化候选
-
-以下是源码检查得到的候选，不是已实现或已证明的瓶颈；显示部分见[视觉工作室](visual-studio.md#后续显示优化候选)。
-
-- 长选项数据应保持不可变且复用数组，尤其是动态模型／引用列表；先记录真实输入延迟和重复测量次数，再决定是否按打开时机延迟度量。不能为弹层宽度关闭虚拟滚动。
-- 图标和逐列布局已有调整，识别速度、找工具耗时和误选仍需真实使用观察，不能从图形不同或标签数量直接推导操作效率。对象选择字段后续仍需复核长名称、重排、空态与失效修复的布局一致性，不能为简化提示删掉恢复动作。
-- 文档中心已有 24／50／100 项分页、卡片 memo 和近视区图片加载；先测量 100 项与快速翻页的提交、布局及图片解码成本，再判断是否需要列表虚拟化。树行已虚拟化，但完整树索引／投影仍随节点快照重算，需用真实大结构测量，不能从 5,001 个合成节点推断工业容量。
-- 缩略图会复用 Blob，但可见挂载仍重新校验。若后续减少校验，应以实际显示依赖摘要或服务端变更信号失效，保留 ACL 与 FOLLOW_HEAD 的更新语义；仅按 Product 自身 Revision 长期缓存会显示旧图。
+运行 `mise run check --scope web` 检查命令、工具状态和数据投影。树与视区联动、键鼠导航、遮挡、取消和预览确认需要实际浏览器。树行虚拟化仍需完整节点索引。大场景应分别测量选择索引、React 更新、制品解码与 GPU 绘制。[显示验证](../../validation/README.md#工作台与显示) · [图标指南](../../guides/cad-icons.md)

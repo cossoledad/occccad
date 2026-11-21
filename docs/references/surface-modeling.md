@@ -1,6 +1,6 @@
 # 曲线与曲面建模参考
 
-本页记录商业 CAD 的公开功能与操作依据；本项目的取舍见[线框与曲面设计方案](../../plans/wireframe-surface-design.md)。商业软件的专有内核算法没有据此验证，不能从功能名称反推其内部实现。本轮未运行 CATIA 或其他商业 CAD 的实际模型。
+本页记录商业 CAD 的公开功能与操作依据；本项目的取舍见[工程曲面待办](../../plans/cad-core-roadmap.md)。商业软件的专有内核算法没有据此验证，不能从功能名称反推其内部实现。本轮未运行 CATIA 或其他商业 CAD 的实际模型。
 
 ## CATIA：工作台定位与共同流程
 
@@ -30,7 +30,7 @@ GSD 目录进一步列出导向/隐式截面扫掠、变偏移、更多曲线派
 
 ### 本机 SourceLocation
 
-先检索 `control/WfsEnglishC2.viewdoc`、`SdgEnglishC2.viewdoc`，共用页面再核对 `CfyEnglishC2.viewdoc`，实体化核对 `PrtEnglishC2.viewdoc`。以下路径相对 `/mnt/c/UserApp/3D/DS/Dassault Systemes/B33doc/English/`；MCP 库标识为 `6d5aed22-2df7-427c-83ae-0b4926af15ef`，检索 revision 为 `9058175bec4c4d87f0f646ae`。临时检索 ID 不作为持久来源。
+本页 CATIA 路径相对于 `/mnt/c/UserApp/3D/DS/Dassault Systemes/B33doc/English/`。工作台索引为 `control/WfsEnglishC2.viewdoc`、`SdgEnglishC2.viewdoc` 和 `CfyEnglishC2.viewdoc`。
 
 | 页面 | 证据范围 |
 |---|---|
@@ -48,11 +48,11 @@ GSD 目录进一步列出导向/隐式截面扫掠、变偏移、更多曲线派
 | `online/cfyugfss_C2/cfyugfssut0302.htm`，Checking Connections Between Surfaces | 连接分析类型、间隙与拓扑/几何连接 |
 | `online/prtug_C2/prtugbt0710.htm`、`prtugbt0709.htm` | Thick Surface、Close Surface |
 
-MCP 返回的关键原文已取至 `has_more=false`；目录页另外读取了本机 HTML。手册中的默认数值只证明参考软件行为，不成为本项目默认容差或验收阈值。
+手册中的默认数值描述对应产品。项目容差与接纳范围见[线框与曲面](../architecture/current/wireframe-surfaces.md)。
 
 ## 现有命令的 CATIA 操作对照
 
-下表核对每个现有曲线/曲面命令及参考元素的输入流程；原文经 MCP 分页读至 `has_more=false`，路径均沿用上面的本机根目录。采用的是可重用几何与角色选择的工程步骤；本项目按用户要求不沿用 CATIA 的预选、默认法向或自动换型。各行的实现边界以 [current](../architecture/current/wireframe-surfaces.md) 为准。
+表中列出每类操作的输入角色和对应手册页。本项目的合法预选、引用范围与工程限制由[当前实现](../architecture/current/wireframe-surfaces.md)维护。
 
 | 本项目命令 | CATIA 页面与参考行为 | 当前采用及范围 |
 |---|---|---|
@@ -86,14 +86,11 @@ MCP 返回的关键原文已取至 `has_more=false`；目录页另外读取了�
 | 偏移曲面 | `online/sdgug_C2/sdgugbt0203.htm`：有符号距离、反向、平滑及子面失败管理 | C 限常量偏移，失败整体拒绝；不静默删除错误面 |
 | 封闭曲面 | `online/prtug_C2/prtugbt0709.htm`：所选曲面形成实体特征 | C 要求已缝合的闭合壳，复用原实体操作；不默认补盖 |
 
-C 阶段上述八篇原文经 MCP 按同一 article ID 分页读至 `has_more=false`；这验证的是参考操作语义。本项目算法接纳范围由实现和测试确定，未运行商业 CAD 的实际模型对比。
-
 用户指定的 [Extrude 原文](catia-manual://page/v1?library=6d5aed22-2df7-427c-83ae-0b4926af15ef&path=online%2Fcfyug_C2%2Fcfyugextrude.htm&sha256=870676f500d411ab224e4076e26b40092f28e0d2dd65fe017ed3ca6ab024e60f&anchor=CATCCSModelHeader.CATHybridPartExtrude&block=cc747fddb4934109067b)同时描述了上下文菜单中的分量向量与默认轮廓法向；本项目操作表单选择显式关联对象，是本轮产品取舍。手册对照没有验证 CATIA 实际模型或证明本项目具备表中尚未实现的选项。
-
 
 ## 形状与质量控制对照
 
-本轮先搜索本机 `control/SdgEnglishC2.viewdoc`、`CfyEnglishC2.viewdoc`、`FssEnglishC2.viewdoc`，再通过手册工具将以下五篇以同一 article ID 分页读至 `has_more=false`。这些是参考行为；没有运行 CATIA 实际零件进行数值对比。
+本节依据 GSD、FreeStyle 和公共功能手册描述用户可见的连续性和分析操作。
 
 | CATIA 原文 | 已核对的参考行为 |
 |---|---|

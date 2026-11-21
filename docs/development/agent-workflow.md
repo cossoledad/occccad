@@ -64,6 +64,6 @@ mise run diagnose --job <jobId>
 
 ## 测量与维护
 
-`mise run docs:check` 检查链接、锚点、围栏、导航、目录、指南预算、配方和大文本热点；审计也比较 Git 可交付任务清单与活动 Markdown 的公开命令，防止被忽略的本地任务漏交付；已有提交文件和非忽略的待提交文件一起检查，历史验证文档单独保留。审计变更运行 `mise run contract:check`。context/check 的机器结果可用于同范围串行比较，字节不是 token，局部耗时不是端到端开发速度。性能用 `mise run benchmark` 或 `benchmark:baseline`，保留优化构建检查、样本完整性、inclusive 阶段与内核/服务边界。
+`mise run docs:check` 检查链接、锚点、围栏、导航、目录、指南预算、配方和大文本热点；审计也比较 Git 可交付任务清单与活动 Markdown 的公开命令，防止被忽略的本地任务漏交付；已有提交文件和非忽略的待提交文件一起检查。审计变更运行 `mise run contract:check`。context/check 的机器结果可用于同范围串行比较，字节不是 token，局部耗时不是端到端开发速度。性能用 `mise run benchmark` 或 `benchmark:baseline`，保留优化构建检查、样本完整性、inclusive 阶段与内核/服务边界。
 
 临时清单和验收原始记录归 `build/`，长期文档只保存当前规则。没有执行不能写通过，缺资源不能改用 Mock 制造通过；不因普通失败 clean，不自动下载浏览器，不引入 CI。

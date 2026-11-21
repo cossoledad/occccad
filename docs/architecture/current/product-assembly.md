@@ -24,65 +24,19 @@ FOLLOW_HEAD 自动跟随已计算版本；跨 Part 参数重算仍通过“更�
 
 ## 定义与求值
 
-独立机构定义、硬驱动、冻结回放与产品约束转换见[当前机构合同](kinematics-dmu.md)。它复用本域冻结输入及数值内核，运行保留完整机构方程，不继承 Product 关系；运动研究不改变普通装配编辑的偏好、Preview/Commit 或 Revision 语义。实时试动与关键帧录制已有实现；具体范围及验证边界由该主题拥有，当前已接受 Product 的独立静态检查见[静态干涉与最小间隙](#静态干涉与最小间隙)。
-
-公共六族为 Coincidence、Contact、Offset、Angle、Fix、Fix Together；Concentric/Distance/Parallel/Perpendicular/Rigid 是内部原语或明确快捷入口。唯一生产目录在 [assemblycontract](../../../services/internal/assemblycontract/README.md)，测试目录仅引用 capabilityId 并映射执行证据；生产按一次加载的只读索引查询，返回脱离缓存的副本。按钮可用性不依赖 PASS 计数，FACE/EDGE/VERTEX 不等于精确类型。
-
-Point/Axis/Plane/Cylinder/Circle/Sphere/Cone/Frame 及稳定派生角色经 B-Rep、Datum、Publication、持久选择解析，局部到 owning Product 只变换一次。Worker 长度用毫米、角度弧度；Quantity 源值 SI 在领域编译边界转换。mesh 不是权威支持。
-
-创建空间角、平面角或偏移时，先以服务端 Measured 预览取得当前支撑的数值作为初值，再生成 Driving 候选；测量阶段不提交定义或采用新位姿，用户开始输入、取消或基线变化会阻止旧结果覆盖草稿。偏移保留所选方向的符号；不可测时不猜测显示网格上的距离。
-
-Literal/表达式保存 Quantity、稳定 AST 参数引用与维度。装配角度参数在参数列表、编辑初值与无单位数值输入中统一使用度，求解和 Quantity 的 SI 值仍为弧度；偏移使用当前长度显示单位。参数预览失败使用统一操作通知入口，错误元数据保留在开发证据中。参数、方向、支持、模式原子编辑；Measured 保留驱动定义，独立 measuredValue，不加方程或移动组件，不可测时清除旧值。mode、suppressed、连接与评价状态正交，恢复保留模式并重新解析支持。
-
-Fix Together 保存 GroupId、成员及捕获关系；先解有效内部约束，再从成功结果冻结相对关系用于组外。嵌套/重叠确定性编排，循环拒绝；失败不覆盖捕获基准。组停用不删除内部独立约束。
-
-已接纳集合与未接纳定义分离。支持失败可保留 Broken，可解析但不可行/未收敛按命令合同保存 Impossible/NotUpdated；失败位姿不提交，不伪造 Verified、不偷偷 suppressed。求解清单继续保存全部定义与最终采用集合。
+公共约束经稳定支撑解析、组关系编译，再交给数值内核。Fix Together 保存组成员与捕获关系。驱动值可由参数表达式提供，Measured 为只读测量。保存的定义、参与求解的集合以及已接受的姿态分别记录。来源断开或求值未收敛时，保留诊断与最后合法构型。[约束类型与接纳条件](assembly-constraints.md) · [机构定义与位姿](kinematics-dmu.md)
 
 ## 编辑候选
 
-Preview/Commit 共用草稿规范化，包含支持顺序、方向、参数/表达式、模式、组成员和完整上下文。求值结果/branch 属于候选证据，传输关联不作为用户意图。输入变化、迟到响应、目标切换或取消使旧候选失效。
-
-提交保留 actor/权限、目标、Revision/CAS、定义/意图摘要、支持证据、policy/build、TTL 与交互身份校验。预览返回候选到期时间，确认前临近到期则以同一完整草稿重新预览；到期/缓存淘汰与提交竞争时最多重取一次。传输序号由 RealtimeClient 单调分配，草稿 epoch 继续隔离迟到响应。真实 Revision/意图 stale 保留草稿并要求重新预览；有效候选提升不重新完整求解；成功重试先走 receipt。确认成功关闭编辑器，失败保留草稿。
-
-瞬态候选意图摘要将 JSON 数字的负零规范为零，兼容浏览器对 Quantity 原始数值的 JSON 往返；其余非零十进制仍精确比较，不引入浮点舍入、容差或下溢等价。字符串、类型、字段缺失和显式 null 仍不同；持久模型与历史摘要不受此规范化影响。
-
-合法定义完成支持解析并进入 SOLVING 后，admission 隔离、子请求 deadline、Worker 不可用或数值未完成可产生仅定义候选（DEFINITION_ONLY）。用户显式确认才保存新定义及 NotUpdated 和结构化失败；不采用失败姿态、branch、组捕获或测量。此候选不能用于 Move，也不伪造收敛 Manifest。求解子预算为父请求保留结束时间；父取消、权限/参数错误、CAS 与数据库失败仍拒绝。新增/编辑先使旧评价失效，正常重算才能恢复 Verified。
+预览和提交使用相同的支撑、顺序、方向、数值与表达式。候选绑定 actor、文档、Revision 和输入摘要。只有匹配的预览才能提升为正式结果，修复、改参及并发 Head 变化需要重新求值。
 
 ## 连续操纵
 
-数值 Session 冻结 actor、Workspace、owning Product/occurrence、Head/sequence、引用/定义摘要、实际已接纳活动集合、descriptor、组阶段、nominal、branch、policy/profile/build。容量 128，空闲 TTL 两分钟；不占等待用户的数据库事务。重启可使 Session 失效，不损坏持久模型。
-
-Session 拥有 Begin 上下文的值快照，复用只读 nominal/geometry/definition/compiled constraint ID 索引；accepted warm/branch 更新不改变结构。任何 owning Head/sequence、root Revision、typed path、PINNED/liveness 校验失败均拒绝使用旧 Session。EditContext 校验每次只展开一次 root snapshot，同一次校验按 document/Revision 复用只读行；RPC 前后分别使用新读取缓存，不能将 mutable Head、删除状态或授权缓存跨帧。Worker 的分解复用仅在单次纯数值 solve 内，不拥有业务真相。
-
-在途标记授予一个 Update 对 model/warm/branch 的唯一写入权。全局 Session 锁只保护成员资格、目标序列与候选 token；求解、模型值切片复制、JSON/摘要和最终证据持久化均在锁外。取消可立即撤销 Session 并取消数值/数据库上下文；最终持久化后重新校验 base，只有仍有效的 Session 能取得候选 token。Commit 的 Session 身份检查位于上下文 I/O 的前后，最终 Revision/CAS 与幂等规则继续由正式命令保证。
-
-连续操纵通过 Begin/Update/Cancel AssemblyInteraction Session；普通精确位姿 `MOVE_INSTANCE` 仍检查硬目标，冲突时拒绝，不能用它的 Preview 验证受限操纵。DragTarget 是交互偏好而非 interaction-driver Fix。优先级为硬约束 → driven → held 姿态/侧向 → 剩余 nominal；静态解选择独立。pivot/frame/baseline 冻结，desired 来自累计用户输入，accepted 只作 initial guess。无 Ground 的整体运动保留。
-
-一个在途加一个最新待发送目标，合并而不取消饥饿，pointerup flush 最终目标。可行显示帧、合格 checkpoint、warm start、最终候选分开。Budget 不等于网络超时；最多四个 continuation bridge 共用 deadline 和总迭代预算，未合格子步不运输分支或生成 Revision。
-
-Final 同目标有界续算，未确认保留明确未保存预览，可重试/取消，不能提交旧目标。工具/命令切换先终结未提交状态；取消恢复当前权威快照，不能用旧 baseline 覆盖外部更新。SPACE 捕获不改变，显式 Move 授权的 RELATIVE 基准更新仅在最终原子命令中发生。
-
-受限目标的 Gauss–Newton 搜索停滞时，内核在原硬约束零空间使用 driven 目标的 Lagrangian 曲率寻找第二下降方向；硬精度、优先级、预算和候选资格不变。Begin/Update 异常及未合格 Final 使用现有有界操作诊断仓库，保留原始交互输入、冻结基准和实际数值请求序列；中间 Budget 帧不逐帧归档。未确认 Final 在 `evaluationFailure` 中返回实际诊断 ID、阶段和错误码，WebSocket 错误复用领域错误映射，不将其改写为通用 `ASSEMBLY_OPERATION_FAILED`。
-
-pointerup 后冻结最终目标、Session、文档与 generation，最终求解/提交独立于普通 UI 选择。空白点击或选择其他对象不取消、不重定向、不在完成后抢回选择。模型命令通过结束屏障等待；未提交预览或回执未知须先重试/取消，不能从临时显示位置开始下一操作。显式取消与外部失效仍有效。
-
-成功有变化的手势一次 Move Revision，全部相关姿态/证据原子保存；中间帧、取消、无变化零提交。回执未知按 requestId 查询/幂等重试，不将本地回滚解释为业务撤销。
+Begin 冻结构型、支撑、约束和分支。Update 使用临时目标，在已接受的硬约束下计算姿态。前端保留一个在途请求和最新待发送目标，释放时以最终目标完成资格检查。有实际变化的手势只产生一次 Move Revision。取消、超时或过期不会采用未确认姿态。硬可行性、运动偏好收敛和最终提交资格分别判断。[连续操纵合同](assembly-constraints.md#尊重约束的连续三维操纵)
 
 ## 局部诊断与剩余运动
 
-只读诊断冻结目标隔离定义及相关完整邻域，不调用会缩减集合的 admission。独立满足见证为 SAT，有限解析证书为 UNSAT，一般数值失败/预算/证书不足为 UNKNOWN。不可约须原集合 UNSAT 与必要删除 SAT 证据，不是最小基数。修复经用户选择正式 Edit/Reconnect/Suppress/Measured；版本变化使旧结论失效，正常受限拖动不触发搜索。
-
-剩余运动列出当前 owning Product 全部既有刚性运动单元。默认读取精确 Revision 的命令结果，亦可通过“刷新剩余运动”独立只读计算、取消或重试，Viewer 不需执行装配重算。刷新冻结当前 Head 的已接受引用版本及位姿，只编译未停用、非测量且 Verified 的硬约束；Broken/NotUpdated 等隔离定义列为排除项，不重新 admission。默认 `FreezeAssemblyInput` 仍为完整诊断保留可解析的隔离定义，不能把它直接当作已接纳集合。
-
-刷新复用原编译器、组关系和数值内核，不增加临时 Fix。只有求解返回位姿与每项自由度的 linearization pose 均匹配冻结位姿、范围覆盖完整的组件才可显示方向；发生实质位移、求解失败、缺证据或覆盖不完整时保持未知，不采用失败姿态或更新 branch/组捕获。结果带 Revision、输入摘要、已接纳/排除范围、确切引用及 solver 策略版本；独立于原命令结果，以服务进程内有界缓存保存可重建证据，服务重启或淘汰后可再次刷新。分析不写模型、引用、位姿、生产 warm start 或历史。版本变化、取消、关闭及迟到响应清理标记并阻止旧结果恢复。本入口不编排嵌套更新、不扩展柔性运动单元或数值算法。
-
-静态证据相对数值锚点，gauge 独立；交互证据是含整体运动的物理子空间。数值锚点不是 ground；未接地固联组组内刚性、整体可动。表格、详情、按需标记共享 MotionPresentation；方向是 owning Product 坐标，偏置轴不称为世界轴，瞬时自由度不等于关节、有限行程或极限。关闭/选中变化/版本变化清理标记，不参与持久几何或约束。
-
-剩余运动行选择自动显示有效方向；详情直接列出参考对象、平移方向、轴方向/位置和有意义的螺距，长度跟随工作台单位。显示副本以毫米尺度消除 1e-12 以下噪声，不修改原始证据或分类。analysis-guides 拥有独占几何/材质，在模型之后独立清深度覆盖绘制；平移箭头 64 CSS px，旋转弧箭头位于真实轴线处，线宽 2 CSS px，正交/透视 zoom、resize 与 DPR 更新仅改变变换或 uniform。标记不参与模型包围盒、拾取、BVH、导出或历史。
-
-入口：[只读刷新与证据门](../../../services/internal/workspace/assembly_engineering_refresh.go)、[当前页签](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)。回归：[真实 Router/Worker](../../../services/internal/control/assembly_engineering_refresh_integration_test.go)、[浏览器与 Viewer](../../../web/apps/cad/browser/assembly-engineering-live.spec.ts)。
-
-约束分析的“自由度”页列出平移／转动数量，按方向按钮独立切换三维高亮，并仅显示选中方向的向量、轴上点和有意义的螺距。常态方向为黄色，选中方向加粗并使用强调色；多方向可以同时突出。组件行与树／视区选择双向关联，定位仍使用现有精确 occurrence。无当前证据显示未知，不把未知当 0；静态相对证据与组件整体 gauge 分开：刚性组件的六维整体运动明确标记为整体，不与成员的相对基底简单相加。图示属于瞬时允许运动，不代表有限行程。
+诊断冻结当前 Product 的约束邻域和构型，按刚性单元展示平移与转动方向。自由度、整体参考框架和冲突证据分别计算。缺少当前 Revision 的证据时可只读刷新，未决结果保持未知。[数值求解与诊断](../../../kernel/assembly/SOLVER_ALGORITHMS.md)
 
 ## 装配依赖分析
 
@@ -143,68 +97,11 @@ OCCT 在私有几何上计算分离、接触、干涉及包含；包含通过真
 
 ## 发布与关联设计
 
-“设计输入”在独立 Part 中准备参数、平面/轴及草图点、直线/圆/圆弧的本地输入和默认值，支持定位、改名、必需标记与受保护删除。默认草图几何来自同一接收草图的已求解原生图元；点输入可原子建立外部槽位与普通 POINT 的重合关系，供原 Hole 使用。“应用并继续”每次提交一个输入，随后取消只丢弃未应用草稿，已应用项可逐次撤销。
+Publication 以稳定接口 ID 暴露参数或几何，也允许经 Product 转发。别名用于界面，消费者绑定所属定义、接受版本、接口及 occurrence 路径。更新时重新解析来源，缺失或不兼容的接口需显式替换。树选择发布条目时可定位来源几何。
 
-Publication 是对外设计接口：消费者引用“安装面、定位轴、设计参数”的稳定 PublicationId，源几何可以在同一接口下替换，消费者不必直接依赖内部 Feature 的组织。Part 提供参数、基准、原生草图元素及精确拓扑发布；Product 提供本地参数、组件几何的直接发布及下级组件接口的转发。拾取已发布元素优先保存 `InstancePath + PublicationId`，上层继续消费下层接口；未发布的几何才直接由 Product 持有，既不修改共享 Part，也不生成隐藏接口。视区和直接命令采用同一判定；一个元素有多个下层发布时须浏览并明确选择接口。
+当前 owning Product 的直接 Part 实例可通过 ContextBinding 将发布参数、平面、轴、点或支持的曲线绑定到本地槽位。参数保留 ParameterId，基准保留 DatumId，草图外部输入保留稳定槽位。ContextVariant 保存实例上下文的结果，同一 Part 的两个实例可以有不同输入。共享 Part 定义的修改会影响其全部引用。任意曲面与 Body 的跨层几何输入尚未开放。
 
-发布管理器以名称、元素和状态列表为主体，默认连续拾取：点击树/视区元素、选择参数或浏览组件发布后立即新增，无需填写名称或再次确认。列表提供移除；编辑已有接口时才展开名称和目标字段，兼容目标与名称一次提交并保留 PublicationId 和对外契约。每次新增、移除和应用修改形成一项可撤销历史；关闭保留已提交项目，只丢弃未应用的编辑草稿。改名不改变源几何名称或绑定身份。来源改动仍遵循消费者已有的版本接受策略；固定消费者继续使用旧快照。组件替换后可在原 Product 发布中明确选择替代组件的公开元素，恢复该模块接口；上层消费者接受更新后沿用原公开 ID，无需逐个重选支撑。替换时按下述公开接口规则重连，不提前求解位姿；不能对应的接口仍可在列表中编辑修复。
-
-Product 发布目标互斥：本地 ParameterId、`InstancePath + Element`、`InstancePath + PublicationId`。直接元素复用 Part 的 PublicationTarget，保存稳定 Body/Feature/Datum/Parameter 身份或 PersistentSelection；完整路径冻结来源 occurrence 和接受的 Revision。上下文实例使用其已接受输入生成的实际几何，不能用共享 Part 默认结果替代。转发则消费下级公开接口，供模块封装和组件替换后重连。完整 InstancePath 是稳定 occurrence 身份及快照证据，路径文字只作显示。发布名称仅在明确替换组件时充当接口对应约定，建立后仍保存 PublicationId。
-
-发布别名、元素路径、持久身份分别表示“接口用途”“来自哪里”“如何恢复”。`ElementPresentation` 统一投影 `Body / Feature / 面、边线、顶点` 等路径，管理器、结构树、选择名称和属性面板共用该语义；实例名称按完整路径限定。转发接口的来源列显示 `组件实例 : 下层发布别名`，直接元素显示 `实例 / Body / Feature / 面`，避免将转发显示为独立几何副本。新转发默认沿用来源别名，当前 Product 内冲突才分配后缀。修改别名不重命名源元素，修改源名称不改变 PublicationId 或拓扑锚点。
-
-装配约束的发布地址与几何定位独立：`PublicationRef.scope=LOCAL` 引用当前 owning Product 的候选发布；`OCCURRENCE` 引用 `ownerPath` 指定的组件接口。未指定 scope 的通用 PublicationRef 表示 occurrence 接口，继续供 ContextBinding 等使用。明确选中的 Product 发布保留自身 PublicationId，不拆成下级接口；InstanceId/InstancePath 由解析器确定实际运动组件，几何和发布拥有者可以不同。LOCAL 解析使用命令候选模型与已接受的来源/ContextVariant，不加载拥有者的可变 Head。Product 坐标下的发布几何先转换为运动组件局部描述，Worker 只施加一次位姿；两个不同接口解析为同一刚体时拒绝建立二元约束。
-
-本地发布到约束建立显式依赖；几何发布输出复用派生节点调度，允许 ContextBinding → Publication → Constraint 的正确拓扑顺序。重命名保持数值状态；重定向保留接口 ID，清除消费者旧测量和评价，使其待更新，不自动移动组件；显式更新重新求解。被约束引用的本地发布不能删除。替换只重接接口目标，本地消费者继续引用原 Product PublicationId；来源无法对应时传播 Broken。引用、消费者状态和派生运动路径进入同一 ChangeSet，Undo/Redo 一并恢复。
-
-树和视区分工明确：发布条目是主选择，`highlightTarget` 只定位实际几何，来源 Feature/祖先使用弱提示，不成为隐含编辑或删除对象。约束支撑字段显示“发布拥有者 : 别名”，点击/悬浮高亮接口及实际几何，定位仅展开接口祖先并调整相机。视区拾取优先采用当前 Product 的唯一匹配接口，再考虑下级接口；精确匹配包含来源 Revision、occurrence、Body、GeometryKey、拓扑和上下文。多个同层接口弹出紧凑候选选择，不按名称、数组顺序或相似形状猜测。显式选择某个发布条目始终保留该接口；候选选择在工具切换、取消或版本变化后失效。
-
-装配支撑检查、预览和对话框使用同一状态来源：发布端点读取 `PublicationResolution`，普通精确拓扑读取 `Resolution`。有效发布不要求重复生成普通拓扑解析快照；缺失或 Broken 发布仍报告真实诊断，组件替换导致的失效证据优先于旧发布快照。
-
-几何连通性按当前接受结果判定：精确拓扑锚点在最终 Body 中唯一恢复才为 Connected；缺失、歧义或来源文档替换保留发布定义和别名，标记 Broken Link，并清除可用于显示/计算的旧几何定位器。抑制生成圆角面的 Feature 会使该面发布失效；撤销或恢复原锚点可重新连通，显式更换兼容元素也保留接口 ID。新 Head 未被接受时，只报告来源待更新，固定及已接受消费者继续使用原快照。单个失效发布不使无关上下文几何消失，消费它的约束或输入独立报告失效。
-
-发布结果在提交、预览及历史恢复的最终实例位姿下刷新。拓扑解析使用与显示相同的不可变制品，避免 exact-only 与 display GeometryKey 不同导致高亮失配。加载时可基于该 Revision 已接受的 Body 制品重建显示定位器，更新的是读模型，不改写 Revision；`SourceGeometryKey` 仅冻结经过所属 Part/上下文验证的创建证据，跨版本身份仍由 PersistentSelection 保证。发布一般几何与某工具能否解析该几何分开：例如曲面可以保留发布接口，具体约束仍按自己的解析能力验证。
-
-“发布接口”管理稳定 Publication；“引用设计信息”在已激活 Part occurrence 中创建或复用本地输入，并管理绑定、定位、重连、固定与恢复跟随。新端口与 Product 绑定复用设计事务，预览和取消不创建模型对象。“应用并继续引用”一次提交一项，保留接收草图并更新修订、目录和预览基线；随后取消只丢弃未应用草稿，已应用项可逐次撤销。Part 发布与 Product 转发、重定向使用同一选择字段，核对目标文档、修订和完整实例路径；子装配接口可继续转发，定位仍指向确切 occurrence，改名不改变接口身份。参数的既有定义级 ExternalParameterRef 仍作用于共享 Part，保持独立语义。
-
-| 发布类型 | 当前上下文消费者 |
-|---|---|
-| PARAMETER | 已存在的本地参数，保留 ParameterId、表达式及独立默认 Source；绑定值在产品上下文中只读，默认值在独立 Part 编辑 |
-| PLANE / AXIS | 已存在的本地基准，保留 DatumId、名称及独立框架；关联几何在产品中通过关联管理更换来源，独立 Part 编辑默认框架 |
-| POINT / CURVE | 目标草图的稳定外部输入槽；原生 POINT、LINE、CIRCLE、ARC 使用已求解几何及支撑框架精确投影 |
-| SURFACE / BODY / FRAME | 不开放本轮上下文消费者；已有发布、转发及其他合法用途保留 |
-
-本地槽位身份由 ContextInputId 分配，与 BindingId、显示编号和临时几何无关。原生草图发布保存明确的 SketchId、EntityId、EntityKind；不伪装 BREP 边。每级转发复制来源描述并变换内部支撑框架，外层解析描述与精确投影同属该 Product 坐标系；接收端再应用冻结的实例相对变换，不重复变换二维几何。外部点经现有 Coincident 驱动普通本地 POINT，再用于 Hole；不直接用投影点冒充 Hole 定位实体。曲线复用 Worker 的精确投影及支撑关系，显示折线不参与关联真相。实体直线边保留 BREP 的有限毫米参数区间，圆/圆弧保留有向框架与弧度区间；上下文草图消费者仅开放已有精确描述及投影的曲线，不把无限轴线或尚未接通的椭圆描述当作有限边。
-
-当前 owning Product 的直接 Part occurrence 可把同一输入赋为“来源关联”或“本地输入”，两者互斥。固定版本仍保留来源关系；“解除并保留”从权威已接受结果捕获 SI 参数值、接收 Part 坐标系的平面/轴或有限精确点/曲线，清除赋值中的来源路径、Publication、来源版本及几何定位器，不再读取该来源。原 ContextInput、草图普通点、约束与下游 Feature 身份保留，共享 Part 默认值和重复实例不变。直接子零件限制仅作用于修改入口；已保存模块的 LOCAL 输入可随完整路径重基后在上级装配展开、投影及冷重建。失败 Variant 不显示共享默认实体。曲线复用现有解析线段、圆/圆弧及精确投影；不支持无法自包含的曲线、曲面/实体或显示折线。原来源组件若仍作为独立 Product 成员存在，其自身引用更新与本地输入无关。
-
-关联管理的输入行提供固定、解除并保留、恢复零件默认和重新关联。“恢复零件默认”撤销该实例的赋值，采用其已接受 Part 版本的定义，不读取 Part 新 Head；具有设计输入的实例（含模块内实例）即使已恢复全部默认，仍提供该已接受版本的完整视图；“重新关联”复用现有兼容检查并替换本地快照。结构树/API 的删除绑定与恢复默认共用同一操作：校验当前修订及完整候选，刷新转发 Publication 并记录完整 ChangeSet。两者和本地化均预览完整候选，检查受影响几何、约束及转发接口，成功后一次提交，取消或失败保留原结果。状态与精确本地快照进入规范摘要、VariantKey、依赖图和同一 ChangeSet；本地输入的更新计划不查询旧来源，撤销/重做恢复来源或本地状态。Required 标记保留在输入定义；输入赋值由各自命令验证。
-
-Product 只保存来源和值：ContextBinding 冻结来源 Revision、完整 occurrence 路径、相对变换及发布契约，ContextVariant 由基础 Part 和已接受输入重建。独立打开使用保存的本地默认输入。平面和轴的上下文副本以接受框架覆盖默认构造；共享 Part 默认定义不变。更新计划的首次求值和缓存投影执行相同规范化，避免等价输入产生不同计划摘要。来源改变、失效或重定向经 UpdatePlan 显示可更新/阻塞状态；完整健康候选才接受，失败保留原已接受结果。已有绑定的改名与固定只使用已接受输入，不要求失效来源仍可选择；重连沿用原绑定和本地槽位，保留下游身份。PINNED 使用确切旧来源与变换，不读取来源 Head；恢复跟随后仍需接受更新。直接重复实例复用同一 Part 端口，各自绑定和投影独立。上下文编辑合同见[编辑会话](product-edit-context.md#编辑会话)。
-
-子装配消费者保存模块的公开 PublicationId 与模块 occurrence 路径，不绕过接口绑定内部布局。各 owning Product 的 UpdatePlan 只更新自身引用和绑定；来源装配内部待更新或受阻时，父计划携带来源计划摘要并保留已接受结果，可从来源实例打开对应装配，并在关联输入编辑器中检查来源。先在来源装配接受内部来源，再在父装配接受模块和本地输入；普通 FOLLOW_HEAD 仍可跟随已计算版本，关联输入保持显式接受，PINNED 输入和固定模块不读取新 Head。接受输入的全部 Binding 快照进入同一 ChangeSet，撤销/重做同时恢复孔位、来源及引用。
-
-“替换组件”只从当前 owning Product 的直接 Instance 右键菜单进入。它复用插入组件的文件夹、最近文档、共享文档和缩略图资源浏览器，单选一个 Part 或 Product，确认时获取并冻结所选文档的确切 Revision。命令检查当前 Product CAS、可访问的来源快照和循环引用，保留 InstanceId、名称、引用策略及当前位姿，不接受其他 occurrence 的待更新 Head。
-
-替换是一次明确的模型编辑。服务读取原组件和替代组件的两个确切 Revision，在各自公开边界内按**名称完全相同且双方唯一、类型与完整契约兼容、CompatibilityVersion 相同、新接口 Connected**建立对应。名称只发现对应关系，提交后端点保存新 PublicationId 与新来源快照；不保存名称作为引用，不按相似形状、拓扑序号或内部实例名称猜测支撑。已建立的引用随后改名仍按 ID 连通。Part 与 Product 的公开边界采用同一机制；不会绕过子装配接口去匹配内部私有元素。
-
-| 受影响关系 | 替换后的行为 |
-|---|---|
-| 约束的公开支撑（含角度轴） | 对应成功后换为新端口 ID、清除旧几何证据，状态为 NotUpdated；更新后权威求解。任一支撑仍断裂则保留 Broken |
-| 上层转发 Publication | 保留上层 PublicationId，目标改为新端口并重新解析；父消费者按原接口接受新 Revision |
-| ContextBinding 的公开来源 | 保留 BindingId、ContextInputId，接受新来源 ID、Revision、契约及值/几何快照；接收槽位仍由原 Part 拥有 |
-| 私有几何、缺失/歧义/不兼容发布、被替换 Part 的接收输入 | 保留原 typed identity 与断链证据，在原编辑器中重选；不会把另一 Part 的接收槽位认作原槽位 |
-| 仅依赖完整 occurrence 的关系 | 保留 InstanceId，进入 NotUpdated |
-
-替换不接受其他 occurrence 的待更新 Head，不自动移动组件，也不推进新组件内部尚未接受的输入。测量和空间分析按各自依赖指纹判定时效。关系修复与组件替换进入同一 versioned Domain Command / ChangeSet / CAS；Undo/Redo 同时恢复来源、关系、状态与位姿。直接几何发布依据 Product 已接受的 Part/Variant 创建，Part Head 已前进也不要求隐式更新。
-
-CATIA 发布参考：`online/cfyugprt_C2/cfyugprtpublish.htm` 包含拾取即入列表、别名与源元素名称的区别、悬浮/选中联动、元素替换及 Product Browse；截图 `tests/test.data/assembly-screenshots/03.png` 对照元素路径与“没有元素”状态，`04.png` 对照下层接口转发与直接几何来源的区别。其名称关联与重命名影响提示不替代本系统稳定 ID/显式接受语义。实现与回归入口：`publication-manager.tsx`、`publication.go`、`product_context.go`、`product_publication_element.go`、`publication_editing_integration_test.go`。
-
-CATIA 手册依据：`online/asmug_C2/asmugat0100.htm` 的三个步骤分别链接 `asmugat0103.htm`（Replacing Components）、`asmugat0101.htm`（Reconnecting a Replaced Representation）、`asmugat0102.htm`（Reconnecting Constraints）。前者描述发布元素、组件结构和实例名称对约束重连的作用；表示替换页面用旧/新几何对照明确重选支撑，约束页面通过编辑支撑完成修复。`online/cfyugprt_C2/cfyugprtpublish.htm` 的 Publishing in Assembly Design 说明 Browse 只浏览当前层级以下的发布。以上是参考行为，不是本软件的验证证据。本软件采用已存在的右键组件替换、公开边界对应与既有发布/约束/关联编辑器；没有引入 CATIA 的独立 Representation 管理层，也不按内部实例名称推断对应。
-
-实现入口：workspace 的 publication、context_input_geometry、product_context、product_design_transaction、product_update、context_local_input、instance_replacement、publication_reconnection、context_editing；Web 的 design-input-dialog、design-association-dialog、replace-instance-dialog 与 context-edit-scope。真实回归入口为 control/publication_layout_integration_test、control/subassembly_publication_integration_test、control/publication_reconnection_integration_test、browser/workbench-ux-live.spec、browser/publication-layout-live.spec。它们是验证入口，执行范围以本轮报告为准。
-
-接收 Part 限定当前 owning Product 的直接子实例；来源为直接 Part 发布或直接子 Product 的公开接口。支持逐层公开转发与各层独立接受，不提供任意深层上下文编辑、深层或批量组件替换、跨层原子更新编排、Wire、曲面/实体 Feature 输入或 Skeleton 文档类型。删除发布的跨工作区并发预检限制见[建模与显示](model-display.md#参数与-publication)。
+更新计划冻结来源和接收方版本，检查权限、单位、输出类型、循环及各 Head 的 CAS。固定来源保留明确版本，解除或更换来源由消费对象自己的命令完成。[编辑上下文](product-edit-context.md) · [骨架与引用设计](../../../plans/skeleton-reference-workflow.md)
 
 ## 显示、历史与发布
 

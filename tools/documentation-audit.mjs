@@ -134,7 +134,6 @@ export function publicTaskErrors(root, markdown = owned(root)) {
   }
   visit(base);
   for (const file of markdown) {
-    if (file.startsWith("docs/validation/")) continue; // Explicit historical evidence.
     for (const m of fs.readFileSync(path.join(root,file),"utf8").matchAll(/mise run (?:--quiet )?([a-z][a-z:._-]*)/g)) {
       if (!names.has(m[1])) errors.push("undelivered public command: " + file + " -> " + m[1]);
     }

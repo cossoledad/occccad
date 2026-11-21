@@ -2,7 +2,7 @@
 
 普通着色视图使用精确拓扑邻接与沿边局部法线，区分结构边和光顺连接；柔和边线加深已经受光照的底色。几何属性在 OCCT 生成快照时计算，浏览器只做矩阵变换、连续权重和光栅化。它是可重建显示证据，不改变 BREP、Naming、Revision 或持久引用。
 
-入口：`kernel/occt/src/edge_profile.cpp` → `kernel/api/src/mesh_glb.cpp` → `web/apps/cad/src/cad/visual/` → `natural-edges.ts`、`surface-appearance.ts`、`surface-depth-pass.ts`。格式由 [Visual/Naming](visual-naming-artifacts.md)拥有，外观继承见[颜色材质](surface-appearance.md)，实际测量范围与重建方法见[验证记录](../../validation/natural-edges.md)。
+入口：`kernel/occt/src/edge_profile.cpp` → `kernel/api/src/mesh_glb.cpp` → `web/apps/cad/src/cad/visual/` → `natural-edges.ts`、`surface-appearance.ts`、`surface-depth-pass.ts`。格式由 [Visual/Naming](visual-naming-artifacts.md)拥有，外观继承见[颜色材质](surface-appearance.md)，实际测量范围与重建方法见[验证方法](../../validation/README.md#工作台与显示)。
 
 ## 边与夹角的定义
 

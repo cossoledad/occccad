@@ -9,7 +9,7 @@
 - [项目地图](docs/README.md)：系统调用链、核心领域、源码归属、事实与意图入口。
 - [Agent 路由](AGENTS.md)：全局规则与各领域指南；局部任务从这里搜符号及测试。
 - [开发指南](docs/development/README.md)：环境、资源、Agent 工作流与文档维护。
-- [操作指南](docs/guides/README.md)、[测试路由](tests/README.md)、[验证记录](docs/validation/README.md)：操作、可执行检查和测量证据分开。
+- [操作指南](docs/guides/README.md)、[测试路由](tests/README.md)、[验证方法](docs/validation/README.md)：分别查找操作步骤、可执行检查和工程场景。
 
 ## 快速开始
 

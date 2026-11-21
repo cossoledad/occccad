@@ -11,4 +11,4 @@ python3 tests/occt-boolean/time-previews.py \
   --document "$fixture_id" --offset .1875 --output build/performance/part-preview-run
 ```
 
-计时和工作量记录在各组日志的 `delta_mm` 和 `tip_work` 行。首次导入 STEP 切除另用 `TestDenseSTEPFaceSketchAndFirstCutThroughRouter` 验证材料变化、预览提升、改深度与冷重放。[验证结果](../../docs/validation/part-feature-performance.md#默认内核与末步预览)
+计时和工作量记录在各组日志的 `delta_mm` 和 `tip_work` 行。首次导入 STEP 切除另用 `TestDenseSTEPFaceSketchAndFirstCutThroughRouter` 验证材料变化、预览提升、改深度与冷重放。[零件复测方法](../../docs/validation/part-feature-performance.md)

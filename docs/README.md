@@ -42,6 +42,6 @@ React/Three.js → Go API / Command → Workspace CAS → 不可变 Revision
 | [CAD 核心主线](../plans/cad-core-roadmap.md) | 唯一 CAD 主线任务入口：当前重点、未完成阶段与验收条件 |
 | [开发环境](development/README.md)、[Agent 工作流](development/agent-workflow.md) | 配置、资源、构建与渐进验证 |
 | [操作指南](guides/README.md)、[参考资料](references/README.md) | 交互步骤 / 外部行为依据 |
-| [测试入口](../tests/README.md)、[验证记录](validation/README.md) | 可执行检查 / 实测范围及证据限制 |
+| [测试入口](../tests/README.md)、[验证方法](validation/README.md) | 可执行检查、工程场景与计时边界 |
 
 启动见[根 README](../README.md)。文档修改读[局部指南](AGENTS.md)和[维护规则](development/documentation.md)。代码、迁移和实际执行决定当前事实；测试存在不等于通过，定向通过不等于工业验收。

@@ -1,13 +1,19 @@
-# 验证与测量
+# 验证入口
 
-可执行检查由[测试路由](../../tests/README.md)维护；当前功能及限制归[当前架构](../architecture/current/README.md)，下一步归 [CAD 核心主线](../../plans/cad-core-roadmap.md)。
+| 要验证的行为 | 入口 | 观察结果 |
+|---|---|---|
+| 全仓单元测试 | `mise run check --scope all --level unit` | 分域通过、失败与跳过，报告位于 `build/agent-check/` |
+| 零件持续建模 | [工程场景与复测方法](part-feature-performance.md) | 精确结果、引用、历史和用户操作耗时 |
+| 装配与机构 | [求解器](../../kernel/assembly/README.md)、[合同](../../tests/assembly-contract/README.md)、[重放](../../tests/assembly-corpus/README.md) | 约束残差、分支、自由度、预算与失败分类 |
+| 几何交换 | [交换语料](../../tests/exchange-corpus/README.md) | 单位、结构、表示类型、颜色、可恢复的警告 |
+| 浏览器操作与显示 | [Web 测试](../../web/apps/cad/README.md)、[工作台](../guides/workbench.md) | 树与视区选择、预览取消、真实绘制及提交回执 |
 
-必要测量见[性能基线](performance-baseline.md)及其[机器样本](../../tests/test.data/performance/performance-baseline.json)、[草图与实体检验与测量](sketch-solid-workflow.md)、[零件特征性能](part-feature-performance.md)。均注明日期、环境、输入与计时范围，不作为当前全量通过声明。自动化的定向证据边界与重建入口并入[所属主题](../architecture/current/automation.md#验证入口)。
+## 工作台与显示
 
-[自然边线](natural-edges.md)记录真实 OCCT 模型的三阶段 WebGL 对比、颜色/交互/稳定性检查、装配缓冲共享与实际导入链路；图片和原始报告按该页命令生成到 build。
+草图和特征交互分别用 `solid-feature-live.spec.ts`、`geometric-feature-live.spec.ts`、`part-objects-live.spec.ts` 检查预选、创建、重选与修复。自然边线用 `EdgeProfile` 原生场景和 `playwright.edges.config.ts` 检查采样、遮挡和高亮。曲面照明与缩略图用 `SurfaceDisplay`、`TestStudioMeasurements` 和 `playwright.studio.config.ts` 检查。真实文档另用 `playwright.live.config.ts`，需启动正式后端。
 
-[曲面、光照与缩略图](visual-studio.md)记录原生法线与网格、视口阴影缓存、CPU 预览、结构树样本及真实文档链路，区分画面、绘制数量和各计时范围。
+## 性能测量
 
-[UI 与前端资源](ui-refinement.md)记录文档操作、管理抽屉、任务合并、悬停持久化、按需加载和表面 GPU 属性共享的验证与测量边界。
+`mise run benchmark` 测装配原生热路径，`mise run benchmark:baseline` 运行 Go 基准。结果保存在 `build/performance/`。比较同机、同输入和同构建配置的多个样本，分开记录内核时间、完整请求、浏览器绘制和内存。将一次运行的输出留在构建目录。
 
-交付过程、重复分析、旧任务提示和临时业务 ID 不另存文档；历史由 Git 保留，运行日志与派生报告放 build/。活跃测试、夹具和静态数据仍由 [test.data](../../tests/test.data/README.md)拥有。
+[验证层级与状态](../development/agent-workflow.md) · [测试资源](../../tests/test.data/README.md)

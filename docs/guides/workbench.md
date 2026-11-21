@@ -10,21 +10,7 @@
 
 ## 公共视觉合同
 
-| 公共来源/组件 | 当前合同 |
-| --- | --- |
-| `web/apps/cad/src/design/visual-tokens.ts` | 唯一 palette 与尺寸/字体/阴影/层级 tokens；CSS、Antd ConfigProvider、Canvas 各自适配 |
-| `src/design/design-system.css` | 公共控件、菜单、面板、内联编辑与通知样式；不依赖 Portal 前的父节点 |
-| `features/workbench/workbench.css` / `toolbar-layout.ts` | 浅色文档导航44px、分类34px；固定两排32px按钮、排间距6px；按实际文字宽度分配工具组，工具带无滚动条及命令分页；状态栏28px |
-| `cad/overlay/tool-button.tsx` | Antd Tooltip 固定锚点；保留220ms单击/双击分辨与帮助行为 |
-| `cad/overlay/cad-split-tool-button.tsx` | 激活、记住默认、菜单展开独立；箭头取消尚未执行的主区点击。工作台按当前标签测宽、箭头22px、高32px；其他入口保留公共尺寸 |
-| `cad/overlay/floating-panel.tsx` | CommandDialog S380/M520/L960；标题44/body16/footer52；工作台Host内定位/拖动，主页回退至body；挂载后测量；body字段初始焦点 |
-| `cad/sketch/sketch-inline-parameter-input.tsx` | 当前参数160×32白色框；自动聚焦；实测边界避让12px；只读DOM层保持透明；不写模型placement做视觉避让 |
-| `cad/rendering/dimension-label-textures.ts` | 14px/500透明字形，不绘制背景或深色轮廓；按文本/字体/DPR复用；有界缓存与引用释放 |
-| `cad/command/operation-feedback.tsx` | 业务失败右下360px；显示已知原因与恢复动作；未知提交结果的恢复通知不自动关闭；原始信息集中到DEBUG开发信息 |
-
-字体为 Segoe UI、PingFang SC、Microsoft YaHei、Noto Sans CJK SC、system-ui、sans-serif。普通UI13px，工具栏/状态/说明12px，标题14px/600，分组12px/500，尺寸14px/500，内联数值15px/500。数字使用 tabular-nums。公共工具颜色过渡140ms，关闭Antd默认缩放/位移动画；减少动效偏好下关闭剩余非必要过渡。普通控件32px、状态动作24px、控件圆角4px、面板/菜单8px；间距4/8/12/16/24px。
-
-色板、三档阴影均在 tokens 中。primary 从规格 `#3868DF` 最小调整为同色相 `#3666DB`：在 `#EAF0FF` 上对比由4.37:1提高至4.51:1。正文与次级文字在白色/浅色操作区均达到4.5:1。只读尺寸 `#F4E6BC`、参考尺寸 `#CFDBE7` 直接显示透明背景文字，不加深色轮廓；诊断色不被选中着色覆盖。尺寸继续附着支持平面、沿引线并保持正读与像素尺寸。
+公共颜色、字号、间距和层级由 `visual-tokens.ts` 定义；CSS、Ant Design 和 Canvas 共用这些定义。工具栏按组测宽，浮动命令面板在工作台内定位，菜单和下拉框可通过键盘操作。通知使用全局反馈入口。
 
 草图显示沿现有 palette、`sketch-colors`、`sketch-feedback-style` 统一；深浅背景适配同一语义，CSS 像素尺寸不随缩放改变。由低到高的显示规则如下；此处层级指视图区图元，不是页面弹层。
 

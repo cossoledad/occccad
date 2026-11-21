@@ -12,8 +12,8 @@
 | 选择、工具与手势 | `src/cad/interaction/`、`src/cad/tool/`、`src/cad/input/` 及邻近 `testing/` |
 | 编辑宿主、树、Inspector | `product-edit-context.ts`、`workbench-tree-model.tsx`、`workbench-inspector.tsx` |
 | 显示与资源 | `src/viewport/`、`src/cad/visual/`、`src/cad/rendering/` |
-| 曲面、光照与预览 | [显示策略](../../../docs/architecture/current/visual-studio.md)、[原生 / 浏览器测量](../../../docs/validation/visual-studio.md) |
-| 自然边线与同条件对比 | [数据与渲染设计](../../../docs/architecture/current/natural-edges.md)、[原生夹具与浏览器验收](../../../docs/validation/natural-edges.md) |
+| 曲面、光照与预览 | [显示策略](../../../docs/architecture/current/visual-studio.md)、[验证方法](../../../docs/validation/README.md#工作台与显示) |
+| 自然边线与同条件对比 | [数据与渲染设计](../../../docs/architecture/current/natural-edges.md)、[验证方法](../../../docs/validation/README.md#工作台与显示) |
 | 服务端/短期状态 | TanStack Query / `src/state/` Zustand；`src/api/` 适配 |
 | 视觉系统 | `src/design/visual-tokens.ts`、`design-system.css` |
 | 图标设计与扩展 | [设计语言](../../../docs/guides/cad-icons.md)；`services/internal/workbenchconfig/icons.json`、`src/cad/overlay/icon-catalog.ts` |

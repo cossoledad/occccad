@@ -20,7 +20,7 @@ Run 是保留当前模型和对话指代的持续会话；每条新的建模输�
 
 ## 日志、检查点与上下文
 
-双数据库 `0006_assistant_runs.sql` 保存 Run、输入、阶段、事件、逐调用及工具结果、已读合同和设置来源。旧预算列删除，旧 low/medium/high 不映射为累计封顶；已有加密凭证保留。旧对话表仅遗留历史数据，无旧同步运行时或路由。
+SQLite 与 PostgreSQL 均持久化 Run、输入、阶段、事件、逐调用用量、工具结果和设置来源。
 
 Run JSON 只保留当前请求原文、有限回执角色提示、摘要及计数；无限增长的输入/事件/阶段/调用独立分页。调用先保存意图，再标记发送，响应及 usage 先落账后才安排副作用。响应已收到但工具尚未处理时从原公开响应和工具游标恢复；工具结果按 call/tool ID 幂等。预算或恢复边界消费已落盘响应时丢弃旧在线会话的未回答工具尾部，下一请求从事实重建，避免发送不完整的思考工具 transcript。CAD 片段的精确回执与 Run applied 计数通过同一事务检查点归档；requestAppliedCount 只计属于本次请求的非 NoChange 回执，新消息清零，退休阶段的迟到提交仅进入累计计数和历史来源。停止或旧 epoch 的不明 Provider 请求在失效租约后补记 UNKNOWN。
 
@@ -140,14 +140,3 @@ Web 继续由 TanStack Query 保存服务状态，原工作台选择/CommandRegi
 - Web：`mise run check --scope web --match assistant`；真实工作台先用本地19091 Provider启动服务，再运行 `pnpm exec playwright test --config playwright.live.config.ts automation-live.spec.ts`。独立测试账号不改个人Key，结束恢复默认 DeepSeek 配置。
 - 原生几何、迁移与共享链：按 `mise run check --scope all`，数据库当前配置之外的 Provider 验证必须单独标明未执行。
 - 线上小样：`services/cmd/occccad-ai-eval` 使用已有合法 Key 和显式小预算。模型表现、原生几何、浏览器、合成百万 usage 必须分别报告。
-
-保留的历史证据范围（本次文档整理未重跑业务验收）：
-
-| 范围 | 已有证据与可重建入口 | 不能外推的结论 |
-|---|---|---|
-| Run/选择/恢复/装配 | 2026-10-21：SQLite、Release Worker、受控 Provider 与 Chromium/SwiftShader 定向通过；`run_capacity_test.go`、`run_product_integration_test.go` 和 `browser/automation-live.spec.ts`。当日全范围为 PASS_WITH_SKIPS，非 PostgreSQL 验收。 | 合成 2,050,000 usage 不是实际付费消耗；原生 solver 与浏览器呈现分别举证。 |
-| 当前请求与查询绑定 | 2026-10-22：`run_request_native_test.go`、`run_query_bindings_test.go` 及 `automation/query_debug_integration_test.go` 定向通过，使用正式 Preview/Commit/CAS 与原生 Worker，无 LLM。 | 测试指定孔壁、目标边和半径，不证明语言理解或通用孔识别；未执行对应新行为的浏览器验收。 |
-| 用量/导出/冻结选择 | 2026-10-23：`turn_usage_test.go`、`session_export_test.go`、`selection_context_test.go`、`run_scope_test.go`、受影响 API/Web 场景定向通过，Provider 受控。 | 未执行完整浏览器、真实 LLM、PostgreSQL、生产超大会话或完整进程故障接管验收。 |
-| 线上模型 | 2026-10-21 有 1 个无干预的新矩形→拉伸→全边圆角样例通过；复现入口为 ai-eval 的 box-fillet。 | 单样例不构成稳定成功率；曾干预恢复的调试样例不计为无干预成功，线上装配质量未验收。 |
-
-测试文件相对 `services/internal/assistant/`，另列 Automation 与 Web 时按其模块路径；旧自然语言目标覆盖门禁已移除，其历史测试结论不能充当当前保证。原始过程由 Git 与 build/ 保留，不在主线累计日志。

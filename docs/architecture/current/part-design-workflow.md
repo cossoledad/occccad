@@ -43,4 +43,4 @@ Body、几何图形集、Feature 和用户参考元素共用属性、组织及�
 | 工具/材料范围复制、成员重执行 | [特征复制](feature-replication.md) |
 | 参数与历史 / 实际求值链 | [模型历史](model-history.md)、[求值链](part-feature-evaluation.md) |
 | 用户操作与检验 | [交互指南](../../guides/sketch-interaction.md)、[测试路由](../../../tests/README.md) |
-| 性能样本与证据边界 | [检验与测量](../../validation/sketch-solid-workflow.md) |
+| 性能验证与计时边界 | [验证方法](../../validation/README.md) |

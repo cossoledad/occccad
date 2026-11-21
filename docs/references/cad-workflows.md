@@ -125,7 +125,7 @@ Measure Between、Measure Item、视区读数及更新机制的具体对照归[�
 | [Onshape Loft 官方帮助](https://cad.onshape.com/help/Content/PartStudio/loft.htm) | 端部法向/方向控制与匹配相邻面切向/曲率分开 | 区分端部方向与 G1/G2 支撑；当前连续性限解析挤出延续，不把端部方向称为整段导向曲线 |
 | [Onshape Sweep 官方帮助](https://cad.onshape.com/help/Content/PartStudio/sweep.htm) | 分别选择截面、路径和姿态控制 | 复用正式轮廓与路径输入、原子预览/提交和草图往返；缩放、扭转律不在当前范围 |
 
-商业行为只影响交互与合同设计，不证明本项目的求值、Naming、性能或容量。当前实际检查、样本数和未运行组合见[验证记录](../validation/sketch-solid-workflow.md)。
+商业行为只影响交互与合同设计，不证明本项目的求值、Naming、性能或容量。复测场景与计时边界见[验证方法](../validation/README.md)。
 
 ## 草图诊断与精简操作（2026-11-08）
 

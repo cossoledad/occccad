@@ -34,7 +34,7 @@ Worker 仍保留保护真实 OCCT 共享状态的全局锁。Part 排队可响�
 
 `workspace.WithColdEvaluation` → `EvaluatePart.force_cold` 是测试/恢复入口：绕过 Go 跨请求准备与已登记结果、原生阶段/响应/显示/输入/Naming 热缓存，并清除驻留 Shape/Topology 后使用同一算子重建。冷请求内相同冻结准备仍只执行一次。它不清理数据库或共享制品，也不提升候选或推进 Head。运行统计包含实际 generator/modifier/body-operation 调用、排队、准备、精确/Naming、mesh/encoding、制品 I/O、缓存字节与 Linux Worker 进程生命周期 RSS 高水位；display 总耗时包含部分 I/O，不能与子项直接相加。
 
-生产路径验证和复现入口见[增量运行时定向验证](../../validation/performance-baseline.md)。
+生产路径验证和复现入口见[验证方法](../../validation/README.md#性能测量)。
 
 ## 持久任务与制品
 

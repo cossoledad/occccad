@@ -1,6 +1,6 @@
 # 线框与曲面 Feature
 
-当前交付独立 Part 中的关联曲线、工程曲面构造/编辑、形状控制与只读曲率分析、加厚与封闭成实体、开放及混合几何 STEP/BREP 交换，以及原实体扫掠对正式三维曲线的消费。它们共用 Part Feature 历史、参数、Domain Command、预览及制品管线。操作见[使用指南](../../guides/wireframe-surfaces.md)；阶段与后续范围见[阶段设计](../../../plans/wireframe-surface-design.md)。
+当前交付独立 Part 中的关联曲线、工程曲面构造/编辑、形状控制与只读曲率分析、加厚与封闭成实体、开放及混合几何 STEP/BREP 交换，以及原实体扫掠对正式三维曲线的消费。它们共用 Part Feature 历史、参数、Domain Command、预览及制品管线。操作见[使用指南](../../guides/wireframe-surfaces.md)；阶段与后续范围见[工程曲面待办](../../../plans/cad-core-roadmap.md)。
 
 源码入口：Workspace `geometric_feature.go`、`geometric_reference.go`、`evaluation_projection.go`、`part_bodies.go`；协议 `geometry_worker.proto`；OCCT `geometry_feature.cpp`、`surface_feature.cpp`、`surface_shape_control.cpp`、`curvature.cpp`；Web `geometric-feature-editor.tsx`、`geometric-input-selection.ts`。先按操作名搜索，不默认展开整个实体 evaluator。
 

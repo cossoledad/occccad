@@ -12,4 +12,4 @@
 | [简化百岁山瓶身](ganten-bottle.md) | 圆柱、S 形扫掠切槽与四槽圆周阵列 |
 | [鼠标导航](../../web/apps/cad/src/cad/navigation/README.md) | 导航模式、状态机、相机与手势来源 |
 
-运行与浏览器验证见 [Web README](../../web/apps/cad/README.md)；历史结果见[验证记录](../validation/README.md)。
+运行与浏览器验证见 [Web README](../../web/apps/cad/README.md)；工程场景见[验证方法](../validation/README.md)。

@@ -35,7 +35,7 @@ Go command/evaluation
 
 直连 Worker 成功不能证明正式调用链可用。任何代理层漏转发都可能在运行时表现为 `Unimplemented`。
 
-`EvaluatePart.base_stage` 是可选的冻结导入根输入，包含 Naming ArtifactReference、原始 GeometryId 和体积。Naming 可包含同一 Body 的后续 transition，但只能恢复与 `import_seed` 和输入 BREP 绑定的唯一根 transition。服务端从显式 Body 的已接纳制品取引用，Worker 校验 SHA、单位、policy、owner 及 transition，再由内核核对完整分配与 locator；不从相似几何寻找身份。阶段键包含根历史摘要和原始质量，不依赖不断变化的整个 Tip Naming 文件摘要。无恢复输入及显式冷重放仍走权威初始化。实际规则与度量见[Part 求值](part-feature-evaluation.md#零件增量求值)。
+`EvaluatePart.base_stage` 是可选的冻结导入根输入，包含 Naming 制品引用、原始 GeometryId、接纳策略和导入根历史块引用。Naming 可包含同一 Body 的后续 transition，但只能恢复与 `import_seed` 和输入 BREP 绑定的唯一根 transition。服务端从显式 Body 的已接纳制品取引用，Worker 校验 SHA、单位、policy、owner 及 transition，再由内核核对完整分配与 locator；不从相似几何寻找身份。阶段键包含根历史摘要，不依赖不断变化的整个 Tip Naming 文件摘要。无恢复输入及显式冷重放仍走权威初始化。实际规则与度量见[Part 求值](part-feature-evaluation.md#零件增量求值)。
 
 `PartRuntimeStats` 的 `naming_kernel_ms` / `naming_artifact_ms` 区分内核命名与制品打包，`cancellation_polls` / `cancellation_poll_ms` 只记录实际 transport 查询，`mesh_reused_faces` / `mesh_computed_faces` 记录剖分后保留/计算的面数。它们是诊断度量，不改变 CAS、稳定引用或完成门禁；阶段包含关系见 Part 求值。
 
