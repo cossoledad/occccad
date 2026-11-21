@@ -342,7 +342,14 @@ test('Shape control D: cancelling a pending topology pick drops its late result'
  }finally{release();await page.unroute('**/persistent-selections/bind')}
 });
 
-test('Fill reports free ends in the viewport and feature quantity previews wait for blur',async({page})=>{
+function sceneCurveIcons(page:Page){
+ return page.evaluate(()=>{
+  const points=(window as any).__cameraEngine.curveMarkers?.children[0];
+  return points?{name:points.name,count:points.geometry.getAttribute('position').count}:null;
+ });
+}
+
+test('Fill reports free ends in the viewport and feature quantity previews wait for blur',async({page},info)=>{
  await login(page);
  const seed=await page.evaluate(async()=>{
   const {restApi:api}=await import('/src/api.ts');
@@ -354,8 +361,9 @@ test('Fill reports free ends in the viewport and feature quantity previews wait 
  });
  await page.goto(`/documents/${seed.id}`);await observeViewport(page);await geometryTab(page);
  await command(page,'填充');const fill=page.getByRole('dialog',{name:'填充',exact:true});
- const notice=page.locator('.cad-curve-feedback');
- await expect(notice).toContainText('请选择填充边界');
+ await expect(fill).toBeVisible();
+ await expect(page.locator('.cad-curve-feedback,.workbench-view-dock')).toHaveCount(0);
+ await expect.poll(()=>sceneCurveIcons(page)).toBeNull();
  // Hold the first persistent bind to distinguish immediate display diagnostics
  // from a Worker response. Only the bound reference may enter a preview.
  let release!:()=>void;
@@ -369,11 +377,14 @@ test('Fill reports free ends in the viewport and feature quantity previews wait 
    await page.mouse.move(hit.x>720?70:1400,header.y+12,{steps:6});await page.mouse.up();
   }
   await page.mouse.click(hit.x,hit.y);
-  await expect(notice).toContainText(free?`${free} 个自由端点`:'已闭合');
-  const markers=await page.evaluate(()=>(window as any).__cameraEngine.curveMarkers?.children[0].geometry.getAttribute('position').count??0);
-  expect(markers).toBe(free);release();
+  const name=free===0?'curve-closed':free===4?'curve-warning':'curve-endpoint';
+  await expect.poll(()=>sceneCurveIcons(page)).toEqual({name,count:free||1});
+  release();
+  if(point[1]===-6 || !free){
+   await page.screenshot({path:info.outputPath(free?'fill-open.png':'fill-closed.png')});
+  }
  }
- await ready(page,fill);await fill.getByRole('button',{name:/取\s*消/}).click();await expect(notice).toHaveCount(0);
+ await ready(page,fill);await fill.getByRole('button',{name:/取\s*消/}).click();await expect.poll(()=>sceneCurveIcons(page)).toBeNull();
  await treeNavigator(page)(seed.pad.name!);await page.locator(`[role=treeitem][data-tree-key$="pad:${seed.pad.id}"]`).dblclick();
  const edit=page.getByRole('dialog',{name:'编辑 拉伸',exact:true});await ready(page,edit);
  await page.evaluate(async()=>{
@@ -407,31 +418,34 @@ test('Boundary and composite show selection diagnostics and retain the selected 
  });
  await page.goto(`/documents/${seed.id}`);await observeViewport(page);await geometryTab(page);
  const pick=async(i:number)=>selectTree(page,seed.lines[i].id,seed.lines[i].name);
- const notice=page.locator('.cad-curve-feedback');
+ const icons=()=>sceneCurveIcons(page);
  await command(page,'复合','geometry.composite');
- await pick(0);await expect(notice).toContainText('开放线链');await pick(2);await expect(notice).toContainText('曲线分离');
+ await pick(0);await expect.poll(icons).toEqual({name:'curve-endpoint',count:2});await pick(2);await expect.poll(icons).toEqual({name:'curve-warning',count:4});
  await page.getByRole('dialog').getByRole('button',{name:/取\s*消/}).click();
- await expect(notice).toHaveCount(0);
+ await expect.poll(()=>sceneCurveIcons(page)).toBeNull();
+ await page.getByRole('button',{name:'选项',exact:true}).click();
+ const options=page.getByRole('dialog',{name:'选项',exact:true});
+ await options.getByRole('menuitem',{name:'场景',exact:true}).click();
+ await options.getByRole('button',{name:'深色工程',exact:true}).click();
+ await options.getByRole('button',{name:'关闭',exact:true}).click();
  await command(page,'边界','geometry.surface-boundary');
  const d=page.getByRole('dialog');
  await expect(d).toContainText('0.00001 mm');
  await pick(0);await pick(2);
- await expect(notice).toContainText('端点距离约 8 mm');
- await expect(notice).toHaveAttribute('data-tone','warning');
- await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.curveMarkers?.children.length)).toBe(2);
- const feedbackBox=(await notice.boundingBox())!,controls=(await page.locator('.workbench-view-controls').boundingBox())!;
- expect(feedbackBox.y+feedbackBox.height).toBeLessThan(controls.y);
+ await expect.poll(icons).toEqual({name:'curve-warning',count:2});
+ await expect(page.locator('.cad-curve-feedback,.workbench-view-dock')).toHaveCount(0);
  await page.screenshot({path:info.outputPath('boundary-gap.png')});
- await d.getByRole('button',{name:/取\s*消/}).click();await expect(notice).toHaveCount(0);
+ await d.getByRole('button',{name:/取\s*消/}).click();await expect.poll(()=>sceneCurveIcons(page)).toBeNull();
  await command(page,'边界','geometry.surface-boundary');
- for(let i=0;i<4;i++){await pick(i);await expect(notice).toContainText(i===3?'四边已围合':`已选 ${i+1}/4`)}
+ for(let i=0;i<4;i++){await pick(i);await expect(d).toContainText(seed.lines[i].name)}
+ await expect.poll(icons).toEqual({name:'curve-closed',count:1});
  await ready(page,d);await d.getByRole('button',{name:confirmCommandName}).click();await expect(d).toHaveCount(0);
  let v=await document(page,seed.id);
  const boundary=v.part.features.at(-1);expect(boundary.geometry.toleranceMode).toBe('AUTO');expect(boundary.geometry.surface.tolerance).toBe(1e-5);
  const reopen=async()=>{
   await treeNavigator(page)(boundary.name,`/feature:${boundary.id}`);
   await page.locator(`[role=treeitem][data-tree-key$="/feature:${boundary.id}"]`).getByText(boundary.name,{exact:true}).dblclick();
-  await expect(notice).toContainText('四边已围合');
+  await expect.poll(icons).toEqual({name:'curve-closed',count:1});
  };
  for(const mode of ['手动','自动']){
   await reopen();await d.getByText(mode,{exact:true}).click();

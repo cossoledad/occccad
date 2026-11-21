@@ -1,5 +1,4 @@
-import {CheckCircleOutlined,InfoCircleOutlined,WarningOutlined} from "@ant-design/icons";
-import type {CurveInputSession,CurveFeedback} from "../cad/interaction/curve-input-feedback";
+import type {CurveInputSession} from "../cad/interaction/curve-input-feedback";
 import type { SceneSettings } from "../cad/rendering/scene-settings";
 import { featureInputDisplay, type FeatureInputBoundary } from "./feature-input-display";
 import type { DatumPreview } from "../cad/rendering/datum-reference";
@@ -21,7 +20,7 @@ import type { Artifact, AssemblyGeometryRef, DocumentView, Selection, SelectionI
 import type { AssemblyConstraintToolKind } from "../cad/tool/cad-tool";
 import { CadViewportEngine } from "./cad-viewport-engine";
 import type { DocumentSessions } from "../cad/document/document-session";
-import { millimetersToDisplayLength, useUIPreferences } from "../state/ui-preferences";
+import { useUIPreferences } from "../state/ui-preferences";
 
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
@@ -138,7 +137,6 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const patternPreview = useRef<InstancePatternPreview | undefined>(undefined);
   const callbacks = useRef(props);
   const [toolPrompt,setToolPrompt]=useState("");
-  const [curveFeedback,setCurveFeedback]=useState<CurveFeedback>();
   const [sketchCommand,setSketchCommand]=useState<SketchCommandState>();
   const [dimensionEditor, setDimensionEditor] = useState<DimensionRequest & {ownerDocumentID:string;ownerRevisionID:string;epoch:number}>();
   const dimensionEpoch=useRef(0);
@@ -176,7 +174,6 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       assemblyInteractionCancel:(documentId,sessionId)=>callbacks.current.onAssemblyInteractionCancel(documentId,sessionId),
       assemblyInteractionState:(state,reason)=>callbacks.current.onAssemblyInteractionState?.(state,reason),
       sceneMetricsChanged:metrics=>callbacks.current.onSceneMetrics?.(metrics),
-      curveFeedbackChanged:setCurveFeedback,
       documentDisplayed:(documentId,revisionId)=>callbacks.current.onDocumentDisplayed?.(documentId,revisionId),
       operationFailed:error=>callbacks.current.onOperationFailed?.(error),
       inspectAssemblySupports:(documentId,references,signal)=>callbacks.current.onInspectAssemblySupports!(documentId,references,signal),
@@ -304,15 +301,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     beginExternalReconnect: (externalID) => engine.current?.beginExternalReconnect(externalID),
   }), []);
 
-  const unit=props.preferredLengthUnit??"mm";
-  const pair=curveFeedback?.gap;
-  const span=pair && millimetersToDisplayLength(Math.hypot(...pair[0].map((x,i)=>x-pair[1][i])),unit);
   const failedDisplay = props.view.part?.bodies.some(b => b.displayFallback) || props.view.resolvedInstances?.some(r => r.displayFallback);
   return <><div ref={host} className="cad-viewport-canvas" data-property-preview={props.propertyPreview?.versionId} />
-    {curveFeedback && <div className="cad-curve-feedback" data-tone={curveFeedback.tone} role="status">
-      {curveFeedback.tone==='warning'?<WarningOutlined/>:curveFeedback.tone==='success'?<CheckCircleOutlined/>:<InfoCircleOutlined/>}
-      <strong>{curveFeedback.title}</strong><span>{curveFeedback.text}{span!==undefined && ` · 端点距离约 ${Number(span.toPrecision(3))} ${unit}`}</span>
-    </div>}
     {failedDisplay && <div className="cad-failed-body-notice" role="status">{props.failureAction ? <>{props.failureAction.description}<button type="button" disabled={props.failureAction.disabled} onClick={props.failureAction.onClick}>{props.failureAction.label}</button></> : props.featureInputArtifacts?.length ? "部分特征需要修复。" : "部分特征计算失败：红色半透明实体为上次成功结果，请修复结构树中标记的特征。"}</div>}
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="advanced"&&<SketchCommandPanel state={sketchCommand} prompt={toolPrompt} onAction={action=>engine.current?.commandAction(action)} />}
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="inline"&&<SketchInlineParameterInput state={sketchCommand} lengthUnit={props.preferredLengthUnit} parameters={(props.editingView??props.view).part?.parameters} onEditing={editing=>engine.current?.setSketchParameterEditing(editing)} onAction={action=>engine.current?.commandAction(action)} />}

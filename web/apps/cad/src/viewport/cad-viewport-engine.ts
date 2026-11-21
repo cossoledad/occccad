@@ -38,7 +38,9 @@ import {isExternalProjectionSource,projectionScopeForView} from "../cad/interact
 import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
 import { patternEntityStatus } from "../features/workbench/pattern-selection";
 import { DATUM_AXIS_PIXELS,DATUM_PLANE_PIXELS,STANDARD_REFERENCE_RANGE,makeDatumPlaneReference, makeDatumAxisReference, type DatumPreview } from "../cad/rendering/datum-reference";
-import {displayCurveInputs,type CurveInputSession,type CurveFeedback} from "../cad/interaction/curve-input-feedback";
+import {palette, colorNumber} from "../design/visual-tokens";
+import {curveStatusIcon} from "../cad/rendering/curve-status-icon";
+import {displayCurveInputs,type CurveInputSession} from "../cad/interaction/curve-input-feedback";
 import { featureSelectionHit, pickFeatureSelection, type FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import { makeSplineControlFeedback } from "../cad/rendering/spline-control-feedback";
 import { useUIPreferences, sketchLabelPositionKey } from "../state/ui-preferences";
@@ -154,7 +156,6 @@ type Callbacks = {
   operationFailed?:(error:unknown)=>void;
   inspectAssemblySupports?:(documentId:string,references:AssemblyGeometryRef[],signal:AbortSignal)=>Promise<SupportInspection>;
   assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[],members?:import("../types").AssemblyGroupMember[]) => void;
-  curveFeedbackChanged?: (notice?:CurveFeedback) => void;
   documentViewReady?: (documentId: string, restoredCamera: boolean) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -3683,32 +3684,24 @@ export class CadViewportEngine {
     }
     this.invalidate();
     if(!session || this.view?.document.id!==session.documentId || this.view.document.versionId!==session.versionId){
-      this.callbacks.curveFeedbackChanged?.(undefined);
       return;
     }
     const check=displayCurveInputs(this.view,session);
-    this.callbacks.curveFeedbackChanged?.(check);
     session.report(check.pause);
     if(!check.markers.length)return;
-    const group=new THREE.Group(),color=check.tone==='warning'?0xffaa40:check.tone==='success'?0x48c69b:0x5fbef7;
-    const material=new THREE.ShaderMaterial({
-      uniforms:{ink:{value:new THREE.Color(color)},size:{value:13*this.renderer.getPixelRatio()}},
-      vertexShader:'uniform float size; void main(){ gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); gl_PointSize=size; }',
-      fragmentShader:`uniform vec3 ink; void main(){
-        float r=length(gl_PointCoord-0.5)*2.0;
-        if(r>1.0 || r<0.45)discard;
-        gl_FragColor=vec4(mix(vec3(0.08),ink,smoothstep(0.45,0.57,r)*(1.0-smoothstep(0.84,0.98,r))),1.0);
-        #include <colorspace_fragment>
-      }`,
-      depthTest:false,depthWrite:false
-    });
-    const markers=new THREE.Points(new THREE.BufferGeometry().setFromPoints(check.markers.map(p=>new THREE.Vector3(...p))),material);
-    markers.renderOrder=110;group.add(markers);
-    if(check.gap){
-      const line=makeSketchOverlayLine(check.gap.map(p=>new THREE.Vector3(...p)),color,1.5,true);
-      line.renderOrder=109;group.add(line);
-      updateHighlightLineResolution(group,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);
+    const group = new THREE.Group();
+    let material;
+    if (check.kind === "endpoint") {
+      material = this.materials.topologyPoint(colorNumber(palette.surface), 12, false);
+      material.uniforms.uCenterColor.value.set(palette.primary);
+      material.uniforms.uCenterRadius.value = 1.75 / material.userData.cssPointSize;
+    } else {
+      material = curveStatusIcon(check.kind);
     }
+    const markers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(check.markers.map(p => new THREE.Vector3(...p))), material);
+    markers.name = `curve-${check.kind}`;
+    markers.renderOrder = 110;
+    group.add(markers);
     this.helpers.add(group);this.curveMarkers=group;
   }
 
