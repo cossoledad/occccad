@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestImportBudgetSharedAcrossFiles(t *testing.T) {
@@ -75,4 +79,23 @@ func TestImportBudgetCancellationAndFailureRelease(t *testing.T) {
 		t.Fatal("failed operation leaked budget")
 	}
 	budget.slots.Release(1)
+}
+
+func TestUnsupportedImportDisplayRequiresWorkerDiagnosis(t *testing.T) {
+	const detail = "VISUAL_MESH_FAILED:status=4"
+	const message = "EXCHANGE_UNSUPPORTED_GEOMETRY:" + detail
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("import BREP exchange: %w", status.Error(codes.FailedPrecondition, message)), detail},
+		{status.Error(codes.FailedPrecondition, "source integrity mismatch"), ""},
+		{status.Error(codes.Unavailable, message), ""},
+		{status.Error(codes.Internal, message), ""},
+		{context.Canceled, ""},
+	} {
+		if got := unsupportedImportDisplay(tc.err); got != tc.want {
+			t.Errorf("%v: got %q, want %q", tc.err, got, tc.want)
+		}
+	}
 }

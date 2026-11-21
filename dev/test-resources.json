@@ -1,5 +1,13 @@
 [
   {
+    "path": "services/cmd/occccad-jobs/assembly_step_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured development database and ArtifactStore",
+      "tests/test.data assembly STEP fixtures"
+    ]
+  },
+  {
     "path": "services/cmd/occccad-jobs/exchange_corpus_integration_test.go",
     "resources": [
       "configured Worker executable",

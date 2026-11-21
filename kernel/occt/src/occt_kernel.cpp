@@ -6107,7 +6107,8 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
         }
         catch(const std::runtime_error& error) {
             const std::string cause=error.what();
-            if(cause.rfind("VISUAL_ADJACENT_BOUNDARY_MISMATCH:",0)!=0 && cause!="VISUAL_MESH_FAILED:status=16")throw;
+            if (cause.rfind("VISUAL_ADJACENT_BOUNDARY_MISMATCH:", 0) != 0 &&
+                cause != "VISUAL_MESH_FAILED:status=" + std::to_string(IMeshData_UnorientedWire)) throw;
             std::clog << "mesh stage=boundary_preserving_retry cause=" << error.what() << '\n';
             return produce(true,false);
         }

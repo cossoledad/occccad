@@ -83,6 +83,7 @@ try {
  assert.match(movedFailure.message,/Boolean\.1/);assert.doesNotMatch(movedFailure.message,/private-id/);
  assert.match(normalizeOperationFailure(new Error('FEATURE_EDIT_STALE')).message,/模型已发生变化/);
  assert.deepEqual(modifierTypes,["FILLET","CHAMFER","DRAFT","SHELL"]);
+ assert.equal(defaultModifierFeature("FILLET","body").length,1);
  assert.equal(defaultModifierFeature("DRAFT","body").angle,5);
  const historicalPlane={...session,role:"plane",bodyId:"target",geometryKey:"target-stage",planeGeometryKeys:["reference-prefix"]};
  assert.equal(featureSelectionHit({...face,bodyId:"reference",geometryKey:"reference-prefix"},historicalPlane)?.bodyId,"reference","neutral planes use authorized global-prefix stages, independently of the target Body");

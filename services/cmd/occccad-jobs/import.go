@@ -54,6 +54,23 @@ func retryableImportError(err error) bool {
 	return !errors.Is(err, workspace.ErrValidation) && status.Code(err) != codes.InvalidArgument
 }
 
+// Only the import worker can declare a definition unrepresentable. Storage,
+// integrity, transport and cancellation errors still fail the attempt.
+func unsupportedImportDisplay(err error) string {
+	var rpcFailure interface{ GRPCStatus() *status.Status }
+	if !errors.As(err, &rpcFailure) {
+		return ""
+	}
+	failure := rpcFailure.GRPCStatus()
+	if failure.Code() == codes.FailedPrecondition {
+		detail, ok := strings.CutPrefix(failure.Message(), "EXCHANGE_UNSUPPORTED_GEOMETRY:")
+		if ok {
+			return detail
+		}
+	}
+	return ""
+}
+
 // Import phases are explicit and counts are persisted after actual completion.
 // Mutex orders progress writes without serializing component computation.
 func (h handler) importProgress(ctx context.Context, job jobs.Job, phase string, start, end, total int) func() error {
@@ -141,6 +158,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	type imported struct {
 		key        string
 		evaluation *workerv1.EvaluatePartResponse
+		skipped    string
 	}
 	results := make([]imported, count)
 	group, groupContext := errgroup.WithContext(ctx)
@@ -166,7 +184,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 					return errors.New("prepared component integrity mismatch")
 				}
 				input := geometry.ArtifactReference{Backend: snapshot.Backend, ObjectKey: snapshot.Key, SHA256: snapshot.SHA256, Size: snapshot.Size, ContentType: snapshot.ContentType}
-				digest := sha256.Sum256([]byte("exchange-xde-local-v2-exact-volume-spans\x00" + inspection.KernelVersion + "\x00" + source.SHA256 + "/" + component.Id + "/" + snapshot.SHA256))
+				digest := sha256.Sum256([]byte("exchange-xde-local-v3-nurbs-boundaries\x00" + inspection.KernelVersion + "\x00" + source.SHA256 + "/" + component.Id + "/" + snapshot.SHA256))
 				key := "sha256:" + hex.EncodeToString(digest[:])
 				available, err := h.workspace.ReusableImportGeometry(groupContext, key, snapshot.SHA256)
 				if err != nil {
@@ -179,12 +197,16 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 				prefix := fmt.Sprintf("%s/component-%d", job.ID, index+1)
 				evaluation, err := h.geometry.ImportExchange(groupContext, requestID+fmt.Sprintf("/component/%d", index+1), key, "BREP", input, "", artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
 				if err != nil {
+					if detail := unsupportedImportDisplay(err); detail != "" {
+						results[index].skipped = detail
+						return evaluated()
+					}
 					return fmt.Errorf("component %d (%s): %w", index+1, component.Name, err)
 				}
 				if evaluation.GetTopology().GetFaceCount()+evaluation.GetTopology().GetEdgeCount()+evaluation.GetTopology().GetVertexCount() == 0 {
 					return fmt.Errorf("%w: prepared definition has no geometry", workspace.ErrValidation)
 				}
-				results[index] = imported{key, evaluation}
+				results[index] = imported{key: key, evaluation: evaluation}
 				return evaluated()
 			})
 		})
@@ -198,6 +220,15 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	// Preserve the existing cancellation boundary before any document is created.
 	if err := h.queue.UpdateProgressDetail(ctx, job.ID, h.workerID, 70, &jobs.ProgressDetail{Phase: "CREATING_PARTS", Total: count}); err != nil {
 		return err
+	}
+	for i, result := range results {
+		if result.skipped != "" {
+			report.EmptyParts++
+			report.Warnings = append(report.Warnings, exchange.Warning{
+				Code: "EXCHANGE_COMPONENT_DISPLAY_UNSUPPORTED", Message: exchange.WarningMessage("EXCHANGE_COMPONENT_DISPLAY_UNSUPPORTED", ""),
+				DefinitionID: components[i].Id, Detail: components[i].Name + ": " + result.skipped, Count: 1,
+			})
+		}
 	}
 	parts := make([]workspace.DocumentView, count)
 	baseName := exchange.ImportedDocumentName(fileName)
@@ -216,7 +247,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 				}
 				var view workspace.DocumentView
 				var err error
-				if components[index].Empty {
+				if components[index].Empty || result.skipped != "" {
 					view, err = h.workspace.CommitImportedEmptyPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName)
 				} else {
 					view, err = h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{Visible: components[index].Visible, ObjectID: source.ID, SHA256: source.SHA256, Format: format, DefinitionID: components[index].Id, Appearance: components[index].Appearance, AppearanceBRepSHA256: components[index].GetBrep().GetSha256()})

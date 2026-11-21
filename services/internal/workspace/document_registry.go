@@ -20,7 +20,7 @@ type DocumentAdapter struct {
 	ApplyHistoryValues  func(json.RawMessage, map[modelcore.PropertyAddress]json.RawMessage) (json.RawMessage, error)
 	Preview             func(context.Context, *Service, documentPreviewInput) (CommandPreview, *PartModel, error)
 	ID                  string
-	Initialize          func(context.Context, *Service, string) (any, error)
+	Initialize          func(context.Context, *Service, CreateDocumentRequest) (any, error)
 	Prepare             func(string, []byte) ([]byte, string, *modelcore.DependencyGraph, modelcore.EvaluationManifest, error)
 	Project             func(context.Context, *Service, DocumentSummary, []byte) (DocumentView, error)
 	Structure           func(context.Context, *Service, DocumentStructureNode, []byte, InstancePath, map[string]bool) (DocumentStructureNode, error)
@@ -75,8 +75,16 @@ func mustDocumentRegistry() *DocumentRegistry {
 	}
 	return r
 }
-func initializePartDocument(ctx context.Context, s *Service, requestID string) (any, error) {
-	model := newPartModelFor(requestID)
+func initializePartDocument(ctx context.Context, s *Service, request CreateDocumentRequest) (any, error) {
+	model := newPartModelFor(request.RequestID)
+	if request.hideDefaultReferences {
+		for i := range model.DatumPlanes {
+			model.DatumPlanes[i].Visible = boolPointer(false)
+		}
+		for i := range model.AxisSystems {
+			model.AxisSystems[i].Visible = boolPointer(false)
+		}
+	}
 	key, err := s.ensureVisualizationArtifact(ctx, model)
 	if err != nil {
 		return nil, err
@@ -84,7 +92,7 @@ func initializePartDocument(ctx context.Context, s *Service, requestID string) (
 	model.Bodies[0].GeometryKey = key
 	return model, nil
 }
-func initializeProductDocument(context.Context, *Service, string) (any, error) {
+func initializeProductDocument(context.Context, *Service, CreateDocumentRequest) (any, error) {
 	return ProductModel{Instances: []ProductInstance{}}, nil
 }
 func adaptPartDocumentCommand(ctx context.Context, s *Service, id string, model json.RawMessage, request CommandRequest) (string, any, error) {

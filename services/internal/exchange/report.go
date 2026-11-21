@@ -37,6 +37,8 @@ func WarningMessage(code, detail string) string {
 		return "文件中的 PMI 标注暂不支持，未创建对应数据；可用的模型内容已保留。"
 	case "STEP_UNSUPPORTED_ENTITIES":
 		return "文件包含当前转换器不支持的元素，这些元素未创建对应数据。"
+	case "EXCHANGE_COMPONENT_DISPLAY_UNSUPPORTED":
+		return "该零件无法生成完整的显示网格，已保留源文件，并在装配中创建空 Part。"
 	case "EXCHANGE_EMPTY_PART":
 		return "该零件没有可创建的几何，已创建空 Part 文档。"
 	case "EXCHANGE_UNSUPPORTED_GEOMETRY":

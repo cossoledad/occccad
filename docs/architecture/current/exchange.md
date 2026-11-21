@@ -12,6 +12,10 @@ HTTP 完整保存输入 Artifact 后入队 EXCHANGE_IMPORT。`InspectExchange` �
 
 **可读取但不支持的内容不导致整个文件失败。** PMI、图层分组和离散网格不创建对应领域数据。OCCT 能读、但无法进入当前有效 BREP/Naming 模型的 Definition 保留诊断并建立空 Part，其他 Definition 继续。全文件没有可创建几何时，也通过幂等 CreateDocument 创建空 Part，不伪造 Feature、GeometryKey 或拓扑身份。原始输入仍由 Job 的 Artifact 引用保留。无法解析、转换异常、存储失败或取消继续返回失败/取消，不能转成成功警告。
 
+每个导入 Part 在创建 Revision 时隐藏三个标准基准面和绝对轴系。轴系下的原点和 X/Y/Z 轴继承其有效显隐。独立打开零件和通过装配 occurrence 显示使用相同的定义，用户仍可从结构树显示基准。
+
+若单个 Definition 的精确形体可以读取，但无法生成通过面覆盖和共享边界检查的显示网格，Worker 在该 Definition 上返回明确的几何诊断。Jobs 保留其名称、文档和装配引用，在完成报告中记录 Definition ID、零件名和原生网格错误。其他可用几何继续创建。制品完整性、存储、传输和取消错误仍终止当前尝试。
+
 源 reader 关闭 GDT/view/material 和离散几何转换，避免构造无领域承接的数据。底层 STEP 实体及引用仍由 OCCT 解析。离散网格未转换为精确 BREP：例如 NIST FTC-08 AP242-E1-TG 会产生空 Part 和明确警告，这不代表其几何已完整建模。开放/混合结果的材料体积仍遵循原领域边界，不把 MIXED_SET 的零存储值解释为真实材料体积。
 
 外部引用不读取源文件指定的路径或 URL。standalone STEP reader 保留文件内嵌几何为一个 Part，并警告外部内容、装配层级和样式没有导入；无内嵌几何时建立空 Part。图验证继续拒绝悬空/重复身份、环、非法 pose、不可达定义及资源超限；深度最多 128、Definition 最多 100000、总引用最多 1000000，现有 Product 展开预算独立生效。
@@ -46,6 +50,7 @@ Product 的独立结果通过 ReferenceDisplayScope.results 显示，保留 docu
 
 ## 验证入口
 
+- `services/cmd/occccad-jobs/assembly_step_integration_test.go` 使用台钳、电镐和步行机器人实际 STEP 检查唯一文档、实例引用、缺失几何警告和基准显隐，并在台钳指示片上验证圆角预览与提交。
 - [NIST STEP corpus](../../../tests/exchange-corpus/README.md)：来源清单、SHA、49 份不同文件及完整 Jobs 导入。
 - `services/cmd/occccad-jobs/exchange_corpus_integration_test.go`、`export_integration_test.go`、`import_integration_test.go`：真实 Worker/Router、空文档、警告、共享定义、显隐、协议及重试。
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp`、`exchange_mass_scenarios.cpp`：32 个唯一 Definition、外部引用隔离、颜色/透明度、解析体积/质心、尺度和 Loft。

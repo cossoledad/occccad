@@ -2339,6 +2339,12 @@ public:
             return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
         } catch (const std::exception& error) {
             if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "exchange import cancelled"};
+            const std::string cause = error.what();
+            if (cause.rfind("VISUAL_MESH_FAILED:", 0) == 0 || cause.rfind("VISUAL_MISSING_FACE:", 0) == 0 ||
+                cause.rfind("VISUAL_ADJACENT_BOUNDARY_MISMATCH:", 0) == 0 || cause.rfind("VISUAL_MISSING_BOUNDARY:", 0) == 0 ||
+                cause.rfind("VISUAL_MISSING_CURVE:", 0) == 0 || cause == "VISUAL_INVALID_DEGENERATE_EDGE" ||
+                cause == "VISUAL_UNBOUNDED_CURVE")
+                return {grpc::StatusCode::FAILED_PRECONDITION, "EXCHANGE_UNSUPPORTED_GEOMETRY:" + cause};
             return {grpc::StatusCode::INTERNAL, error.what()};
         }
     }

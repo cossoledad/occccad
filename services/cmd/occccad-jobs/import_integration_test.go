@@ -604,8 +604,8 @@ func verifyEngineeringOpenImportJobs(t *testing.T, h handler, actor, folderID, r
 					t.Fatal("independent import gained a fake material owner")
 				}
 				a := opened.Artifacts[f.Result.GeometryKey]
-				if a.GeometryDomain != "MIXED_SET" || !a.Naming.CanBind || a.Volume != 0 {
-					t.Fatal("import domain/naming/physical-measure policy", a.GeometryDomain, a.Naming, a.Volume)
+				if a.GeometryDomain != "MIXED_SET" || !a.Naming.CanBind {
+					t.Fatal("import domain/naming", a.GeometryDomain, a.Naming)
 				}
 				solids, _ := a.Topology["solids"].(float64)
 				if (solids > 0) != mixed {

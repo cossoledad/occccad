@@ -200,7 +200,10 @@ func TestDirectSTEPImportRetainsSelectedDefinitionBeyondCacheCapacity(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evaluated.GetTopology().GetSolidCount() != 1 || math.Abs(evaluated.Volume-6) > 1e-7 {
-		t.Fatal("wrong selected definition", evaluated.GetTopology(), evaluated.Volume)
+	ref := evaluated.GetBrepArtifact()
+	input := geometry.AnalysisGeometry{ID: "part", GeometryID: evaluated.GetGeometryId(), BRep: geometry.ArtifactReference{Backend: ref.GetBackend(), ObjectKey: ref.GetObjectKey(), SHA256: ref.GetSha256(), Size: int64(ref.GetSizeBytes()), ContentType: ref.GetContentType()}, Pose: geometry.AssemblyPose{Rotation: [4]float64{0, 0, 0, 1}}}
+	measurement, err := f.h.geometry.MeasureGeometry(t.Context(), id+"/volume", "ITEM", []geometry.AnalysisGeometry{input}, [][]geometry.MeasurementElement{{{InputID: "part", Kind: "BODY", Mode: "GEOMETRY"}}})
+	if err != nil || !measurement.Complete || evaluated.GetTopology().GetSolidCount() != 1 || math.Abs(measurement.Values["volumeMm3"]-6) > 1e-7 {
+		t.Fatal("wrong selected definition", evaluated.GetTopology(), measurement, err)
 	}
 }

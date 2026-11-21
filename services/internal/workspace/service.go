@@ -882,7 +882,7 @@ func (service *Service) CommitImportedEmptyPart(ctx context.Context, actor, fold
 	if folderID != "" {
 		folder = &folderID
 	}
-	return service.CreateDocument(ctx, CreateDocumentRequest{RequestID: reqID + "/document", Name: name,
+	return service.CreateDocument(ctx, CreateDocumentRequest{hideDefaultReferences: true, RequestID: reqID + "/document", Name: name,
 		Type: "PART", FolderID: folder, ActorID: actor, Description: "导入文件：" + fileName})
 }
 
@@ -910,7 +910,7 @@ func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID,
 	if strings.TrimSpace(folderID) != "" {
 		folder = &folderID
 	}
-	view, err := service.CreateDocument(ctx, CreateDocumentRequest{RequestID: reqID + "/document",
+	view, err := service.CreateDocument(ctx, CreateDocumentRequest{hideDefaultReferences: true, RequestID: reqID + "/document",
 		Name: name, Type: "PART", FolderID: folder, ActorID: actor})
 	if err != nil {
 		return DocumentView{}, err
@@ -1001,7 +1001,7 @@ func (service *Service) CreateDocument(
 		}
 	}
 	request.RequestID = requestID(request.RequestID)
-	model, err := adapter.Initialize(ctx, service, request.RequestID)
+	model, err := adapter.Initialize(ctx, service, request)
 	if err != nil {
 		return DocumentView{}, err
 	}

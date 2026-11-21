@@ -1217,6 +1217,8 @@ type CreateDocumentRequest struct {
 	Description       string        `json:"description,omitempty"`
 	FolderID          *string       `json:"folderId,omitempty"`
 	ActorID           string        `json:"-"`
+
+	hideDefaultReferences bool
 }
 
 // CreatePartComponentRequest models the Product-scoped "new Part" action.

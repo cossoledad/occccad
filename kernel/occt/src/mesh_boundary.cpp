@@ -1,5 +1,6 @@
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepMesh_Context.hxx>
+#include <BRepMesh_NURBSRangeSplitter.hxx>
 #include <BRepMesh_DelaunayBaseMeshAlgo.hxx>
 #include <BRepMesh_DelaunayDeflectionControlMeshAlgo.hxx>
 #include <BRepMesh_DelabellaMeshAlgoFactory.hxx>
@@ -15,22 +16,21 @@
 namespace occccad::kernel {
 namespace {
 
-using GenericMesh = BRepMesh_DelaunayDeflectionControlMeshAlgo<BRepMesh_UndefinedRangeSplitter,
-                                                               BRepMesh_DelaunayBaseMeshAlgo>;
-
-class BoundaryPreservingMesh final : public GenericMesh {
+template <class Splitter>
+class BoundaryPreservingMesh final : public BRepMesh_DelaunayDeflectionControlMeshAlgo<Splitter, BRepMesh_DelaunayBaseMeshAlgo> {
+    using Base = BRepMesh_DelaunayDeflectionControlMeshAlgo<Splitter, BRepMesh_DelaunayBaseMeshAlgo>;
 protected:
     Standard_Integer registerNode(const gp_Pnt& point, const gp_Pnt2d& uv,
                                   BRepMesh_DegreeOfFreedom mobility,
                                   Standard_Boolean force) override {
-        const auto index = GenericMesh::registerNode(point, uv, mobility, force);
-        const auto& node = getStructure()->GetNode(index);
-        const auto& existing = getNodesMap()->Value(node.Location3d());
+        const auto index = Base::registerNode(point, uv, mobility, force);
+        const auto& node = this->getStructure()->GetNode(index);
+        const auto& existing = this->getNodesMap()->Value(node.Location3d());
         // A shared source boundary already supplies the same 3D sample to every
         // face. UV proximity must not replace it with a different source sample.
         if (mobility == BRepMesh_Frontier && !force &&
             existing.Distance(point) > Precision::Confusion())
-            return GenericMesh::registerNode(point, uv, mobility, Standard_True);
+            return Base::registerNode(point, uv, mobility, Standard_True);
         return index;
     }
 };
@@ -47,7 +47,9 @@ public:
         if (type == GeomAbs_Plane)
             return BRepMesh_DelabellaMeshAlgoFactory().GetAlgo(type, parameters);
         if (preserve_boundary_ && (type == GeomAbs_OffsetSurface || type == GeomAbs_OtherSurface))
-            return new BoundaryPreservingMesh();
+            return new BoundaryPreservingMesh<BRepMesh_UndefinedRangeSplitter>();
+        if (preserve_boundary_ && (type == GeomAbs_BSplineSurface || type == GeomAbs_BezierSurface))
+            return new BoundaryPreservingMesh<BRepMesh_NURBSRangeSplitter>();
         return BRepMesh_MeshAlgoFactory::GetAlgo(type, parameters);
     }
 private:
